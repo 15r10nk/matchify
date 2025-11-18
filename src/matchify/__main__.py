@@ -195,6 +195,20 @@ class IfToMatchTransformer(cst.CSTTransformer):
                 or_elements.append(cst.MatchOrElement(pattern=match_class))
         return cst.MatchOr(patterns=or_elements)
     
+    def _build_pattern_from_value(self, value: cst.BaseExpression) -> cst.MatchSingleton | cst.MatchValue:
+        """Build a match pattern from a literal value.
+        
+        Args:
+            value: The literal value expression
+            
+        Returns:
+            MatchSingleton for None/True/False, MatchValue for other literals
+        """
+        if m.matches(value, m.Name(value="None") | m.Name(value="True") | m.Name(value="False")):
+            return cst.MatchSingleton(value=value)
+        else:
+            return cst.MatchValue(value=value)
+    
     def _build_sequence_pattern_for_attr(self, seq_patterns: list) -> cst.MatchList:
         """Build a sequence pattern for a class attribute.
         
@@ -1058,24 +1072,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
                 if class_exprs is None:
                     return updated_node
                 
-                if len(class_exprs) == 1:
-                    # Single class: case Class():
-                    case_pattern = cst.MatchClass(cls=class_exprs[0], patterns=[])
-                else:
-                    # Multiple classes: case Class1() | Class2() | ...
-                    # Need to wrap in MatchOrElement with proper separators
-                    or_elements = []
-                    for i, cls in enumerate(class_exprs):
-                        match_class = cst.MatchClass(cls=cls, patterns=[])
-                        # All but the last element need a BitOr separator
-                        if i < len(class_exprs) - 1:
-                            or_elements.append(cst.MatchOrElement(
-                                pattern=match_class,
-                                separator=cst.BitOr()
-                            ))
-                        else:
-                            or_elements.append(cst.MatchOrElement(pattern=match_class))
-                    case_pattern = cst.MatchOr(patterns=or_elements)
+                case_pattern = self._build_match_or_from_classes(class_exprs)
             elif self._is_sequence_pattern(current.test):
                 # len(x) == N and x[0] == val0 and x[1] == val1 ... -> case [val0, val1, ...]:
                 result = self._extract_sequence_pattern(current.test)
@@ -1091,10 +1088,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
                     # Create pattern based on type
                     if pattern_type == 'literal':
                         value = pattern_info[1]
-                        if m.matches(value, m.Name(value="None") | m.Name(value="True") | m.Name(value="False")):
-                            pattern = cst.MatchSingleton(value=value)
-                        else:
-                            pattern = cst.MatchValue(value=value)
+                        pattern = self._build_pattern_from_value(value)
                     elif pattern_type == 'isinstance':
                         # pattern_info is ('isinstance', [class_expressions])
                         classes = pattern_info[1]
@@ -1134,17 +1128,10 @@ class IfToMatchTransformer(cst.CSTTransformer):
                             
                             if nested_type == 'literal':
                                 value = nested_info[1]
-                                if m.matches(value, m.Name(value="None") | m.Name(value="True") | m.Name(value="False")):
-                                    nested_pattern = cst.MatchSingleton(value=value)
-                                else:
-                                    nested_pattern = cst.MatchValue(value=value)
+                                nested_pattern = self._build_pattern_from_value(value)
                             elif nested_type == 'isinstance':
                                 classes = nested_info[1]
-                                if len(classes) == 1:
-                                    nested_pattern = cst.MatchClass(cls=classes[0], patterns=[])
-                                else:
-                                    class_patterns = [cst.MatchClass(cls=cls, patterns=[]) for cls in classes]
-                                    nested_pattern = cst.MatchOr(patterns=class_patterns)
+                                nested_pattern = self._build_match_or_from_classes(classes)
                             elif nested_type == 'isinstance_with_attrs':
                                 # Nested isinstance with attributes
                                 class_expr = nested_info[1]
