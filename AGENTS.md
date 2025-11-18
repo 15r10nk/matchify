@@ -65,18 +65,48 @@ match_stmt = cst.Match(
 
 ## Conversion Rules
 
+### Supported Pattern Types
+
+1. **Literal Patterns** - Direct value comparisons
+   - `if x == 1:` → `case 1:`
+   - `if x == "hello":` → `case "hello":`
+   - Supports: integers, floats, strings, negative numbers
+
+2. **Identity Patterns** - Singleton comparisons
+   - `if x is None:` → `case None:`
+   - `if x is True:` → `case True:`
+   - Only for None, True, False
+
+3. **isinstance Patterns** - Type checking
+   - `if isinstance(x, int):` → `case int():`
+   - `if isinstance(x, (int, float)):` → `case int() | float():`
+
+4. **Class Patterns with Attributes** - isinstance with attribute checks
+   - `if isinstance(p, Point) and p.x == 5:` → `case Point(x=5):`
+   - `if isinstance(p, Point) and p.x == 5 and p.y == 10:` → `case Point(x=5, y=10):`
+   - Supports both `==` and `is` operators for attributes
+
+5. **Sequence Patterns** - Length and element checks
+   - `if len(x) == 2 and x[0] == 0 and x[1] == 1:` → `case 0, 1:`
+   - `if len(rgb) == 3 and rgb[0] == 255 and rgb[1] == 0 and rgb[2] == 0:` → `case 255, 0, 0:`
+   - All indices must be checked with literal values
+
 ### Will Convert
-✅ If/elif chains comparing the same variable/expression with `==`
+✅ If/elif chains comparing the same variable/expression
 ✅ Chains with at least one `elif` (minimum 2 branches)
 ✅ Function call expressions (e.g., `if get_value() == 1`)
 ✅ Attribute access (e.g., `if obj.status == "ready"`)
 ✅ Chains with or without final `else`
+✅ Mixed pattern types in same chain (e.g., isinstance + literals)
 
 ### Will NOT Convert
 ❌ Single `if` without `elif`
-❌ Chains comparing different variables
-❌ Non-equality operators (`>`, `<`, `!=`, etc.)
-❌ Mixed operators in the chain
+❌ Chains comparing different variables/subjects
+❌ Non-equality operators (`>`, `<`, `!=`, etc.) except `is`
+❌ Sequence patterns with missing indices
+❌ Sequence patterns without `len()` check
+❌ isinstance tuple with attributes (e.g., `isinstance(x, (Point, Line)) and x.value == 5`)
+❌ Non-literal values in patterns (variables would create binding patterns)
 
 ## Testing Guidelines
 
