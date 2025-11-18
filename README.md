@@ -105,6 +105,22 @@ match point:
         print("other pair")
 ```
 
+**Nested patterns (isinstance inside sequences):**
+```python
+# Before
+if len(x) == 2 and isinstance(x[0], Point) and x[1] == 2:
+    print("point and 2")
+elif len(x) == 2 and x[0] == 1 and x[1] == 1:
+    print("ones")
+
+# After
+match x:
+    case Point(), 2:
+        print("point and 2")
+    case 1, 1:
+        print("ones")
+```
+
 <!-- -8<- [start:Feedback] -->
 ## Issues
 

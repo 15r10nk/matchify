@@ -816,6 +816,98 @@ class TestIfToMatchTransformer:
         expected = source
         check_code(source, expected)
 
+    def test_sequence_pattern_with_isinstance_element(self):
+        """Test sequence pattern with isinstance check on an element.
+        
+        Tests nested pattern support: isinstance(x[i], Class) inside sequence patterns.
+        """
+        source = dedent("""
+            class Point:
+                pass
+            x = [Point(), 2]
+            if len(x) == 2 and isinstance(x[0], Point) and x[1] == 2:
+                print("point and 2")
+            elif len(x) == 2 and x[0] == 1 and x[1] == 1:
+                print("1 and 1")
+            else:
+                print("other")
+        """).strip()
+
+        expected = dedent("""
+            class Point:
+                pass
+            x = [Point(), 2]
+            match x:
+                case Point(), 2:
+                    print("point and 2")
+                case 1, 1:
+                    print("1 and 1")
+                case _:
+                    print("other")
+        """).strip()
+        
+        check_code(source, expected)
+
+    def test_sequence_pattern_with_mixed_isinstance_and_literals(self):
+        """Test sequence pattern mixing isinstance and literal checks.
+        
+        Tests multiple isinstance elements in a sequence pattern.
+        """
+        source = dedent("""
+            class Point:
+                pass
+            class Color:
+                pass
+            x = [Point(), Color(), 1]
+            if len(x) == 3 and isinstance(x[0], Point) and isinstance(x[1], Color) and x[2] == 1:
+                print("point, color, 1")
+            elif len(x) == 3 and x[0] == 0 and x[1] == 0 and x[2] == 0:
+                print("zeros")
+        """).strip()
+
+        expected = dedent("""
+            class Point:
+                pass
+            class Color:
+                pass
+            x = [Point(), Color(), 1]
+            match x:
+                case Point(), Color(), 1:
+                    print("point, color, 1")
+                case 0, 0, 0:
+                    print("zeros")
+        """).strip()
+        
+        check_code(source, expected)
+
+    def test_sequence_pattern_with_isinstance_and_is_none(self):
+        """Test sequence pattern with isinstance and 'is None' checks.
+        
+        Tests combining isinstance and identity patterns in sequences.
+        """
+        source = dedent("""
+            class Point:
+                pass
+            x = [Point(), None]
+            if len(x) == 2 and isinstance(x[0], Point) and x[1] is None:
+                print("point and none")
+            elif len(x) == 2 and x[0] == 1 and x[1] == 2:
+                print("1 and 2")
+        """).strip()
+
+        expected = dedent("""
+            class Point:
+                pass
+            x = [Point(), None]
+            match x:
+                case Point(), None:
+                    print("point and none")
+                case 1, 2:
+                    print("1 and 2")
+        """).strip()
+        
+        check_code(source, expected)
+
 
 class TestConvertFile:
     """Test the convert_file function."""

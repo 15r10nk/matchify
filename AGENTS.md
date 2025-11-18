@@ -89,7 +89,9 @@ match_stmt = cst.Match(
 5. **Sequence Patterns** - Length and element checks
    - `if len(x) == 2 and x[0] == 0 and x[1] == 1:` → `case 0, 1:`
    - `if len(rgb) == 3 and rgb[0] == 255 and rgb[1] == 0 and rgb[2] == 0:` → `case 255, 0, 0:`
-   - All indices must be checked with literal values
+   - All indices must be checked (with literals, isinstance, or `is`)
+   - Supports nested patterns: `if len(x) == 2 and isinstance(x[0], Point) and x[1] == 2:` → `case Point(), 2:`
+   - Supports mixed element types: literals, isinstance checks, and identity (`is None`)
 
 ### Will Convert
 ✅ If/elif chains comparing the same variable/expression
@@ -98,6 +100,8 @@ match_stmt = cst.Match(
 ✅ Attribute access (e.g., `if obj.status == "ready"`)
 ✅ Chains with or without final `else`
 ✅ Mixed pattern types in same chain (e.g., isinstance + literals)
+✅ Nested patterns: isinstance inside sequence patterns
+✅ Mixed element types in sequences (literals, isinstance, `is None`)
 
 ### Will NOT Convert
 ❌ Single `if` without `elif`
@@ -107,6 +111,7 @@ match_stmt = cst.Match(
 ❌ Sequence patterns without `len()` check
 ❌ isinstance tuple with attributes (e.g., `isinstance(x, (Point, Line)) and x.value == 5`)
 ❌ Non-literal values in patterns (variables would create binding patterns)
+❌ isinstance tuple inside sequences (e.g., `isinstance(x[0], (Point, Line))` - not yet supported)
 
 ## Testing Guidelines
 
