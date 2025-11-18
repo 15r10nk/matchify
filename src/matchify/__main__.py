@@ -115,6 +115,23 @@ class IfToMatchTransformer(cst.CSTTransformer):
             | m.Name(value="False")
             | m.Name(value="None")
         )
+    
+    def _extract_subscript_index(self, subscript: cst.Subscript) -> int | None:
+        """Extract integer index from a subscript like x[0] or x[1].
+        
+        Args:
+            subscript: A Subscript node
+            
+        Returns:
+            The integer index if it's a simple integer subscript, None otherwise
+        """
+        if len(subscript.slice) == 1:
+            slice_elem = subscript.slice[0]
+            if isinstance(slice_elem.slice, cst.Index):
+                index_val = slice_elem.slice.value
+                if m.matches(index_val, m.Integer()):
+                    return int(index_val.value)  # type: ignore
+        return None
 
     def _is_isinstance_call(self, test: cst.BaseExpression) -> bool:
         """Check if test is an isinstance(subject, type) call."""
@@ -659,14 +676,9 @@ class IfToMatchTransformer(cst.CSTTransformer):
                     if m.matches(len_arg, m.Subscript()):
                         subscript = len_arg  # type: ignore
                         if subscript.value.deep_equals(subject):
-                            if len(subscript.slice) == 1:
-                                slice_elem = subscript.slice[0]
-                                if isinstance(slice_elem.slice, cst.Index):
-                                    index_val = slice_elem.slice.value
-                                    if m.matches(index_val, m.Integer()):
-                                        idx = int(index_val.value)  # type: ignore
-                                        if 0 <= idx < expected_len_val:
-                                            nested_sequence_indices.add(idx)
+                            idx = self._extract_subscript_index(subscript)
+                            if idx is not None and 0 <= idx < expected_len_val:
+                                nested_sequence_indices.add(idx)
             elif m.matches(node, m.BooleanOperation(operator=m.And())):
                 bool_op = node  # type: ignore
                 find_nested_sequences(bool_op.left)
@@ -690,26 +702,18 @@ class IfToMatchTransformer(cst.CSTTransformer):
                         if len(call.args) > 0:
                             len_arg = call.args[0].value
                             if isinstance(len_arg, cst.Subscript) and len_arg.value.deep_equals(subject):
-                                if len(len_arg.slice) == 1:
-                                    slice_elem = len_arg.slice[0]
-                                    if isinstance(slice_elem.slice, cst.Index):
-                                        if m.matches(slice_elem.slice.value, m.Integer()):
-                                            check_idx = int(slice_elem.slice.value.value)  # type: ignore
-                                            if check_idx == idx:
-                                                nested_conditions.append(node)
-                                                return
+                                check_idx = self._extract_subscript_index(len_arg)
+                                if check_idx == idx:
+                                    nested_conditions.append(node)
+                                    return
                     # Check if left side is x[idx][...]
                     if m.matches(comp.left, m.Subscript()):
                         subscript = comp.left  # type: ignore
                         if isinstance(subscript.value, cst.Subscript) and subscript.value.value.deep_equals(subject):
-                            if len(subscript.value.slice) == 1:
-                                slice_elem = subscript.value.slice[0]
-                                if isinstance(slice_elem.slice, cst.Index):
-                                    if m.matches(slice_elem.slice.value, m.Integer()):
-                                        check_idx = int(slice_elem.slice.value.value)  # type: ignore
-                                        if check_idx == idx:
-                                            nested_conditions.append(node)
-                                            return
+                            check_idx = self._extract_subscript_index(subscript.value)
+                            if check_idx == idx:
+                                nested_conditions.append(node)
+                                return
                 elif m.matches(node, m.Call(func=m.Name(value="isinstance"))):
                     call = node  # type: ignore
                     if len(call.args) >= 1:
@@ -759,18 +763,13 @@ class IfToMatchTransformer(cst.CSTTransformer):
                     subscript = subscript_arg  # type: ignore
                     if subscript.value.deep_equals(subject):
                         # Get the index
-                        if len(subscript.slice) == 1:
-                            slice_elem = subscript.slice[0]
-                            if isinstance(slice_elem.slice, cst.Index):
-                                index_val = slice_elem.slice.value
-                                if m.matches(index_val, m.Integer()):
-                                    idx = int(index_val.value)  # type: ignore
-                                    if 0 <= idx < expected_len_val:
-                                        # Mark that we found an isinstance for this index
-                                        # The second pass will check if it also has attributes
-                                        if patterns[idx] is None:
-                                            patterns[idx] = ('isinstance_placeholder', call)
-                                        return True
+                        idx = self._extract_subscript_index(subscript)
+                        if idx is not None and 0 <= idx < expected_len_val:
+                            # Mark that we found an isinstance for this index
+                            # The second pass will check if it also has attributes
+                            if patterns[idx] is None:
+                                patterns[idx] = ('isinstance_placeholder', call)
+                            return True
                 return True  # Not a valid isinstance on subscript
             
             # Check for x[i] == value or x[i] is value
@@ -781,13 +780,8 @@ class IfToMatchTransformer(cst.CSTTransformer):
                     # Verify it's subscripting the same subject
                     if subscript.value.deep_equals(subject):
                         # Get the index
-                        if len(subscript.slice) == 1:
-                            slice_elem = subscript.slice[0]
-                            if isinstance(slice_elem.slice, cst.Index):
-                                index_val = slice_elem.slice.value
-                                if m.matches(index_val, m.Integer()):
-                                    idx = int(index_val.value)  # type: ignore
-                                    if 0 <= idx < expected_len_val:
+                        idx = self._extract_subscript_index(subscript)
+                        if idx is not None and 0 <= idx < expected_len_val:
                                         value = comp.comparisons[0].comparator
                                         operator = comp.comparisons[0].operator
                                         
@@ -852,14 +846,10 @@ class IfToMatchTransformer(cst.CSTTransformer):
                         if m.matches(subscript_arg, m.Subscript()):
                             subscript = subscript_arg  # type: ignore
                             if subscript.value.deep_equals(subject):
-                                if len(subscript.slice) == 1:
-                                    slice_elem = subscript.slice[0]
-                                    if isinstance(slice_elem.slice, cst.Index):
-                                        if m.matches(slice_elem.slice.value, m.Integer()):
-                                            check_idx = int(slice_elem.slice.value.value)  # type: ignore
-                                            if check_idx == idx:
-                                                element_conditions.append(node)
-                                                return
+                                check_idx = self._extract_subscript_index(subscript)
+                                if check_idx == idx:
+                                    element_conditions.append(node)
+                                    return
                 
                 # Check if this is x[idx].attr == value or len(x[idx].attr) == N
                 if m.matches(node, m.Comparison()):
@@ -873,14 +863,10 @@ class IfToMatchTransformer(cst.CSTTransformer):
                         if m.matches(attr.value, m.Subscript()):
                             subscript = attr.value  # type: ignore
                             if subscript.value.deep_equals(subject):
-                                if len(subscript.slice) == 1:
-                                    slice_elem = subscript.slice[0]
-                                    if isinstance(slice_elem.slice, cst.Index):
-                                        if m.matches(slice_elem.slice.value, m.Integer()):
-                                            check_idx = int(slice_elem.slice.value.value)  # type: ignore
-                                            if check_idx == idx:
-                                                element_conditions.append(node)
-                                                return
+                                check_idx = self._extract_subscript_index(subscript)
+                                if check_idx == idx:
+                                    element_conditions.append(node)
+                                    return
                     
                     # len(x[idx].attr) == N
                     elif m.matches(left, m.Call(func=m.Name(value="len"))):
@@ -891,16 +877,11 @@ class IfToMatchTransformer(cst.CSTTransformer):
                                 attr = len_arg  # type: ignore
                                 if m.matches(attr.value, m.Subscript()):
                                     subscript = attr.value  # type: ignore
-                                    equals = subscript.value.deep_equals(subject)
-                                    if equals:
-                                        if len(subscript.slice) == 1:
-                                            slice_elem = subscript.slice[0]
-                                            if isinstance(slice_elem.slice, cst.Index):
-                                                if m.matches(slice_elem.slice.value, m.Integer()):
-                                                    check_idx = int(slice_elem.slice.value.value)  # type: ignore
-                                                    if check_idx == idx:
-                                                        element_conditions.append(node)
-                                                        return
+                                    if subscript.value.deep_equals(subject):
+                                        check_idx = self._extract_subscript_index(subscript)
+                                        if check_idx == idx:
+                                            element_conditions.append(node)
+                                            return
                     
                     # x[idx].attr[j] == value (subscripted attribute)
                     elif m.matches(left, m.Subscript()):
@@ -910,14 +891,10 @@ class IfToMatchTransformer(cst.CSTTransformer):
                             if m.matches(attr.value, m.Subscript()):
                                 inner_subscript = attr.value  # type: ignore
                                 if inner_subscript.value.deep_equals(subject):
-                                    if len(inner_subscript.slice) == 1:
-                                        slice_elem = inner_subscript.slice[0]
-                                        if isinstance(slice_elem.slice, cst.Index):
-                                            if m.matches(slice_elem.slice.value, m.Integer()):
-                                                check_idx = int(slice_elem.slice.value.value)  # type: ignore
-                                                if check_idx == idx:
-                                                    element_conditions.append(node)
-                                                    return
+                                    check_idx = self._extract_subscript_index(inner_subscript)
+                                    if check_idx == idx:
+                                        element_conditions.append(node)
+                                        return
                 
                 # Check isinstance(x[idx].attr[j], Class)
                 elif m.matches(node, m.Call(func=m.Name(value="isinstance"))):
