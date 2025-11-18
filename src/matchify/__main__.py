@@ -69,6 +69,22 @@ class IfToMatchTransformer(cst.CSTTransformer):
             call = test  # type: ignore
             return call.args[0].value
         
+        # Check for isinstance(subject, type) and subject.attr == value
+        # The isinstance could be nested in the left side
+        if m.matches(test, m.BooleanOperation(operator=m.And())):
+            def find_isinstance_subject(node: cst.BaseExpression) -> cst.BaseExpression | None:
+                if self._is_isinstance_call(node):
+                    call = node  # type: ignore
+                    return call.args[0].value
+                if m.matches(node, m.BooleanOperation(operator=m.And())):
+                    bool_op = node  # type: ignore
+                    return find_isinstance_subject(bool_op.left)
+                return None
+            
+            result = find_isinstance_subject(test)
+            if result is not None:
+                return result
+        
         return None
 
     def _is_literal_value(self, node: cst.BaseExpression) -> bool:
@@ -99,6 +115,23 @@ class IfToMatchTransformer(cst.CSTTransformer):
             ),
         )
     
+    def _is_isinstance_with_and(self, test: cst.BaseExpression) -> bool:
+        """Check if test is isinstance(subject, type) and subject.attr == value."""
+        if not m.matches(test, m.BooleanOperation(operator=m.And())):
+            return False
+        
+        # Need to find isinstance somewhere in the left side (could be nested)
+        def has_isinstance(node: cst.BaseExpression) -> bool:
+            if self._is_isinstance_call(node):
+                return True
+            if m.matches(node, m.BooleanOperation(operator=m.And())):
+                bool_op = node  # type: ignore
+                return has_isinstance(bool_op.left)
+            return False
+        
+        bool_op = test  # type: ignore
+        return has_isinstance(bool_op.left)
+    
     def _extract_isinstance_classes(self, test: cst.BaseExpression) -> list[cst.BaseExpression] | None:
         """Extract the class(es) from isinstance(subject, Class) or isinstance(subject, (Class1, Class2)) call.
         
@@ -121,6 +154,66 @@ class IfToMatchTransformer(cst.CSTTransformer):
             else:
                 # Single class
                 return [class_arg]
+        return None
+    
+    def _extract_isinstance_with_attrs(self, test: cst.BaseExpression) -> tuple[cst.BaseExpression, list[tuple[str, cst.BaseExpression]]] | None:
+        """Extract class and attribute checks from isinstance(subject, Class) and subject.attr == value.
+        
+        Returns (class_expr, [(attr_name, value), ...]) or None if not a valid pattern.
+        """
+        if not self._is_isinstance_with_and(test):
+            return None
+        
+        # Find the isinstance call (could be nested in left side of BooleanOperations)
+        def find_isinstance(node: cst.BaseExpression) -> cst.Call | None:
+            if self._is_isinstance_call(node):
+                return node  # type: ignore
+            if m.matches(node, m.BooleanOperation(operator=m.And())):
+                bool_op = node  # type: ignore
+                return find_isinstance(bool_op.left)
+            return None
+        
+        isinstance_call = find_isinstance(test)
+        if isinstance_call is None:
+            return None
+            
+        subject = isinstance_call.args[0].value
+        class_arg = isinstance_call.args[1].value
+        
+        # Don't support tuple of classes with attributes yet
+        if isinstance(class_arg, cst.Tuple):
+            return None
+        
+        # Extract attribute checks from the entire test expression
+        attrs = []
+        
+        # Handle single comparison or chain of and comparisons
+        def extract_attr_checks(node: cst.BaseExpression) -> bool:
+            """Recursively extract attribute checks. Returns False if invalid pattern."""
+            # Skip isinstance calls
+            if self._is_isinstance_call(node):
+                return True
+            
+            if m.matches(node, m.BooleanOperation(operator=m.And())):
+                and_op = node  # type: ignore
+                return extract_attr_checks(and_op.left) and extract_attr_checks(and_op.right)
+            elif m.matches(node, m.Comparison(comparisons=[m.ComparisonTarget(operator=m.Equal())])):
+                comp = node  # type: ignore
+                # Check if left side is subject.attr
+                if m.matches(comp.left, m.Attribute()):
+                    attr = comp.left  # type: ignore
+                    # Verify the attribute is on the same subject
+                    if attr.value.deep_equals(subject):
+                        attr_name = attr.attr.value
+                        value = comp.comparisons[0].comparator
+                        # Only support literal values
+                        if self._is_literal_value(value):
+                            attrs.append((attr_name, value))
+                            return True
+            return False
+        
+        if extract_attr_checks(test):
+            return (class_arg, attrs)
         return None
 
     def _is_simple_equality_chain(self, node: cst.If) -> bool:
@@ -148,8 +241,8 @@ class IfToMatchTransformer(cst.CSTTransformer):
                 if current_subject is None or not current_subject.deep_equals(subject):
                     return False
                 
-                # Each branch must be either isinstance or equality/identity with literal
-                if self._is_isinstance_call(current.test):
+                # Each branch must be either isinstance, isinstance with and, or equality with literal
+                if self._is_isinstance_call(current.test) or self._is_isinstance_with_and(current.test):
                     # isinstance is always valid
                     pass
                 else:
@@ -219,7 +312,29 @@ class IfToMatchTransformer(cst.CSTTransformer):
                 self._current_subject = subject
 
             # Build the case for the current if/elif
-            if self._is_isinstance_call(current.test):
+            if self._is_isinstance_with_and(current.test):
+                # isinstance(subject, Class) and subject.attr == value -> case Class(attr=value):
+                result = self._extract_isinstance_with_attrs(current.test)
+                if result is None:
+                    return updated_node
+                class_expr, attrs = result
+                
+                # Build keyword arguments for the class pattern
+                kwds = []
+                for attr_name, value in attrs:
+                    # Create MatchKeywordElement for each attribute
+                    if m.matches(value, m.Name(value="None") | m.Name(value="True") | m.Name(value="False")):
+                        pattern = cst.MatchSingleton(value=value)
+                    else:
+                        pattern = cst.MatchValue(value=value)
+                    
+                    kwds.append(cst.MatchKeywordElement(
+                        key=cst.Name(attr_name),
+                        pattern=pattern
+                    ))
+                
+                case_pattern = cst.MatchClass(cls=class_expr, patterns=[], kwds=kwds)
+            elif self._is_isinstance_call(current.test):
                 # isinstance(subject, Class) -> case Class():
                 # isinstance(subject, (Class1, Class2)) -> case Class1() | Class2():
                 class_exprs = self._extract_isinstance_classes(current.test)

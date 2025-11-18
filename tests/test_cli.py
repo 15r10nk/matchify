@@ -517,6 +517,71 @@ class TestIfToMatchTransformer:
         expected = source
         check_code(source, expected)
 
+    def test_isinstance_with_and_converted(self):
+        """Test that isinstance with 'and' attribute checks is converted to class pattern with keywords.
+        
+        Conditions like 'isinstance(node, Point) and node.x == 5' become 'case Point(x=5):'.
+        """
+        source = dedent("""
+            class Point:
+                def __init__(self, x, y):
+                    self.x = x
+                    self.y = y
+            node = Point(5, 10)
+            if isinstance(node, Point) and node.x == 5:
+                print("point at x=5")
+            elif isinstance(node, Point):
+                print("other point")
+        """).strip()
+
+        expected = dedent("""
+            class Point:
+                def __init__(self, x, y):
+                    self.x = x
+                    self.y = y
+            node = Point(5, 10)
+            match node:
+                case Point(x=5):
+                    print("point at x=5")
+                case Point():
+                    print("other point")
+        """).strip()
+        
+        check_code(source, expected)
+
+    def test_isinstance_with_multiple_and_converted(self):
+        """Test that isinstance with multiple chained 'and' attribute checks works.
+        
+        Conditions like 'isinstance(node, Point) and node.x == 5 and node.y == 10' 
+        become 'case Point(x=5, y=10):'.
+        """
+        source = dedent("""
+            class Point:
+                def __init__(self, x, y):
+                    self.x = x
+                    self.y = y
+            node = Point(5, 10)
+            if isinstance(node, Point) and node.x == 5 and node.y == 10:
+                print("exact point")
+            elif isinstance(node, Point):
+                print("other point")
+        """).strip()
+
+        expected = dedent("""
+            class Point:
+                def __init__(self, x, y):
+                    self.x = x
+                    self.y = y
+            node = Point(5, 10)
+            match node:
+                case Point(x=5, y=10):
+                    print("exact point")
+                case Point():
+                    print("other point")
+        """).strip()
+        
+        check_code(source, expected)
+
 class TestConvertFile:
     """Test the convert_file function."""
 
