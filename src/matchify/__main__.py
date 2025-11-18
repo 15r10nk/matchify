@@ -721,14 +721,10 @@ class IfToMatchTransformer(cst.CSTTransformer):
                         if isinstance(isinstance_arg, cst.Subscript):
                             # Check for isinstance(x[idx][...], ...)
                             if isinstance(isinstance_arg.value, cst.Subscript) and isinstance_arg.value.value.deep_equals(subject):
-                                if len(isinstance_arg.value.slice) == 1:
-                                    slice_elem = isinstance_arg.value.slice[0]
-                                    if isinstance(slice_elem.slice, cst.Index):
-                                        if m.matches(slice_elem.slice.value, m.Integer()):
-                                            check_idx = int(slice_elem.slice.value.value)  # type: ignore
-                                            if check_idx == idx:
-                                                nested_conditions.append(node)
-                                                return
+                                check_idx = self._extract_subscript_index(isinstance_arg.value)
+                                if check_idx == idx:
+                                    nested_conditions.append(node)
+                                    return
                 elif m.matches(node, m.BooleanOperation(operator=m.And())):
                     bool_op = node  # type: ignore
                     collect_nested_conditions(bool_op.left)
