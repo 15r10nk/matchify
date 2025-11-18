@@ -209,6 +209,34 @@ class IfToMatchTransformer(cst.CSTTransformer):
         else:
             return cst.MatchValue(value=value)
     
+    def _build_class_pattern_keywords(self, attrs: list[tuple[str, cst.BaseExpression | tuple]]) -> list[cst.MatchKeywordElement]:
+        """Build keyword arguments for a MatchClass pattern.
+        
+        Args:
+            attrs: List of (attr_name, value) tuples where value is either:
+                   - A CST expression node for scalar attributes
+                   - A tuple ('sequence', patterns) for sequence attributes
+        
+        Returns:
+            List of MatchKeywordElement nodes
+        """
+        kwds = []
+        for attr_name, value in attrs:
+            # Check if this is a sequence attribute
+            if isinstance(value, tuple) and value[0] == 'sequence':
+                # Build sequence pattern for this attribute
+                _, seq_patterns = value
+                pattern = self._build_sequence_pattern_for_attr(seq_patterns)
+            else:
+                # Scalar attribute - create literal/singleton pattern
+                pattern = self._build_pattern_from_value(value)
+            
+            kwds.append(cst.MatchKeywordElement(
+                key=cst.Name(attr_name),
+                pattern=pattern
+            ))
+        return kwds
+    
     def _build_sequence_pattern_for_attr(self, seq_patterns: list) -> cst.MatchList:
         """Build a sequence pattern for a class attribute.
         
@@ -1044,26 +1072,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
                     return updated_node
                 class_expr, attrs = result
                 
-                # Build keyword arguments for the class pattern
-                kwds = []
-                for attr_name, value in attrs:
-                    # Check if this is a sequence attribute
-                    if isinstance(value, tuple) and value[0] == 'sequence':
-                        # Build sequence pattern for this attribute
-                        _, seq_patterns = value
-                        pattern = self._build_sequence_pattern_for_attr(seq_patterns)
-                    else:
-                        # Create MatchKeywordElement for scalar attribute
-                        if m.matches(value, m.Name(value="None") | m.Name(value="True") | m.Name(value="False")):
-                            pattern = cst.MatchSingleton(value=value)
-                        else:
-                            pattern = cst.MatchValue(value=value)
-                    
-                    kwds.append(cst.MatchKeywordElement(
-                        key=cst.Name(attr_name),
-                        pattern=pattern
-                    ))
-                
+                kwds = self._build_class_pattern_keywords(attrs)
                 case_pattern = cst.MatchClass(cls=class_expr, patterns=[], kwds=kwds)
             elif self._is_isinstance_call(current.test):
                 # isinstance(subject, Class) -> case Class():
@@ -1098,26 +1107,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
                         class_expr = pattern_info[1]
                         attrs = pattern_info[2]
                         
-                        # Build keyword arguments for the class pattern
-                        kwds = []
-                        for attr_name, attr_value in attrs:
-                            # Check if this is a sequence attribute
-                            if isinstance(attr_value, tuple) and attr_value[0] == 'sequence':
-                                # Recursively build sequence pattern for this attribute
-                                _, seq_patterns = attr_value
-                                attr_pattern = self._build_sequence_pattern_for_attr(seq_patterns)
-                            else:
-                                # Scalar attribute
-                                if m.matches(attr_value, m.Name(value="None") | m.Name(value="True") | m.Name(value="False")):
-                                    attr_pattern = cst.MatchSingleton(value=attr_value)
-                                else:
-                                    attr_pattern = cst.MatchValue(value=attr_value)
-                            
-                            kwds.append(cst.MatchKeywordElement(
-                                key=cst.Name(attr_name),
-                                pattern=attr_pattern
-                            ))
-                        
+                        kwds = self._build_class_pattern_keywords(attrs)
                         pattern = cst.MatchClass(cls=class_expr, patterns=[], kwds=kwds)
                     elif pattern_type == 'sequence':
                         # Nested sequence pattern - recursively build it
@@ -1137,23 +1127,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
                                 class_expr = nested_info[1]
                                 attrs = nested_info[2]
                                 
-                                # Build keyword arguments
-                                kwds = []
-                                for attr_name, attr_value in attrs:
-                                    if isinstance(attr_value, tuple) and attr_value[0] == 'sequence':
-                                        _, seq_patterns = attr_value
-                                        attr_pattern = self._build_sequence_pattern_for_attr(seq_patterns)
-                                    else:
-                                        if m.matches(attr_value, m.Name(value="None") | m.Name(value="True") | m.Name(value="False")):
-                                            attr_pattern = cst.MatchSingleton(value=attr_value)
-                                        else:
-                                            attr_pattern = cst.MatchValue(value=attr_value)
-                                    
-                                    kwds.append(cst.MatchKeywordElement(
-                                        key=cst.Name(attr_name),
-                                        pattern=attr_pattern
-                                    ))
-                                
+                                kwds = self._build_class_pattern_keywords(attrs)
                                 nested_pattern = cst.MatchClass(cls=class_expr, patterns=[], kwds=kwds)
                             elif nested_type == 'sequence':
                                 # Recursively handle deeper nesting - need a helper function
