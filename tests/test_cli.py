@@ -908,6 +908,39 @@ class TestIfToMatchTransformer:
         
         check_code(source, expected)
 
+    def test_sequence_pattern_with_isinstance_tuple(self):
+        """Test sequence pattern with isinstance tuple (multiple types) on element.
+        
+        Tests: isinstance(x[i], (Class1, Class2)) inside sequence patterns.
+        Should convert to: case Class1() | Class2(), ...:
+        """
+        source = dedent("""
+            class Point:
+                pass
+            class Line:
+                pass
+            x = [Point(), 1]
+            if len(x) == 2 and isinstance(x[0], (Point, Line)) and x[1] == 1:
+                print("point or line and 1")
+            elif len(x) == 2 and x[0] == 0 and x[1] == 0:
+                print("0 and 0")
+        """).strip()
+
+        expected = dedent("""
+            class Point:
+                pass
+            class Line:
+                pass
+            x = [Point(), 1]
+            match x:
+                case Point() | Line(), 1:
+                    print("point or line and 1")
+                case 0, 0:
+                    print("0 and 0")
+        """).strip()
+        
+        check_code(source, expected)
+
     def test_multiple_sibling_attributes_with_literals(self):
         """Test class with multiple sibling attributes at same level.
         

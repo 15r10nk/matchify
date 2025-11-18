@@ -117,6 +117,7 @@ match_stmt = cst.Match(
 ✅ Sequence attributes in class patterns (e.g., `Data(value=[1, 2, 3])`)
 ✅ Mixed scalar and sequence attributes (e.g., `Container(items=[1, 2], count=2)`)
 ✅ Nested isinstance with sequence attributes (e.g., `Data(value=[Data(value=[1, 2, 3])])`)
+✅ isinstance tuple inside sequences (e.g., `isinstance(x[0], (Point, Line))` → `case Point() | Line(), ...:` )
 
 ### Will NOT Convert
 ❌ Single `if` without `elif`
@@ -126,7 +127,6 @@ match_stmt = cst.Match(
 ❌ Sequence patterns without `len()` check
 ❌ isinstance tuple with attributes (e.g., `isinstance(x, (Point, Line)) and x.value == 5`)
 ❌ Non-literal values in patterns (variables would create binding patterns)
-❌ isinstance tuple inside sequences (e.g., `isinstance(x[0], (Point, Line))` - not yet supported)
 
 ## Testing Guidelines
 

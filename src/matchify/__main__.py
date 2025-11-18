@@ -188,8 +188,18 @@ class IfToMatchTransformer(cst.CSTTransformer):
                 if len(classes) == 1:
                     seq_pattern = cst.MatchClass(cls=classes[0], patterns=[])
                 else:
-                    class_patterns = [cst.MatchClass(cls=cls, patterns=[]) for cls in classes]
-                    seq_pattern = cst.MatchOr(patterns=class_patterns)
+                    # Multiple classes need MatchOrElement wrappers with separators
+                    or_elements = []
+                    for i, cls in enumerate(classes):
+                        match_class = cst.MatchClass(cls=cls, patterns=[])
+                        if i < len(classes) - 1:
+                            or_elements.append(cst.MatchOrElement(
+                                pattern=match_class,
+                                separator=cst.BitOr()
+                            ))
+                        else:
+                            or_elements.append(cst.MatchOrElement(pattern=match_class))
+                    seq_pattern = cst.MatchOr(patterns=or_elements)
             elif pattern_type == 'isinstance_with_attrs':
                 # Recursively handle isinstance with attributes in sequence
                 class_expr = pattern_info[1]
@@ -254,8 +264,18 @@ class IfToMatchTransformer(cst.CSTTransformer):
                 if len(classes) == 1:
                     pattern = cst.MatchClass(cls=classes[0], patterns=[])
                 else:
-                    class_patterns = [cst.MatchClass(cls=cls, patterns=[]) for cls in classes]
-                    pattern = cst.MatchOr(patterns=class_patterns)
+                    # Multiple classes need MatchOrElement wrappers with separators
+                    or_elements = []
+                    for i, cls in enumerate(classes):
+                        match_class = cst.MatchClass(cls=cls, patterns=[])
+                        if i < len(classes) - 1:
+                            or_elements.append(cst.MatchOrElement(
+                                pattern=match_class,
+                                separator=cst.BitOr()
+                            ))
+                        else:
+                            or_elements.append(cst.MatchOrElement(pattern=match_class))
+                    pattern = cst.MatchOr(patterns=or_elements)
             elif pattern_type == 'isinstance_with_attrs':
                 # Recursively handle isinstance with attributes
                 class_expr = pattern_info[1]
@@ -1083,8 +1103,18 @@ class IfToMatchTransformer(cst.CSTTransformer):
                             pattern = cst.MatchClass(cls=classes[0], patterns=[])
                         else:
                             # Multiple classes: isinstance(x[i], (Point, Line)) -> Point() | Line()
-                            class_patterns = [cst.MatchClass(cls=cls, patterns=[]) for cls in classes]
-                            pattern = cst.MatchOr(patterns=class_patterns)
+                            # Need MatchOrElement wrappers with separators
+                            or_elements = []
+                            for i, cls in enumerate(classes):
+                                match_class = cst.MatchClass(cls=cls, patterns=[])
+                                if i < len(classes) - 1:
+                                    or_elements.append(cst.MatchOrElement(
+                                        pattern=match_class,
+                                        separator=cst.BitOr()
+                                    ))
+                                else:
+                                    or_elements.append(cst.MatchOrElement(pattern=match_class))
+                            pattern = cst.MatchOr(patterns=or_elements)
                     elif pattern_type == 'isinstance_with_attrs':
                         # pattern_info is ('isinstance_with_attrs', class_expr, attrs)
                         class_expr = pattern_info[1]
