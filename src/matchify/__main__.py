@@ -143,6 +143,10 @@ class IfToMatchTransformer(cst.CSTTransformer):
             ),
         )
     
+    def _is_len_call(self, node: cst.BaseExpression) -> bool:
+        """Check if node is a len() call."""
+        return m.matches(node, m.Call(func=m.Name(value="len"), args=[m.Arg()]))
+    
     def _is_isinstance_with_and(self, test: cst.BaseExpression) -> bool:
         """Check if test is isinstance(subject, type) and subject.attr == value."""
         if not m.matches(test, m.BooleanOperation(operator=m.And())):
@@ -429,7 +433,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
             if m.matches(node, m.Comparison(comparisons=[m.ComparisonTarget(operator=m.Equal())])):
                 comp = node  # type: ignore
                 # Check for len(subject.attr) == N
-                if m.matches(comp.left, m.Call(func=m.Name(value="len"), args=[m.Arg()])):
+                if self._is_len_call(comp.left):
                     call = comp.left  # type: ignore
                     if len(call.args) > 0:
                         len_arg = call.args[0].value
@@ -458,7 +462,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
                 if m.matches(node, m.Comparison(comparisons=[m.ComparisonTarget(operator=m.Equal() | m.Is())])):
                     comp = node  # type: ignore
                     # Check for len(subject.attr) == N or len(subject.attr[i].nested_attr)
-                    if m.matches(comp.left, m.Call(func=m.Name(value="len"), args=[m.Arg()])):
+                    if self._is_len_call(comp.left):
                         call = comp.left  # type: ignore
                         if len(call.args) > 0:
                             len_arg = call.args[0].value
@@ -612,7 +616,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
             if m.matches(node, m.Comparison(comparisons=[m.ComparisonTarget(operator=m.Equal())])):
                 comp = node  # type: ignore
                 # Check for len(x) == N
-                if m.matches(comp.left, m.Call(func=m.Name(value="len"), args=[m.Arg()])):
+                if self._is_len_call(comp.left):
                     comparator = comp.comparisons[0].comparator
                     return m.matches(comparator, m.Integer())
             if m.matches(node, m.BooleanOperation(operator=m.And())):
@@ -697,7 +701,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
                 if m.matches(node, m.Comparison()):
                     comp = node  # type: ignore
                     # Check if left side is len(x[idx])
-                    if m.matches(comp.left, m.Call(func=m.Name(value="len"), args=[m.Arg()])):
+                    if self._is_len_call(comp.left):
                         call = comp.left  # type: ignore
                         if len(call.args) > 0:
                             len_arg = call.args[0].value
@@ -865,7 +869,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
                                     return
                     
                     # len(x[idx].attr) == N
-                    elif m.matches(left, m.Call(func=m.Name(value="len"))):
+                    elif self._is_len_call(left):
                         call = left  # type: ignore
                         if len(call.args) > 0:
                             len_arg = call.args[0].value
