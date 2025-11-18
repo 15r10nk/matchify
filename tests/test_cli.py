@@ -1407,7 +1407,39 @@ class TestIfToMatchTransformer:
         
         check_code(source, expected)
 
-
+    def test_isinstance_with_nested_sequence_attributes(self):
+        """Test nested isinstance with sequence attributes.
+        
+        Pattern like Data(value=[Data(value=[1,2,3])]) now fully converts with nested attributes.
+        """
+        source = dedent("""
+            class Data:
+                def __init__(self, value):
+                    self.value = value
+            
+            inner = Data([1, 2, 3])
+            outer = Data([inner])
+            if isinstance(outer, Data) and len(outer.value) == 1 and isinstance(outer.value[0], Data) and len(outer.value[0].value) == 3 and outer.value[0].value[0] == 1 and outer.value[0].value[1] == 2 and outer.value[0].value[2] == 3:
+                print("match")
+            elif isinstance(outer, Data):
+                print("other")
+        """).strip()
+        
+        expected = dedent("""
+            class Data:
+                def __init__(self, value):
+                    self.value = value
+            
+            inner = Data([1, 2, 3])
+            outer = Data([inner])
+            match outer:
+                case Data(value=[Data(value=[1, 2, 3])]):
+                    print("match")
+                case Data():
+                    print("other")
+        """).strip()
+        
+        check_code(source, expected)
 class TestConvertFile:
     """Test the convert_file function."""
 

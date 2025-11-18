@@ -87,6 +87,7 @@ match_stmt = cst.Match(
    - Supports both `==` and `is` operators for attributes
    - **Sequence attributes**: `if isinstance(obj, Data) and len(obj.value) == 3 and obj.value[0] == 1 and obj.value[1] == 2 and obj.value[2] == 3:` → `case Data(value=[1, 2, 3]):`
    - Can mix scalar and sequence attributes: `case Container(items=[1, 2, 3], count=3):`
+   - **Nested sequence attributes**: Fully supports recursive nesting like `Data(value=[Data(value=[1, 2, 3])])` - isinstance checks within sequence attributes are recursively processed with their own attributes
 
 5. **Sequence Patterns** - Length and element checks
    - `if len(x) == 2 and x[0] == 0 and x[1] == 1:` → `case 0, 1:`
@@ -115,6 +116,7 @@ match_stmt = cst.Match(
 ✅ Recursive nesting: unlimited nesting depth for nested sequences
 ✅ Sequence attributes in class patterns (e.g., `Data(value=[1, 2, 3])`)
 ✅ Mixed scalar and sequence attributes (e.g., `Container(items=[1, 2], count=2)`)
+✅ Nested isinstance with sequence attributes (e.g., `Data(value=[Data(value=[1, 2, 3])])`)
 
 ### Will NOT Convert
 ❌ Single `if` without `elif`
