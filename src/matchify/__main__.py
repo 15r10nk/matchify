@@ -292,6 +292,56 @@ class IfToMatchTransformer(cst.CSTTransformer):
         
         return elements
     
+    def _build_case_pattern_from_test(self, test: cst.BaseExpression) -> cst.MatchPattern | None:
+        """Build a match case pattern from an if/elif test expression.
+        
+        Args:
+            test: The test expression from an if/elif statement
+            
+        Returns:
+            A match pattern node, or None if the pattern cannot be built
+        """
+        if self._is_isinstance_with_and(test):
+            # isinstance(subject, Class) and subject.attr == value -> case Class(attr=value):
+            result = self._extract_isinstance_with_attrs(test)
+            if result is None:
+                return None
+            class_expr, attrs = result
+            
+            kwds = self._build_class_pattern_keywords(attrs)
+            return cst.MatchClass(cls=class_expr, patterns=[], kwds=kwds)
+        
+        elif self._is_isinstance_call(test):
+            # isinstance(subject, Class) -> case Class():
+            # isinstance(subject, (Class1, Class2)) -> case Class1() | Class2():
+            class_exprs = self._extract_isinstance_classes(test)
+            if class_exprs is None:
+                return None
+            return self._build_match_or_from_classes(class_exprs)
+        
+        elif self._is_sequence_pattern(test):
+            # len(x) == N and x[0] == val0 and x[1] == val1 ... -> case [val0, val1, ...]:
+            result = self._extract_sequence_pattern(test)
+            if result is None:
+                return None
+            _, patterns = result
+            
+            # Build sequence pattern elements using helper
+            elements = self._build_sequence_elements(patterns)
+            
+            # Use MatchList WITHOUT brackets for comma-separated patterns
+            # This creates: case [1, 2], 3: (not case [[1, 2], 3]:)
+            return cst.MatchList(
+                patterns=elements,
+                lbracket=None,  # No outer brackets
+                rbracket=None,
+            )
+        
+        else:
+            # subject == value -> case value:
+            comparator = test.comparisons[0].comparator  # type: ignore
+            return self._build_pattern_from_value(comparator)
+    
     def _build_sequence_pattern_for_attr(self, seq_patterns: list) -> cst.MatchList:
         """Build a sequence pattern for a class attribute.
         
@@ -1028,48 +1078,9 @@ class IfToMatchTransformer(cst.CSTTransformer):
                 self._current_subject = subject
 
             # Build the case for the current if/elif
-            if self._is_isinstance_with_and(current.test):
-                # isinstance(subject, Class) and subject.attr == value -> case Class(attr=value):
-                result = self._extract_isinstance_with_attrs(current.test)
-                if result is None:
-                    return updated_node
-                class_expr, attrs = result
-                
-                kwds = self._build_class_pattern_keywords(attrs)
-                case_pattern = cst.MatchClass(cls=class_expr, patterns=[], kwds=kwds)
-            elif self._is_isinstance_call(current.test):
-                # isinstance(subject, Class) -> case Class():
-                # isinstance(subject, (Class1, Class2)) -> case Class1() | Class2():
-                class_exprs = self._extract_isinstance_classes(current.test)
-                if class_exprs is None:
-                    return updated_node
-                
-                case_pattern = self._build_match_or_from_classes(class_exprs)
-            elif self._is_sequence_pattern(current.test):
-                # len(x) == N and x[0] == val0 and x[1] == val1 ... -> case [val0, val1, ...]:
-                result = self._extract_sequence_pattern(current.test)
-                if result is None:
-                    return updated_node
-                _, patterns = result
-                
-                # Build sequence pattern elements using helper
-                elements = self._build_sequence_elements(patterns)
-                
-                # Use MatchList WITHOUT brackets for comma-separated patterns
-                # This creates: case [1, 2], 3: (not case [[1, 2], 3]:)
-                case_pattern = cst.MatchList(
-                    patterns=elements,
-                    lbracket=None,  # No outer brackets
-                    rbracket=None,
-                )
-            else:
-                # subject == value -> case value:
-                comparator = current.test.comparisons[0].comparator  # type: ignore
-                # Use MatchSingleton for None, True, False
-                if m.matches(comparator, m.Name(value="None") | m.Name(value="True") | m.Name(value="False")):
-                    case_pattern = cst.MatchSingleton(value=comparator)
-                else:
-                    case_pattern = cst.MatchValue(value=comparator)
+            case_pattern = self._build_case_pattern_from_test(current.test)
+            if case_pattern is None:
+                return updated_node
             
             cases.append(
                 cst.MatchCase(
