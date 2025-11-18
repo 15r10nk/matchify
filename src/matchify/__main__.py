@@ -1052,76 +1052,8 @@ class IfToMatchTransformer(cst.CSTTransformer):
                     return updated_node
                 _, patterns = result
                 
-                # Build sequence pattern elements
-                elements = []
-                for i, pattern_info in enumerate(patterns):
-                    pattern_type = pattern_info[0]
-                    
-                    # Create pattern based on type
-                    if pattern_type == 'literal':
-                        value = pattern_info[1]
-                        pattern = self._build_pattern_from_value(value)
-                    elif pattern_type == 'isinstance':
-                        # pattern_info is ('isinstance', [class_expressions])
-                        classes = pattern_info[1]
-                        pattern = self._build_match_or_from_classes(classes)
-                    elif pattern_type == 'isinstance_with_attrs':
-                        # pattern_info is ('isinstance_with_attrs', class_expr, attrs)
-                        class_expr = pattern_info[1]
-                        attrs = pattern_info[2]
-                        
-                        kwds = self._build_class_pattern_keywords(attrs)
-                        pattern = cst.MatchClass(cls=class_expr, patterns=[], kwds=kwds)
-                    elif pattern_type == 'sequence':
-                        # Nested sequence pattern - recursively build it
-                        nested_patterns = pattern_info[1]
-                        nested_elements = []
-                        for j, nested_info in enumerate(nested_patterns):
-                            nested_type = nested_info[0]
-                            
-                            if nested_type == 'literal':
-                                value = nested_info[1]
-                                nested_pattern = self._build_pattern_from_value(value)
-                            elif nested_type == 'isinstance':
-                                classes = nested_info[1]
-                                nested_pattern = self._build_match_or_from_classes(classes)
-                            elif nested_type == 'isinstance_with_attrs':
-                                # Nested isinstance with attributes
-                                class_expr = nested_info[1]
-                                attrs = nested_info[2]
-                                
-                                kwds = self._build_class_pattern_keywords(attrs)
-                                nested_pattern = cst.MatchClass(cls=class_expr, patterns=[], kwds=kwds)
-                            elif nested_type == 'sequence':
-                                # Recursively handle deeper nesting - need a helper function
-                                nested_pattern = self._build_nested_sequence_pattern(nested_info[1])
-                            else:
-                                raise ValueError(f"Unknown nested pattern type: {nested_type}")
-                            
-                            if j < len(nested_patterns) - 1:
-                                nested_elements.append(cst.MatchSequenceElement(
-                                    value=nested_pattern,
-                                    comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" "))
-                                ))
-                            else:
-                                nested_elements.append(cst.MatchSequenceElement(value=nested_pattern))
-                        # Nested sequence needs explicit brackets: [1, 2]
-                        pattern = cst.MatchList(
-                            patterns=nested_elements,
-                            lbracket=cst.LeftSquareBracket(),
-                            rbracket=cst.RightSquareBracket(),
-                        )
-                    else:
-                        raise ValueError(f"Unknown pattern type: {pattern_type}")
-                    
-                    # Add comma for all but the last element
-                    if i < len(patterns) - 1:
-                        elements.append(cst.MatchSequenceElement(
-                            value=pattern,
-                            comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" "))
-                        ))
-                    else:
-                        elements.append(cst.MatchSequenceElement(value=pattern))
+                # Build sequence pattern elements using helper
+                elements = self._build_sequence_elements(patterns)
                 
                 # Use MatchList WITHOUT brackets for comma-separated patterns
                 # This creates: case [1, 2], 3: (not case [[1, 2], 3]:)
