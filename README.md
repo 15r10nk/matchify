@@ -30,6 +30,7 @@ pip install matchify
   - isinstance checks (`isinstance(x, MyClass)`)
   - Class patterns with attributes (`isinstance(p, Point) and p.x == 5`)
   - Sequence patterns (`len(x) == 2 and x[0] == 0 and x[1] == 1`)
+  - Nested sequences (`[[1, 2], 3]`)
   - Or patterns for isinstance tuples (`isinstance(x, (int, float))`)
 - **Parallel processing** for fast conversion of large codebases
 - **Safe transformations** - only converts when semantics are preserved
@@ -119,6 +120,22 @@ match x:
         print("point and 2")
     case 1, 1:
         print("ones")
+```
+
+**Nested sequences:**
+```python
+# Before
+if len(data) == 2 and len(data[0]) == 2 and data[0][0] == 1 and data[0][1] == 2 and data[1] == 3:
+    print("nested list")
+elif len(data) == 2 and isinstance(data[0], Point) and len(data[1]) == 2 and data[1][0] == 0 and data[1][1] == 0:
+    print("point with coordinates")
+
+# After
+match data:
+    case [1, 2], 3:
+        print("nested list")
+    case Point(), [0, 0]:
+        print("point with coordinates")
 ```
 
 <!-- -8<- [start:Feedback] -->

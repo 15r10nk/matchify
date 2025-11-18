@@ -93,6 +93,13 @@ match_stmt = cst.Match(
    - Supports nested patterns: `if len(x) == 2 and isinstance(x[0], Point) and x[1] == 2:` → `case Point(), 2:`
    - Supports mixed element types: literals, isinstance checks, and identity (`is None`)
 
+6. **Nested Sequence Patterns** - Sequences within sequences
+   - `if len(x) == 2 and len(x[0]) == 2 and x[0][0] == 1 and x[0][1] == 2 and x[1] == 3:` → `case [1, 2], 3:`
+   - `if len(z) == 2 and isinstance(z[0], Point) and len(z[1]) == 2 and z[1][0] == 1 and z[1][1] == 2:` → `case Point(), [1, 2]:`
+   - Supports any nesting depth (recursive)
+   - Can mix nested sequences with other pattern types
+   - Each nested sequence must have its own `len()` check
+
 ### Will Convert
 ✅ If/elif chains comparing the same variable/expression
 ✅ Chains with at least one `elif` (minimum 2 branches)
@@ -102,6 +109,8 @@ match_stmt = cst.Match(
 ✅ Mixed pattern types in same chain (e.g., isinstance + literals)
 ✅ Nested patterns: isinstance inside sequence patterns
 ✅ Mixed element types in sequences (literals, isinstance, `is None`)
+✅ Nested sequences: sequences within sequences (e.g., `[[1, 2], 3]`)
+✅ Recursive nesting: unlimited nesting depth for nested sequences
 
 ### Will NOT Convert
 ❌ Single `if` without `elif`

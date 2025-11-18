@@ -908,6 +908,406 @@ class TestIfToMatchTransformer:
         
         check_code(source, expected)
 
+    def test_multiple_sibling_attributes_with_literals(self):
+        """Test class with multiple sibling attributes at same level.
+        
+        Tests: isinstance(x, Point) with x.a == val1 and x.b == val2 and x.c == val3
+        Demonstrates that any number of attributes at the same level work without limits.
+        """
+        source = dedent("""
+            class Point:
+                def __init__(self, x, y, z):
+                    self.x = x
+                    self.y = y
+                    self.z = z
+            p = Point(1, 2, 3)
+            if isinstance(p, Point) and p.x == 1 and p.y == 2 and p.z == 3:
+                print("exact point")
+            elif isinstance(p, Point):
+                print("other point")
+        """).strip()
+
+        expected = dedent("""
+            class Point:
+                def __init__(self, x, y, z):
+                    self.x = x
+                    self.y = y
+                    self.z = z
+            p = Point(1, 2, 3)
+            match p:
+                case Point(x=1, y=2, z=3):
+                    print("exact point")
+                case Point():
+                    print("other point")
+        """).strip()
+        
+        check_code(source, expected)
+
+    def test_many_sibling_attributes_no_limit(self):
+        """Test class with many attributes to verify no arbitrary limit.
+        
+        Tests that 10 attributes at the same level work fine.
+        """
+        source = dedent("""
+            class Data:
+                def __init__(self, a, b, c, d, e, f, g, h, i, j):
+                    self.a = a
+                    self.b = b
+                    self.c = c
+                    self.d = d
+                    self.e = e
+                    self.f = f
+                    self.g = g
+                    self.h = h
+                    self.i = i
+                    self.j = j
+            x = Data(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+            if isinstance(x, Data) and x.a == 1 and x.b == 2 and x.c == 3 and x.d == 4 and x.e == 5 and x.f == 6 and x.g == 7 and x.h == 8 and x.i == 9 and x.j == 10:
+                print("all ten")
+            elif isinstance(x, Data):
+                print("other")
+        """).strip()
+
+        expected = dedent("""
+            class Data:
+                def __init__(self, a, b, c, d, e, f, g, h, i, j):
+                    self.a = a
+                    self.b = b
+                    self.c = c
+                    self.d = d
+                    self.e = e
+                    self.f = f
+                    self.g = g
+                    self.h = h
+                    self.i = i
+                    self.j = j
+            x = Data(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+            match x:
+                case Data(a=1, b=2, c=3, d=4, e=5, f=6, g=7, h=8, i=9, j=10):
+                    print("all ten")
+                case Data():
+                    print("other")
+        """).strip()
+        
+        check_code(source, expected)
+
+    def test_sequence_pattern_many_elements_no_limit(self):
+        """Test sequence patterns with many elements to verify no limit.
+        
+        Tests that 8-element sequences work fine (literals and isinstance mixed).
+        """
+        source = dedent("""
+            class A:
+                pass
+            class B:
+                pass
+            x = [1, A(), 3, B(), 5, 6, 7, 8]
+            if len(x) == 8 and x[0] == 1 and isinstance(x[1], A) and x[2] == 3 and isinstance(x[3], B) and x[4] == 5 and x[5] == 6 and x[6] == 7 and x[7] == 8:
+                print("eight elements")
+            elif x == 0:
+                print("zero")
+        """).strip()
+
+        expected = dedent("""
+            class A:
+                pass
+            class B:
+                pass
+            x = [1, A(), 3, B(), 5, 6, 7, 8]
+            match x:
+                case 1, A(), 3, B(), 5, 6, 7, 8:
+                    print("eight elements")
+                case 0:
+                    print("zero")
+        """).strip()
+        
+        check_code(source, expected)
+
+    def test_mixed_pattern_types_in_chain(self):
+        """Test that all pattern types can be mixed in a single if/elif chain.
+        
+        Demonstrates: literals, isinstance, isinstance+attrs, identity, sequences all together.
+        """
+        source = dedent("""
+            class Point:
+                def __init__(self, x):
+                    self.x = x
+            class Color:
+                pass
+            value = [Point(5), 2]
+            if len(value) == 2 and isinstance(value[0], Point) and value[1] == 2:
+                print("sequence with point")
+            elif value == 42:
+                print("literal")
+            elif isinstance(value, Color):
+                print("color")
+            elif value is None:
+                print("none")
+            else:
+                print("other")
+        """).strip()
+
+        expected = dedent("""
+            class Point:
+                def __init__(self, x):
+                    self.x = x
+            class Color:
+                pass
+            value = [Point(5), 2]
+            match value:
+                case Point(), 2:
+                    print("sequence with point")
+                case 42:
+                    print("literal")
+                case Color():
+                    print("color")
+                case None:
+                    print("none")
+                case _:
+                    print("other")
+        """).strip()
+        
+        check_code(source, expected)
+
+    def test_sequence_with_nested_class_in_element(self):
+        """Test sequence containing nested class patterns.
+        
+        Tests: len(x) == 2 and isinstance(x[0], Container) and isinstance(x[0].inner, Point) (without additional attribute checks)
+        This tests that isinstance with nested isinstance works inside sequences.
+        """
+        source = dedent("""
+            class Point:
+                pass
+            class Container:
+                def __init__(self, inner):
+                    self.inner = inner
+            x = [Container(Point()), 5]
+            if len(x) == 2 and isinstance(x[0], Container) and x[1] == 5:
+                print("sequence with container")
+            elif len(x) == 2 and x[0] == 1 and x[1] == 1:
+                print("ones")
+        """).strip()
+
+        expected = dedent("""
+            class Point:
+                pass
+            class Container:
+                def __init__(self, inner):
+                    self.inner = inner
+            x = [Container(Point()), 5]
+            match x:
+                case Container(), 5:
+                    print("sequence with container")
+                case 1, 1:
+                    print("ones")
+        """).strip()
+        
+        check_code(source, expected)
+
+    def test_many_branches_no_limit(self):
+        """Test that many elif branches work without limits.
+        
+        Demonstrates 12 branches in a single match statement.
+        """
+        source = dedent("""
+            x = 5
+            if x == 1:
+                print("one")
+            elif x == 2:
+                print("two")
+            elif x == 3:
+                print("three")
+            elif x == 4:
+                print("four")
+            elif x == 5:
+                print("five")
+            elif x == 6:
+                print("six")
+            elif x == 7:
+                print("seven")
+            elif x == 8:
+                print("eight")
+            elif x == 9:
+                print("nine")
+            elif x == 10:
+                print("ten")
+            elif x == 11:
+                print("eleven")
+            elif x == 12:
+                print("twelve")
+        """).strip()
+
+        expected = dedent("""
+            x = 5
+            match x:
+                case 1:
+                    print("one")
+                case 2:
+                    print("two")
+                case 3:
+                    print("three")
+                case 4:
+                    print("four")
+                case 5:
+                    print("five")
+                case 6:
+                    print("six")
+                case 7:
+                    print("seven")
+                case 8:
+                    print("eight")
+                case 9:
+                    print("nine")
+                case 10:
+                    print("ten")
+                case 11:
+                    print("eleven")
+                case 12:
+                    print("twelve")
+        """).strip()
+        
+        check_code(source, expected)
+
+    def test_complex_real_world_example(self):
+        """Test a complex real-world pattern combining multiple features.
+        
+        Demonstrates: sequences with isinstance + literals + identity in real usage.
+        """
+        source = dedent("""
+            class Request:
+                pass
+            class Response:
+                pass
+            class Error:
+                pass
+            
+            message = [Request(), 200, "OK"]
+            if len(message) == 3 and isinstance(message[0], Request) and message[1] == 200 and message[2] == "OK":
+                print("success request")
+            elif len(message) == 3 and isinstance(message[0], Response) and message[1] == 404 and message[2] is None:
+                print("not found")
+            elif len(message) == 3 and isinstance(message[0], Error) and message[1] == 500 and isinstance(message[2], str):
+                print("server error")
+            elif isinstance(message, Request):
+                print("plain request")
+            else:
+                print("unknown")
+        """).strip()
+
+        expected = dedent("""
+            class Request:
+                pass
+            class Response:
+                pass
+            class Error:
+                pass
+            
+            message = [Request(), 200, "OK"]
+            match message:
+                case Request(), 200, "OK":
+                    print("success request")
+                case Response(), 404, None:
+                    print("not found")
+                case Error(), 500, str():
+                    print("server error")
+                case Request():
+                    print("plain request")
+                case _:
+                    print("unknown")
+        """).strip()
+        
+        check_code(source, expected)
+
+    def test_sequence_with_nested_sequence_simple(self):
+        """Test simple nested sequence: [[1, 2], 3]."""
+        source = dedent("""
+            x = [[1, 2], 3]
+            if len(x) == 2 and len(x[0]) == 2 and x[0][0] == 1 and x[0][1] == 2 and x[1] == 3:
+                print("match")
+            elif x == 0:
+                print("zero")
+        """).strip()
+
+        expected = dedent("""
+            x = [[1, 2], 3]
+            match x:
+                case [1, 2], 3:
+                    print("match")
+                case 0:
+                    print("zero")
+        """).strip()
+
+        check_code(source, expected)
+
+    def test_sequence_with_nested_sequence_and_isinstance(self):
+        """Test nested sequence mixed with isinstance: [Point(), [1, 2]]."""
+        source = dedent("""
+            class Point:
+                pass
+            
+            z = [Point(), [1, 2]]
+            if len(z) == 2 and isinstance(z[0], Point) and len(z[1]) == 2 and z[1][0] == 1 and z[1][1] == 2:
+                print("match")
+            elif z == 0:
+                print("zero")
+        """).strip()
+
+        expected = dedent("""
+            class Point:
+                pass
+            
+            z = [Point(), [1, 2]]
+            match z:
+                case Point(), [1, 2]:
+                    print("match")
+                case 0:
+                    print("zero")
+        """).strip()
+
+        check_code(source, expected)
+
+    def test_sequence_with_nested_sequence_strings(self):
+        """Test nested sequence with strings: [["a", "b"], "c"]."""
+        source = dedent('''
+            x = [["a", "b"], "c"]
+            if len(x) == 2 and len(x[0]) == 2 and x[0][0] == "a" and x[0][1] == "b" and x[1] == "c":
+                print("match")
+            elif x == 0:
+                print("zero")
+        ''').strip()
+
+        expected = dedent('''
+            x = [["a", "b"], "c"]
+            match x:
+                case ["a", "b"], "c":
+                    print("match")
+                case 0:
+                    print("zero")
+        ''').strip()
+
+        check_code(source, expected)
+
+    def test_sequence_with_multiple_nested_sequences(self):
+        """Test multiple nested sequences in one pattern: [[1, 2], [3, 4]]."""
+        source = dedent("""
+            x = [[1, 2], [3, 4]]
+            if len(x) == 2 and len(x[0]) == 2 and x[0][0] == 1 and x[0][1] == 2 and len(x[1]) == 2 and x[1][0] == 3 and x[1][1] == 4:
+                print("match")
+            elif x == 0:
+                print("zero")
+        """).strip()
+
+        expected = dedent("""
+            x = [[1, 2], [3, 4]]
+            match x:
+                case [1, 2], [3, 4]:
+                    print("match")
+                case 0:
+                    print("zero")
+        """).strip()
+
+        check_code(source, expected)
+
 
 class TestConvertFile:
     """Test the convert_file function."""

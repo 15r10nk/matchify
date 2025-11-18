@@ -167,6 +167,51 @@ class IfToMatchTransformer(cst.CSTTransformer):
                 return [class_arg]
         return None
     
+    def _build_nested_sequence_pattern(self, patterns: list) -> cst.MatchList:
+        """Recursively build a nested sequence pattern from pattern metadata.
+        
+        Args:
+            patterns: List of (pattern_type, pattern_data) tuples
+            
+        Returns:
+            A MatchList node containing the nested patterns
+        """
+        elements = []
+        for j, (pattern_type, pattern_data) in enumerate(patterns):
+            if pattern_type == 'literal':
+                value = pattern_data
+                if m.matches(value, m.Name(value="None") | m.Name(value="True") | m.Name(value="False")):
+                    pattern = cst.MatchSingleton(value=value)
+                else:
+                    pattern = cst.MatchValue(value=value)
+            elif pattern_type == 'isinstance':
+                classes = pattern_data
+                if len(classes) == 1:
+                    pattern = cst.MatchClass(cls=classes[0], patterns=[])
+                else:
+                    class_patterns = [cst.MatchClass(cls=cls, patterns=[]) for cls in classes]
+                    pattern = cst.MatchOr(patterns=class_patterns)
+            elif pattern_type == 'sequence':
+                # Recursive call for deeper nesting
+                pattern = self._build_nested_sequence_pattern(pattern_data)
+            else:
+                raise ValueError(f"Unknown pattern type: {pattern_type}")
+            
+            if j < len(patterns) - 1:
+                elements.append(cst.MatchSequenceElement(
+                    value=pattern,
+                    comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" "))
+                ))
+            else:
+                elements.append(cst.MatchSequenceElement(value=pattern))
+        
+        # Return MatchList WITH brackets for nested sequences
+        return cst.MatchList(
+            patterns=elements,
+            lbracket=cst.LeftSquareBracket(),
+            rbracket=cst.RightSquareBracket(),
+        )
+    
     def _extract_isinstance_with_attrs(self, test: cst.BaseExpression) -> tuple[cst.BaseExpression, list[tuple[str, cst.BaseExpression]]] | None:
         """Extract class and attribute checks from isinstance(subject, Class) and subject.attr == value.
         
@@ -291,12 +336,116 @@ class IfToMatchTransformer(cst.CSTTransformer):
         if subject is None or expected_len is None:
             return None
         
-        # Now collect pattern info for each index: x[i] == value or isinstance(x[i], Class)
-        patterns: list[tuple[str, cst.BaseExpression | list[cst.BaseExpression]] | None] = [None] * expected_len
         expected_len_val = expected_len  # For type checking in closure
+        
+        # Now collect pattern info for each index: x[i] == value or isinstance(x[i], Class)
+        patterns: list[tuple[str, cst.BaseExpression | list[cst.BaseExpression]] | None] = [None] * expected_len_val
+        
+        # Track which indices might be nested sequences
+        nested_sequence_indices = set()
+        
+        # First pass: identify indices that might be nested sequences (have len() checks)
+        def find_nested_sequences(node: cst.BaseExpression) -> None:
+            if m.matches(node, m.Comparison(comparisons=[m.ComparisonTarget(operator=m.Equal())])):
+                comp = node  # type: ignore
+                if m.matches(comp.left, m.Call(func=m.Name(value="len"), args=[m.Arg()])):
+                    call = comp.left  # type: ignore
+                    len_arg = call.args[0].value
+                    if m.matches(len_arg, m.Subscript()):
+                        subscript = len_arg  # type: ignore
+                        if subscript.value.deep_equals(subject):
+                            if len(subscript.slice) == 1:
+                                slice_elem = subscript.slice[0]
+                                if isinstance(slice_elem.slice, cst.Index):
+                                    index_val = slice_elem.slice.value
+                                    if m.matches(index_val, m.Integer()):
+                                        idx = int(index_val.value)  # type: ignore
+                                        if 0 <= idx < expected_len_val:
+                                            nested_sequence_indices.add(idx)
+            elif m.matches(node, m.BooleanOperation(operator=m.And())):
+                bool_op = node  # type: ignore
+                find_nested_sequences(bool_op.left)
+                find_nested_sequences(bool_op.right)
+        
+        find_nested_sequences(test)
+        
+        # For nested sequences, we need to recursively extract them
+        for idx in nested_sequence_indices:
+            
+            # Collect conditions about x[idx] into a list
+            nested_conditions = []
+            
+            def collect_nested_conditions(node: cst.BaseExpression) -> None:
+                # Check if this node involves x[idx]
+                if m.matches(node, m.Comparison()):
+                    comp = node  # type: ignore
+                    # Check if left side is len(x[idx])
+                    if m.matches(comp.left, m.Call(func=m.Name(value="len"), args=[m.Arg()])):
+                        call = comp.left  # type: ignore
+                        if len(call.args) > 0:
+                            len_arg = call.args[0].value
+                            if isinstance(len_arg, cst.Subscript) and len_arg.value.deep_equals(subject):
+                                if len(len_arg.slice) == 1:
+                                    slice_elem = len_arg.slice[0]
+                                    if isinstance(slice_elem.slice, cst.Index):
+                                        if m.matches(slice_elem.slice.value, m.Integer()):
+                                            check_idx = int(slice_elem.slice.value.value)  # type: ignore
+                                            if check_idx == idx:
+                                                nested_conditions.append(node)
+                                                return
+                    # Check if left side is x[idx][...]
+                    if m.matches(comp.left, m.Subscript()):
+                        subscript = comp.left  # type: ignore
+                        if isinstance(subscript.value, cst.Subscript) and subscript.value.value.deep_equals(subject):
+                            if len(subscript.value.slice) == 1:
+                                slice_elem = subscript.value.slice[0]
+                                if isinstance(slice_elem.slice, cst.Index):
+                                    if m.matches(slice_elem.slice.value, m.Integer()):
+                                        check_idx = int(slice_elem.slice.value.value)  # type: ignore
+                                        if check_idx == idx:
+                                            nested_conditions.append(node)
+                                            return
+                elif m.matches(node, m.Call(func=m.Name(value="isinstance"))):
+                    call = node  # type: ignore
+                    if len(call.args) >= 1:
+                        isinstance_arg = call.args[0].value
+                        if isinstance(isinstance_arg, cst.Subscript):
+                            # Check for isinstance(x[idx][...], ...)
+                            if isinstance(isinstance_arg.value, cst.Subscript) and isinstance_arg.value.value.deep_equals(subject):
+                                if len(isinstance_arg.value.slice) == 1:
+                                    slice_elem = isinstance_arg.value.slice[0]
+                                    if isinstance(slice_elem.slice, cst.Index):
+                                        if m.matches(slice_elem.slice.value, m.Integer()):
+                                            check_idx = int(slice_elem.slice.value.value)  # type: ignore
+                                            if check_idx == idx:
+                                                nested_conditions.append(node)
+                                                return
+                elif m.matches(node, m.BooleanOperation(operator=m.And())):
+                    bool_op = node  # type: ignore
+                    collect_nested_conditions(bool_op.left)
+                    collect_nested_conditions(bool_op.right)
+            
+            collect_nested_conditions(test)
+            
+            if nested_conditions:
+                # Build a combined AND expression from the nested conditions
+                nested_test = nested_conditions[0]
+                for cond in nested_conditions[1:]:
+                    nested_test = cst.BooleanOperation(
+                        left=nested_test,
+                        operator=cst.And(),
+                        right=cond
+                    )
+                
+                # Try to extract sequence pattern from nested_test
+                nested_result = self._extract_sequence_pattern(nested_test)
+                if nested_result:
+                    _, nested_patterns = nested_result
+                    patterns[idx] = ('sequence', nested_patterns)
         
         def collect_subscript_checks(node: cst.BaseExpression) -> bool:
             """Returns False if pattern is invalid."""
+            
             # Check for isinstance(x[i], Class)
             if m.matches(node, m.Call(func=m.Name(value="isinstance"), args=[m.Arg(), m.Arg()])):
                 call = node  # type: ignore
@@ -546,6 +695,43 @@ class IfToMatchTransformer(cst.CSTTransformer):
                             # Multiple classes: isinstance(x[i], (Point, Line)) -> Point() | Line()
                             class_patterns = [cst.MatchClass(cls=cls, patterns=[]) for cls in classes]
                             pattern = cst.MatchOr(patterns=class_patterns)
+                    elif pattern_type == 'sequence':
+                        # Nested sequence pattern - recursively build it
+                        nested_patterns = pattern_data
+                        nested_elements = []
+                        for j, (nested_type, nested_data) in enumerate(nested_patterns):
+                            if nested_type == 'literal':
+                                value = nested_data
+                                if m.matches(value, m.Name(value="None") | m.Name(value="True") | m.Name(value="False")):
+                                    nested_pattern = cst.MatchSingleton(value=value)
+                                else:
+                                    nested_pattern = cst.MatchValue(value=value)
+                            elif nested_type == 'isinstance':
+                                classes = nested_data
+                                if len(classes) == 1:
+                                    nested_pattern = cst.MatchClass(cls=classes[0], patterns=[])
+                                else:
+                                    class_patterns = [cst.MatchClass(cls=cls, patterns=[]) for cls in classes]
+                                    nested_pattern = cst.MatchOr(patterns=class_patterns)
+                            elif nested_type == 'sequence':
+                                # Recursively handle deeper nesting - need a helper function
+                                nested_pattern = self._build_nested_sequence_pattern(nested_data)
+                            else:
+                                raise ValueError(f"Unknown nested pattern type: {nested_type}")
+                            
+                            if j < len(nested_patterns) - 1:
+                                nested_elements.append(cst.MatchSequenceElement(
+                                    value=nested_pattern,
+                                    comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" "))
+                                ))
+                            else:
+                                nested_elements.append(cst.MatchSequenceElement(value=nested_pattern))
+                        # Nested sequence needs explicit brackets: [1, 2]
+                        pattern = cst.MatchList(
+                            patterns=nested_elements,
+                            lbracket=cst.LeftSquareBracket(),
+                            rbracket=cst.RightSquareBracket(),
+                        )
                     else:
                         raise ValueError(f"Unknown pattern type: {pattern_type}")
                     
@@ -558,8 +744,13 @@ class IfToMatchTransformer(cst.CSTTransformer):
                     else:
                         elements.append(cst.MatchSequenceElement(value=pattern))
                 
-                # Use MatchList for list syntax [...]
-                case_pattern = cst.MatchList(patterns=elements)
+                # Use MatchList WITHOUT brackets for comma-separated patterns
+                # This creates: case [1, 2], 3: (not case [[1, 2], 3]:)
+                case_pattern = cst.MatchList(
+                    patterns=elements,
+                    lbracket=None,  # No outer brackets
+                    rbracket=None,
+                )
             else:
                 # subject == value -> case value:
                 comparator = current.test.comparisons[0].comparator  # type: ignore
