@@ -147,6 +147,10 @@ class IfToMatchTransformer(cst.CSTTransformer):
         """Check if node is a len() call."""
         return m.matches(node, m.Call(func=m.Name(value="len"), args=[m.Arg()]))
     
+    def _is_singleton_name(self, node: cst.BaseExpression) -> bool:
+        """Check if node is None, True, or False."""
+        return m.matches(node, m.Name(value="None") | m.Name(value="True") | m.Name(value="False"))
+    
     def _is_isinstance_with_and(self, test: cst.BaseExpression) -> bool:
         """Check if test is isinstance(subject, type) and subject.attr == value."""
         if not m.matches(test, m.BooleanOperation(operator=m.And())):
@@ -225,7 +229,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
         Returns:
             MatchSingleton for None/True/False, MatchValue for other literals
         """
-        if m.matches(value, m.Name(value="None") | m.Name(value="True") | m.Name(value="False")):
+        if self._is_singleton_name(value):
             return cst.MatchSingleton(value=value)
         else:
             return cst.MatchValue(value=value)
@@ -995,7 +999,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
                     
                     # 'is' operator should only be used with singletons (None, True, False)
                     if isinstance(operator, cst.Is):
-                        if not m.matches(comparator, m.Name(value="None") | m.Name(value="True") | m.Name(value="False")):
+                        if not self._is_singleton_name(comparator):
                             return False
                     elif not self._is_literal_value(comparator):
                         return False
