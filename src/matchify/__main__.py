@@ -57,7 +57,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
         ):
             comp = test  # type: ignore
             return comp.left
-        
+
         # Check for isinstance(subject, type)
         if m.matches(
             test,
@@ -68,11 +68,14 @@ class IfToMatchTransformer(cst.CSTTransformer):
         ):
             call = test  # type: ignore
             return call.args[0].value
-        
+
         # Check for isinstance(subject, type) and subject.attr == value
         # The isinstance could be nested in the left side
         if m.matches(test, m.BooleanOperation(operator=m.And())):
-            def find_isinstance_subject(node: cst.BaseExpression) -> cst.BaseExpression | None:
+
+            def find_isinstance_subject(
+                node: cst.BaseExpression,
+            ) -> cst.BaseExpression | None:
                 if self._is_isinstance_call(node):
                     call = node  # type: ignore
                     return call.args[0].value
@@ -80,22 +83,22 @@ class IfToMatchTransformer(cst.CSTTransformer):
                     bool_op = node  # type: ignore
                     return find_isinstance_subject(bool_op.left)
                 return None
-            
+
             result = find_isinstance_subject(test)
             if result is not None:
                 return result
-        
+
         # Check for sequence pattern: len(x) == N and x[0] == val0 ...
         if self._is_sequence_pattern(test):
             result = self._extract_sequence_pattern(test)
             if result is not None:
                 return result[0]
-        
+
         return None
 
     def _is_literal_value(self, node: cst.BaseExpression) -> bool:
         """Check if a node is a literal value (not a variable/name).
-        
+
         Only literal values can be safely used in match case patterns.
         Names would become binding patterns, which changes semantics.
         """
@@ -103,7 +106,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
         if m.matches(node, m.UnaryOperation(operator=m.Minus() | m.Plus())):
             unary = node  # type: ignore
             return m.matches(unary.expression, m.Integer() | m.Float())
-        
+
         return m.matches(
             node,
             m.Integer()
@@ -113,15 +116,15 @@ class IfToMatchTransformer(cst.CSTTransformer):
             | m.FormattedString()
             | m.Name(value="True")
             | m.Name(value="False")
-            | m.Name(value="None")
+            | m.Name(value="None"),
         )
-    
+
     def _extract_subscript_index(self, subscript: cst.Subscript) -> int | None:
         """Extract integer index from a subscript like x[0] or x[1].
-        
+
         Args:
             subscript: A Subscript node
-            
+
         Returns:
             The integer index if it's a simple integer subscript, None otherwise
         """
@@ -142,20 +145,22 @@ class IfToMatchTransformer(cst.CSTTransformer):
                 args=[m.Arg(), m.Arg()],
             ),
         )
-    
+
     def _is_len_call(self, node: cst.BaseExpression) -> bool:
         """Check if node is a len() call."""
         return m.matches(node, m.Call(func=m.Name(value="len"), args=[m.Arg()]))
-    
+
     def _is_singleton_name(self, node: cst.BaseExpression) -> bool:
         """Check if node is None, True, or False."""
-        return m.matches(node, m.Name(value="None") | m.Name(value="True") | m.Name(value="False"))
-    
+        return m.matches(
+            node, m.Name(value="None") | m.Name(value="True") | m.Name(value="False")
+        )
+
     def _is_isinstance_with_and(self, test: cst.BaseExpression) -> bool:
         """Check if test is isinstance(subject, type) and subject.attr == value."""
         if not m.matches(test, m.BooleanOperation(operator=m.And())):
             return False
-        
+
         # Need to find isinstance somewhere in the left side (could be nested)
         def has_isinstance(node: cst.BaseExpression) -> bool:
             if self._is_isinstance_call(node):
@@ -164,19 +169,21 @@ class IfToMatchTransformer(cst.CSTTransformer):
                 bool_op = node  # type: ignore
                 return has_isinstance(bool_op.left)
             return False
-        
+
         bool_op = test  # type: ignore
         return has_isinstance(bool_op.left)
-    
-    def _extract_isinstance_classes(self, test: cst.BaseExpression) -> list[cst.BaseExpression] | None:
+
+    def _extract_isinstance_classes(
+        self, test: cst.BaseExpression
+    ) -> list[cst.BaseExpression] | None:
         """Extract the class(es) from isinstance(subject, Class) or isinstance(subject, (Class1, Class2)) call.
-        
+
         Returns a list of class expressions, or None if not a valid isinstance call.
         """
         if self._is_isinstance_call(test):
             call = test  # type: ignore
             class_arg = call.args[1].value
-            
+
             # Check if it's a tuple of classes
             if isinstance(class_arg, cst.Tuple):
                 classes = []
@@ -191,8 +198,10 @@ class IfToMatchTransformer(cst.CSTTransformer):
                 # Single class
                 return [class_arg]
         return None
-    
-    def _build_match_or_from_classes(self, classes: list[cst.BaseExpression]) -> cst.MatchClass | cst.MatchOr:
+
+    def _build_match_or_from_classes(
+        self, classes: list[cst.BaseExpression]
+    ) -> cst.MatchClass | cst.MatchOr:
         """Build a MatchOr pattern from multiple class expressions.
         
         For single class: returns MatchClass(cls=Class, patterns=[])
@@ -206,26 +215,27 @@ class IfToMatchTransformer(cst.CSTTransformer):
         """
         if len(classes) == 1:
             return cst.MatchClass(cls=classes[0], patterns=[])
-        
+
         # Multiple classes need MatchOrElement wrappers with separators
         or_elements = []
         for i, cls in enumerate(classes):
             match_class = cst.MatchClass(cls=cls, patterns=[])
             if i < len(classes) - 1:
-                or_elements.append(cst.MatchOrElement(
-                    pattern=match_class,
-                    separator=cst.BitOr()
-                ))
+                or_elements.append(
+                    cst.MatchOrElement(pattern=match_class, separator=cst.BitOr())
+                )
             else:
                 or_elements.append(cst.MatchOrElement(pattern=match_class))
         return cst.MatchOr(patterns=or_elements)
-    
-    def _build_pattern_from_value(self, value: cst.BaseExpression) -> cst.MatchSingleton | cst.MatchValue:
+
+    def _build_pattern_from_value(
+        self, value: cst.BaseExpression
+    ) -> cst.MatchSingleton | cst.MatchValue:
         """Build a match pattern from a literal value.
-        
+
         Args:
             value: The literal value expression
-            
+
         Returns:
             MatchSingleton for None/True/False, MatchValue for other literals
         """
@@ -233,96 +243,103 @@ class IfToMatchTransformer(cst.CSTTransformer):
             return cst.MatchSingleton(value=value)
         else:
             return cst.MatchValue(value=value)
-    
-    def _build_class_pattern_keywords(self, attrs: list[tuple[str, cst.BaseExpression | tuple]]) -> list[cst.MatchKeywordElement]:
+
+    def _build_class_pattern_keywords(
+        self, attrs: list[tuple[str, cst.BaseExpression | tuple]]
+    ) -> list[cst.MatchKeywordElement]:
         """Build keyword arguments for a MatchClass pattern.
-        
+
         Args:
             attrs: List of (attr_name, value) tuples where value is either:
                    - A CST expression node for scalar attributes
                    - A tuple ('sequence', patterns) for sequence attributes
-        
+
         Returns:
             List of MatchKeywordElement nodes
         """
         kwds = []
         for attr_name, value in attrs:
             # Check if this is a sequence attribute
-            if isinstance(value, tuple) and value[0] == 'sequence':
+            if isinstance(value, tuple) and value[0] == "sequence":
                 # Build sequence pattern for this attribute
                 _, seq_patterns = value
                 pattern = self._build_sequence_pattern_for_attr(seq_patterns)
             else:
                 # Scalar attribute - create literal/singleton pattern
                 pattern = self._build_pattern_from_value(value)
-            
-            kwds.append(cst.MatchKeywordElement(
-                key=cst.Name(attr_name),
-                pattern=pattern
-            ))
+
+            kwds.append(
+                cst.MatchKeywordElement(key=cst.Name(attr_name), pattern=pattern)
+            )
         return kwds
-    
+
     def _build_pattern_from_info(self, pattern_info: tuple) -> cst.MatchPattern:
         """Build a match pattern from a pattern_info tuple.
-        
+
         Args:
             pattern_info: Tuple of (pattern_type, pattern_data, ...) where:
                 - 'literal': (type, value)
                 - 'isinstance': (type, [classes])
                 - 'isinstance_with_attrs': (type, class_expr, attrs)
                 - 'sequence': (type, nested_patterns)
-        
+
         Returns:
             A match pattern node
         """
         pattern_type = pattern_info[0]
-        
-        if pattern_type == 'literal':
+
+        if pattern_type == "literal":
             value = pattern_info[1]
             return self._build_pattern_from_value(value)
-        elif pattern_type == 'isinstance':
+        elif pattern_type == "isinstance":
             classes = pattern_info[1]
             return self._build_match_or_from_classes(classes)
-        elif pattern_type == 'isinstance_with_attrs':
+        elif pattern_type == "isinstance_with_attrs":
             class_expr = pattern_info[1]
             attrs = pattern_info[2]
             kwds = self._build_class_pattern_keywords(attrs)
             return cst.MatchClass(cls=class_expr, patterns=[], kwds=kwds)
-        elif pattern_type == 'sequence':
+        elif pattern_type == "sequence":
             nested_patterns = pattern_info[1]
             return self._build_nested_sequence_pattern(nested_patterns)
         else:
             raise ValueError(f"Unknown pattern type: {pattern_type}")
-    
-    def _build_sequence_elements(self, patterns: list) -> list[cst.MatchSequenceElement]:
+
+    def _build_sequence_elements(
+        self, patterns: list
+    ) -> list[cst.MatchSequenceElement]:
         """Build a list of MatchSequenceElement nodes from pattern info list.
-        
+
         Args:
             patterns: List of pattern_info tuples
-            
+
         Returns:
             List of MatchSequenceElement nodes with proper comma separators
         """
         elements = []
         for i, pattern_info in enumerate(patterns):
             pattern = self._build_pattern_from_info(pattern_info)
-            
+
             if i < len(patterns) - 1:
-                elements.append(cst.MatchSequenceElement(
-                    value=pattern,
-                    comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" "))
-                ))
+                elements.append(
+                    cst.MatchSequenceElement(
+                        value=pattern,
+                        comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" ")),
+                    )
+                )
             else:
                 elements.append(cst.MatchSequenceElement(value=pattern))
-        
+
         return elements
-    
-    def _build_case_pattern_from_test(self, test: cst.BaseExpression) -> cst.MatchPattern | None:
+
+    def _build_case_pattern_from_test(
+        self, test: cst.BaseExpression
+    ) -> cst.MatchPattern | None:
         """Build a match case pattern from an if/elif test expression.
-        
+
         Args:
             test: The test expression from an if/elif statement
-            
+
         Returns:
             A match pattern node, or None if the pattern cannot be built
         """
@@ -332,10 +349,10 @@ class IfToMatchTransformer(cst.CSTTransformer):
             if result is None:
                 return None
             class_expr, attrs = result
-            
+
             kwds = self._build_class_pattern_keywords(attrs)
             return cst.MatchClass(cls=class_expr, patterns=[], kwds=kwds)
-        
+
         elif self._is_isinstance_call(test):
             # isinstance(subject, Class) -> case Class():
             # isinstance(subject, (Class1, Class2)) -> case Class1() | Class2():
@@ -343,17 +360,17 @@ class IfToMatchTransformer(cst.CSTTransformer):
             if class_exprs is None:
                 return None
             return self._build_match_or_from_classes(class_exprs)
-        
+
         elif self._is_sequence_pattern(test):
             # len(x) == N and x[0] == val0 and x[1] == val1 ... -> case [val0, val1, ...]:
             result = self._extract_sequence_pattern(test)
             if result is None:
                 return None
             _, patterns = result
-            
+
             # Build sequence pattern elements using helper
             elements = self._build_sequence_elements(patterns)
-            
+
             # Use MatchList WITHOUT brackets for comma-separated patterns
             # This creates: case [1, 2], 3: (not case [[1, 2], 3]:)
             return cst.MatchList(
@@ -361,15 +378,15 @@ class IfToMatchTransformer(cst.CSTTransformer):
                 lbracket=None,  # No outer brackets
                 rbracket=None,
             )
-        
+
         else:
             # subject == value -> case value:
             comparator = test.comparisons[0].comparator  # type: ignore
             return self._build_pattern_from_value(comparator)
-    
+
     def _build_sequence_pattern_for_attr(self, seq_patterns: list) -> cst.MatchList:
         """Build a sequence pattern for a class attribute.
-        
+
         Used for patterns like Data(value=[1, 2, 3]) where value is a sequence attribute.
         """
         seq_elements = self._build_sequence_elements(seq_patterns)
@@ -378,13 +395,13 @@ class IfToMatchTransformer(cst.CSTTransformer):
             lbracket=cst.LeftSquareBracket(),
             rbracket=cst.RightSquareBracket(),
         )
-    
+
     def _build_nested_sequence_pattern(self, patterns: list) -> cst.MatchList:
         """Recursively build a nested sequence pattern from pattern metadata.
-        
+
         Args:
             patterns: List of (pattern_type, pattern_data) tuples
-            
+
         Returns:
             A MatchList node containing the nested patterns
         """
@@ -395,19 +412,26 @@ class IfToMatchTransformer(cst.CSTTransformer):
             lbracket=cst.LeftSquareBracket(),
             rbracket=cst.RightSquareBracket(),
         )
-    
-    def _extract_isinstance_with_attrs(self, test: cst.BaseExpression) -> tuple[cst.BaseExpression, list[tuple[str, cst.BaseExpression | tuple[str, list]]]] | None:
+
+    def _extract_isinstance_with_attrs(
+        self, test: cst.BaseExpression
+    ) -> (
+        tuple[
+            cst.BaseExpression, list[tuple[str, cst.BaseExpression | tuple[str, list]]]
+        ]
+        | None
+    ):
         """Extract class and attribute checks from isinstance(subject, Class) and subject.attr == value.
-        
+
         Returns (class_expr, [(attr_name, value), ...]) or None if not a valid pattern.
-        
+
         The value can be:
         - A CST expression for simple values: (attr_name, value_expr)
         - A tuple for sequence patterns: (attr_name, ('sequence', pattern_list))
         """
         if not self._is_isinstance_with_and(test):
             return None
-        
+
         # Find the isinstance call (could be nested in left side of BooleanOperations)
         def find_isinstance(node: cst.BaseExpression) -> cst.Call | None:
             if self._is_isinstance_call(node):
@@ -416,25 +440,27 @@ class IfToMatchTransformer(cst.CSTTransformer):
                 bool_op = node  # type: ignore
                 return find_isinstance(bool_op.left)
             return None
-        
+
         isinstance_call = find_isinstance(test)
         if isinstance_call is None:
             return None
-            
+
         subject = isinstance_call.args[0].value
         class_arg = isinstance_call.args[1].value
-        
+
         # Don't support tuple of classes with attributes yet
         if isinstance(class_arg, cst.Tuple):
             return None
-        
+
         # First, identify which attributes have sequence patterns
         # Look for len(subject.attr) == N patterns
         sequence_attrs: dict[str, bool] = {}
-        
+
         def find_sequence_attrs(node: cst.BaseExpression) -> None:
             """Find attributes that are checked as sequences."""
-            if m.matches(node, m.Comparison(comparisons=[m.ComparisonTarget(operator=m.Equal())])):
+            if m.matches(
+                node, m.Comparison(comparisons=[m.ComparisonTarget(operator=m.Equal())])
+            ):
                 comp = node  # type: ignore
                 # Check for len(subject.attr) == N
                 if self._is_len_call(comp.left):
@@ -450,20 +476,25 @@ class IfToMatchTransformer(cst.CSTTransformer):
                 and_op = node  # type: ignore
                 find_sequence_attrs(and_op.left)
                 find_sequence_attrs(and_op.right)
-        
+
         find_sequence_attrs(test)
-        
+
         # Extract attribute checks from the entire test expression
         attrs = []
-        
+
         # For each sequence attribute, extract its pattern
         for attr_name in sequence_attrs:
             # Collect all conditions related to this attribute
             attr_conditions = []
-            
+
             def collect_attr_conditions(node: cst.BaseExpression) -> None:
                 """Collect conditions related to subject.attr sequence, including nested attributes."""
-                if m.matches(node, m.Comparison(comparisons=[m.ComparisonTarget(operator=m.Equal() | m.Is())])):
+                if m.matches(
+                    node,
+                    m.Comparison(
+                        comparisons=[m.ComparisonTarget(operator=m.Equal() | m.Is())]
+                    ),
+                ):
                     comp = node  # type: ignore
                     # Check for len(subject.attr) == N or len(subject.attr[i].nested_attr)
                     if self._is_len_call(comp.left):
@@ -473,7 +504,10 @@ class IfToMatchTransformer(cst.CSTTransformer):
                             if m.matches(len_arg, m.Attribute()):
                                 attr_expr = len_arg  # type: ignore
                                 # Check for simple case: len(subject.attr)
-                                if attr_expr.value.deep_equals(subject) and attr_expr.attr.value == attr_name:
+                                if (
+                                    attr_expr.value.deep_equals(subject)
+                                    and attr_expr.attr.value == attr_name
+                                ):
                                     attr_conditions.append(node)
                                     return
                                 # Check for nested case: len(subject.attr[i].nested_attr)
@@ -482,7 +516,10 @@ class IfToMatchTransformer(cst.CSTTransformer):
                                     inner_subscript = attr_expr.value  # type: ignore
                                     if m.matches(inner_subscript.value, m.Attribute()):
                                         base_attr = inner_subscript.value  # type: ignore
-                                        if base_attr.value.deep_equals(subject) and base_attr.attr.value == attr_name:
+                                        if (
+                                            base_attr.value.deep_equals(subject)
+                                            and base_attr.attr.value == attr_name
+                                        ):
                                             attr_conditions.append(node)
                                             return
                     # Check for subject.attr[i] == value
@@ -492,7 +529,10 @@ class IfToMatchTransformer(cst.CSTTransformer):
                         if m.matches(subscript.value, m.Attribute()):
                             attr_expr = subscript.value  # type: ignore
                             # Simple case: subject.attr[i]
-                            if attr_expr.value.deep_equals(subject) and attr_expr.attr.value == attr_name:
+                            if (
+                                attr_expr.value.deep_equals(subject)
+                                and attr_expr.attr.value == attr_name
+                            ):
                                 attr_conditions.append(node)
                                 return
                             # Check if this is subject.attr[i].nested_attr[j] (deeper nesting)
@@ -501,7 +541,10 @@ class IfToMatchTransformer(cst.CSTTransformer):
                                 inner_subscript = attr_expr.value  # type: ignore
                                 if m.matches(inner_subscript.value, m.Attribute()):
                                     base_attr = inner_subscript.value  # type: ignore
-                                    if base_attr.value.deep_equals(subject) and base_attr.attr.value == attr_name:
+                                    if (
+                                        base_attr.value.deep_equals(subject)
+                                        and base_attr.attr.value == attr_name
+                                    ):
                                         attr_conditions.append(node)
                                         return
                 elif m.matches(node, m.Call(func=m.Name(value="isinstance"))):
@@ -513,48 +556,56 @@ class IfToMatchTransformer(cst.CSTTransformer):
                             subscript = isinstance_arg  # type: ignore
                             if m.matches(subscript.value, m.Attribute()):
                                 attr_expr = subscript.value  # type: ignore
-                                if attr_expr.value.deep_equals(subject) and attr_expr.attr.value == attr_name:
+                                if (
+                                    attr_expr.value.deep_equals(subject)
+                                    and attr_expr.attr.value == attr_name
+                                ):
                                     attr_conditions.append(node)
                                     return
                 elif m.matches(node, m.BooleanOperation(operator=m.And())):
                     and_op = node  # type: ignore
                     collect_attr_conditions(and_op.left)
                     collect_attr_conditions(and_op.right)
-            
+
             collect_attr_conditions(test)
-            
+
             if attr_conditions:
                 # Build a test expression from these conditions
                 attr_test = attr_conditions[0]
                 for cond in attr_conditions[1:]:
                     attr_test = cst.BooleanOperation(
-                        left=attr_test,
-                        operator=cst.And(),
-                        right=cond
+                        left=attr_test, operator=cst.And(), right=cond
                     )
-                
+
                 # Extract as a sequence pattern, but the subject is subject.attr
                 # We need to build the equivalent check for subject.attr
                 result = self._extract_sequence_pattern(attr_test)
                 if result:
                     _, patterns = result
-                    attrs.append((attr_name, ('sequence', patterns)))
-        
+                    attrs.append((attr_name, ("sequence", patterns)))
+
         # Handle single comparison or chain of and comparisons for scalar attributes
         def extract_attr_checks(node: cst.BaseExpression) -> bool:
             """Recursively extract attribute checks. Returns False if invalid pattern."""
             # Skip isinstance calls
             if self._is_isinstance_call(node):
                 return True
-            
+
             # Skip len() calls - these are handled by sequence attribute extraction
-            if m.matches(node, m.Comparison(comparisons=[m.ComparisonTarget(operator=m.Equal())])):
+            if m.matches(
+                node, m.Comparison(comparisons=[m.ComparisonTarget(operator=m.Equal())])
+            ):
                 comp = node  # type: ignore
                 if m.matches(comp.left, m.Call(func=m.Name(value="len"))):
                     return True
-            
+
             # Skip checks on subscripted attributes (subject.attr[i] or nested like subject.attr[i].nested_attr[j])
-            if m.matches(node, m.Comparison(comparisons=[m.ComparisonTarget(operator=m.Equal() | m.Is())])):
+            if m.matches(
+                node,
+                m.Comparison(
+                    comparisons=[m.ComparisonTarget(operator=m.Equal() | m.Is())]
+                ),
+            ):
                 comp = node  # type: ignore
                 if m.matches(comp.left, m.Subscript()):
                     subscript = comp.left  # type: ignore
@@ -567,7 +618,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
                         inner_attr = subscript.value  # type: ignore
                         if m.matches(inner_attr.value, m.Subscript()):
                             return True
-            
+
             # Skip isinstance checks on subscripted attributes
             if m.matches(node, m.Call(func=m.Name(value="isinstance"))):
                 call = node  # type: ignore
@@ -575,11 +626,18 @@ class IfToMatchTransformer(cst.CSTTransformer):
                     subscript = call.args[0].value  # type: ignore
                     if m.matches(subscript.value, m.Attribute()):
                         return True
-            
+
             if m.matches(node, m.BooleanOperation(operator=m.And())):
                 and_op = node  # type: ignore
-                return extract_attr_checks(and_op.left) and extract_attr_checks(and_op.right)
-            elif m.matches(node, m.Comparison(comparisons=[m.ComparisonTarget(operator=m.Equal() | m.Is())])):
+                return extract_attr_checks(and_op.left) and extract_attr_checks(
+                    and_op.right
+                )
+            elif m.matches(
+                node,
+                m.Comparison(
+                    comparisons=[m.ComparisonTarget(operator=m.Equal() | m.Is())]
+                ),
+            ):
                 comp = node  # type: ignore
                 # Check if left side is subject.attr (not subscripted)
                 if m.matches(comp.left, m.Attribute()):
@@ -590,22 +648,27 @@ class IfToMatchTransformer(cst.CSTTransformer):
                         # Skip if this is a sequence attribute
                         if attr_name in sequence_attrs:
                             return True
-                        
+
                         value = comp.comparisons[0].comparator
                         operator = comp.comparisons[0].operator
-                        
+
                         # 'is' operator should only be used with singletons
                         if isinstance(operator, cst.Is):
-                            if not m.matches(value, m.Name(value="None") | m.Name(value="True") | m.Name(value="False")):
+                            if not m.matches(
+                                value,
+                                m.Name(value="None")
+                                | m.Name(value="True")
+                                | m.Name(value="False"),
+                            ):
                                 return False
                         # Only support literal values for '=='
                         elif not self._is_literal_value(value):
                             return False
-                        
+
                         attrs.append((attr_name, value))
                         return True
             return False
-        
+
         if extract_attr_checks(test):
             return (class_arg, attrs)
         return None
@@ -614,10 +677,12 @@ class IfToMatchTransformer(cst.CSTTransformer):
         """Check if test matches: len(x) == N and x[0] == val0 and x[1] == val1 ..."""
         if not m.matches(test, m.BooleanOperation(operator=m.And())):
             return False
-        
+
         # Need to find len(subject) == N check
         def has_len_check(node: cst.BaseExpression) -> bool:
-            if m.matches(node, m.Comparison(comparisons=[m.ComparisonTarget(operator=m.Equal())])):
+            if m.matches(
+                node, m.Comparison(comparisons=[m.ComparisonTarget(operator=m.Equal())])
+            ):
                 comp = node  # type: ignore
                 # Check for len(x) == N
                 if self._is_len_call(comp.left):
@@ -627,30 +692,40 @@ class IfToMatchTransformer(cst.CSTTransformer):
                 bool_op = node  # type: ignore
                 return has_len_check(bool_op.left) or has_len_check(bool_op.right)
             return False
-        
+
         return has_len_check(test)
-    
-    def _extract_sequence_pattern(self, test: cst.BaseExpression) -> tuple[cst.BaseExpression, list[tuple[str, cst.BaseExpression | list[cst.BaseExpression]]]] | None:
+
+    def _extract_sequence_pattern(self, test: cst.BaseExpression) -> (
+        tuple[
+            cst.BaseExpression,
+            list[tuple[str, cst.BaseExpression | list[cst.BaseExpression]]],
+        ]
+        | None
+    ):
         """Extract subject and pattern info from sequence patterns.
-        
+
         Handles patterns like:
         - len(x) == N and x[0] == val0 and x[1] == val1 -> (x, [('literal', val0), ('literal', val1)])
         - len(x) == N and isinstance(x[0], Class) and x[1] == val -> (x, [('isinstance', Class), ('literal', val)])
-        
+
         Returns (subject, [(pattern_type, pattern_value), ...]) or None if not valid.
         """
         if not self._is_sequence_pattern(test):
             return None
-        
+
         # Find len(subject) == N
         subject = None
         expected_len = None
-        
+
         def find_len_check(node: cst.BaseExpression) -> None:
             nonlocal subject, expected_len
-            if m.matches(node, m.Comparison(comparisons=[m.ComparisonTarget(operator=m.Equal())])):
+            if m.matches(
+                node, m.Comparison(comparisons=[m.ComparisonTarget(operator=m.Equal())])
+            ):
                 comp = node  # type: ignore
-                if m.matches(comp.left, m.Call(func=m.Name(value="len"), args=[m.Arg()])):
+                if m.matches(
+                    comp.left, m.Call(func=m.Name(value="len"), args=[m.Arg()])
+                ):
                     call = comp.left  # type: ignore
                     subject = call.args[0].value
                     comparator = comp.comparisons[0].comparator
@@ -661,24 +736,30 @@ class IfToMatchTransformer(cst.CSTTransformer):
                 find_len_check(bool_op.left)
                 if subject is None:
                     find_len_check(bool_op.right)
-        
+
         find_len_check(test)
         if subject is None or expected_len is None:
             return None
-        
+
         expected_len_val = expected_len  # For type checking in closure
-        
+
         # Now collect pattern info for each index: x[i] == value or isinstance(x[i], Class)
-        patterns: list[tuple[str, cst.BaseExpression | list[cst.BaseExpression]] | None] = [None] * expected_len_val
-        
+        patterns: list[
+            tuple[str, cst.BaseExpression | list[cst.BaseExpression]] | None
+        ] = [None] * expected_len_val
+
         # Track which indices might be nested sequences
         nested_sequence_indices = set()
-        
+
         # First pass: identify indices that might be nested sequences (have len() checks)
         def find_nested_sequences(node: cst.BaseExpression) -> None:
-            if m.matches(node, m.Comparison(comparisons=[m.ComparisonTarget(operator=m.Equal())])):
+            if m.matches(
+                node, m.Comparison(comparisons=[m.ComparisonTarget(operator=m.Equal())])
+            ):
                 comp = node  # type: ignore
-                if m.matches(comp.left, m.Call(func=m.Name(value="len"), args=[m.Arg()])):
+                if m.matches(
+                    comp.left, m.Call(func=m.Name(value="len"), args=[m.Arg()])
+                ):
                     call = comp.left  # type: ignore
                     len_arg = call.args[0].value
                     if m.matches(len_arg, m.Subscript()):
@@ -691,15 +772,15 @@ class IfToMatchTransformer(cst.CSTTransformer):
                 bool_op = node  # type: ignore
                 find_nested_sequences(bool_op.left)
                 find_nested_sequences(bool_op.right)
-        
+
         find_nested_sequences(test)
-        
+
         # For nested sequences, we need to recursively extract them
         for idx in nested_sequence_indices:
-            
+
             # Collect conditions about x[idx] into a list
             nested_conditions = []
-            
+
             def collect_nested_conditions(node: cst.BaseExpression) -> None:
                 # Check if this node involves x[idx]
                 if m.matches(node, m.Comparison()):
@@ -709,7 +790,9 @@ class IfToMatchTransformer(cst.CSTTransformer):
                         call = comp.left  # type: ignore
                         if len(call.args) > 0:
                             len_arg = call.args[0].value
-                            if isinstance(len_arg, cst.Subscript) and len_arg.value.deep_equals(subject):
+                            if isinstance(
+                                len_arg, cst.Subscript
+                            ) and len_arg.value.deep_equals(subject):
                                 check_idx = self._extract_subscript_index(len_arg)
                                 if check_idx == idx:
                                     nested_conditions.append(node)
@@ -717,7 +800,9 @@ class IfToMatchTransformer(cst.CSTTransformer):
                     # Check if left side is x[idx][...]
                     if m.matches(comp.left, m.Subscript()):
                         subscript = comp.left  # type: ignore
-                        if isinstance(subscript.value, cst.Subscript) and subscript.value.value.deep_equals(subject):
+                        if isinstance(
+                            subscript.value, cst.Subscript
+                        ) and subscript.value.value.deep_equals(subject):
                             check_idx = self._extract_subscript_index(subscript.value)
                             if check_idx == idx:
                                 nested_conditions.append(node)
@@ -728,8 +813,12 @@ class IfToMatchTransformer(cst.CSTTransformer):
                         isinstance_arg = call.args[0].value
                         if isinstance(isinstance_arg, cst.Subscript):
                             # Check for isinstance(x[idx][...], ...)
-                            if isinstance(isinstance_arg.value, cst.Subscript) and isinstance_arg.value.value.deep_equals(subject):
-                                check_idx = self._extract_subscript_index(isinstance_arg.value)
+                            if isinstance(
+                                isinstance_arg.value, cst.Subscript
+                            ) and isinstance_arg.value.value.deep_equals(subject):
+                                check_idx = self._extract_subscript_index(
+                                    isinstance_arg.value
+                                )
                                 if check_idx == idx:
                                     nested_conditions.append(node)
                                     return
@@ -737,30 +826,30 @@ class IfToMatchTransformer(cst.CSTTransformer):
                     bool_op = node  # type: ignore
                     collect_nested_conditions(bool_op.left)
                     collect_nested_conditions(bool_op.right)
-            
+
             collect_nested_conditions(test)
-            
+
             if nested_conditions:
                 # Build a combined AND expression from the nested conditions
                 nested_test = nested_conditions[0]
                 for cond in nested_conditions[1:]:
                     nested_test = cst.BooleanOperation(
-                        left=nested_test,
-                        operator=cst.And(),
-                        right=cond
+                        left=nested_test, operator=cst.And(), right=cond
                     )
-                
+
                 # Try to extract sequence pattern from nested_test
                 nested_result = self._extract_sequence_pattern(nested_test)
                 if nested_result:
                     _, nested_patterns = nested_result
-                    patterns[idx] = ('sequence', nested_patterns)
-        
+                    patterns[idx] = ("sequence", nested_patterns)
+
         def collect_subscript_checks(node: cst.BaseExpression) -> bool:
             """Returns False if pattern is invalid."""
-            
+
             # Check for isinstance(x[i], Class)
-            if m.matches(node, m.Call(func=m.Name(value="isinstance"), args=[m.Arg(), m.Arg()])):
+            if m.matches(
+                node, m.Call(func=m.Name(value="isinstance"), args=[m.Arg(), m.Arg()])
+            ):
                 call = node  # type: ignore
                 subscript_arg = call.args[0].value
                 if m.matches(subscript_arg, m.Subscript()):
@@ -772,12 +861,17 @@ class IfToMatchTransformer(cst.CSTTransformer):
                             # Mark that we found an isinstance for this index
                             # The second pass will check if it also has attributes
                             if patterns[idx] is None:
-                                patterns[idx] = ('isinstance_placeholder', call)
+                                patterns[idx] = ("isinstance_placeholder", call)
                             return True
                 return True  # Not a valid isinstance on subscript
-            
+
             # Check for x[i] == value or x[i] is value
-            elif m.matches(node, m.Comparison(comparisons=[m.ComparisonTarget(operator=m.Equal() | m.Is())])):
+            elif m.matches(
+                node,
+                m.Comparison(
+                    comparisons=[m.ComparisonTarget(operator=m.Equal() | m.Is())]
+                ),
+            ):
                 comp = node  # type: ignore
                 if m.matches(comp.left, m.Subscript()):
                     subscript = comp.left  # type: ignore
@@ -786,45 +880,58 @@ class IfToMatchTransformer(cst.CSTTransformer):
                         # Get the index
                         idx = self._extract_subscript_index(subscript)
                         if idx is not None and 0 <= idx < expected_len_val:
-                                        value = comp.comparisons[0].comparator
-                                        operator = comp.comparisons[0].operator
-                                        
-                                        # 'is' operator should only be used with singletons
-                                        if isinstance(operator, cst.Is):
-                                            if not m.matches(value, m.Name(value="None") | m.Name(value="True") | m.Name(value="False")):
-                                                return False
-                                        # Only support literal values for '=='
-                                        elif not self._is_literal_value(value):
-                                            return False
-                                        
-                                        patterns[idx] = ('literal', value)
-                                        return True
+                            value = comp.comparisons[0].comparator
+                            operator = comp.comparisons[0].operator
+
+                            # 'is' operator should only be used with singletons
+                            if isinstance(operator, cst.Is):
+                                if not m.matches(
+                                    value,
+                                    m.Name(value="None")
+                                    | m.Name(value="True")
+                                    | m.Name(value="False"),
+                                ):
+                                    return False
+                            # Only support literal values for '=='
+                            elif not self._is_literal_value(value):
+                                return False
+
+                            patterns[idx] = ("literal", value)
+                            return True
                 return True  # Not a subscript check, skip it
             elif m.matches(node, m.BooleanOperation(operator=m.And())):
                 bool_op = node  # type: ignore
-                return collect_subscript_checks(bool_op.left) and collect_subscript_checks(bool_op.right)
+                return collect_subscript_checks(
+                    bool_op.left
+                ) and collect_subscript_checks(bool_op.right)
             # Skip len() checks
             elif m.matches(node, m.Comparison()):
                 comp = node  # type: ignore
                 if m.matches(comp.left, m.Call(func=m.Name(value="len"))):
                     return True
             return True
-        
+
         if not collect_subscript_checks(test):
             return None
-        
+
         # Second pass: For each index with isinstance placeholder, check if it also has attribute patterns
         for idx in range(expected_len_val):
-            if patterns[idx] is None or (isinstance(patterns[idx], tuple) and patterns[idx][0] in ('literal', 'sequence')):
+            if patterns[idx] is None or (
+                isinstance(patterns[idx], tuple)
+                and patterns[idx][0] in ("literal", "sequence")
+            ):
                 continue
-            
+
             # Check if this is an isinstance placeholder
-            if not (isinstance(patterns[idx], tuple) and patterns[idx][0] == 'isinstance_placeholder'):
+            if not (
+                isinstance(patterns[idx], tuple)
+                and patterns[idx][0] == "isinstance_placeholder"
+            ):
                 continue
-            
+
             # Get the isinstance call from the placeholder
             isinstance_call = patterns[idx][1]
-            
+
             # Extract the class from isinstance
             class_arg = isinstance_call.args[1].value
             if isinstance(class_arg, cst.Tuple):
@@ -833,14 +940,13 @@ class IfToMatchTransformer(cst.CSTTransformer):
                 for element in class_arg.elements:
                     if isinstance(element, cst.Element):
                         classes.append(element.value)
-                patterns[idx] = ('isinstance', classes)
+                patterns[idx] = ("isinstance", classes)
                 continue
-            
+
             # Single class - check for attribute patterns
             # Collect all conditions about x[idx]
             element_conditions = []
-            
-            
+
             def collect_element_conditions(node: cst.BaseExpression) -> None:
                 # Check if this is isinstance(x[idx], Class)
                 if m.matches(node, m.Call(func=m.Name(value="isinstance"))):
@@ -854,13 +960,13 @@ class IfToMatchTransformer(cst.CSTTransformer):
                                 if check_idx == idx:
                                     element_conditions.append(node)
                                     return
-                
+
                 # Check if this is x[idx].attr == value or len(x[idx].attr) == N
                 if m.matches(node, m.Comparison()):
                     comp = node  # type: ignore
                     # Check left side for attribute patterns on x[idx]
                     left = comp.left
-                    
+
                     # x[idx].attr == value
                     if m.matches(left, m.Attribute()):
                         attr = left  # type: ignore
@@ -871,7 +977,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
                                 if check_idx == idx:
                                     element_conditions.append(node)
                                     return
-                    
+
                     # len(x[idx].attr) == N
                     elif self._is_len_call(left):
                         call = left  # type: ignore
@@ -882,11 +988,13 @@ class IfToMatchTransformer(cst.CSTTransformer):
                                 if m.matches(attr.value, m.Subscript()):
                                     subscript = attr.value  # type: ignore
                                     if subscript.value.deep_equals(subject):
-                                        check_idx = self._extract_subscript_index(subscript)
+                                        check_idx = self._extract_subscript_index(
+                                            subscript
+                                        )
                                         if check_idx == idx:
                                             element_conditions.append(node)
                                             return
-                    
+
                     # x[idx].attr[j] == value (subscripted attribute)
                     elif m.matches(left, m.Subscript()):
                         subscript = left  # type: ignore
@@ -895,11 +1003,13 @@ class IfToMatchTransformer(cst.CSTTransformer):
                             if m.matches(attr.value, m.Subscript()):
                                 inner_subscript = attr.value  # type: ignore
                                 if inner_subscript.value.deep_equals(subject):
-                                    check_idx = self._extract_subscript_index(inner_subscript)
+                                    check_idx = self._extract_subscript_index(
+                                        inner_subscript
+                                    )
                                     if check_idx == idx:
                                         element_conditions.append(node)
                                         return
-                
+
                 # Check isinstance(x[idx].attr[j], Class)
                 elif m.matches(node, m.Call(func=m.Name(value="isinstance"))):
                     call = node  # type: ignore
@@ -915,44 +1025,44 @@ class IfToMatchTransformer(cst.CSTTransformer):
                                         if len(inner_subscript.slice) == 1:
                                             slice_elem = inner_subscript.slice[0]
                                             if isinstance(slice_elem.slice, cst.Index):
-                                                if m.matches(slice_elem.slice.value, m.Integer()):
+                                                if m.matches(
+                                                    slice_elem.slice.value, m.Integer()
+                                                ):
                                                     check_idx = int(slice_elem.slice.value.value)  # type: ignore
                                                     if check_idx == idx:
                                                         element_conditions.append(node)
                                                         return
-                
+
                 elif m.matches(node, m.BooleanOperation(operator=m.And())):
                     bool_op = node  # type: ignore
                     collect_element_conditions(bool_op.left)
                     collect_element_conditions(bool_op.right)
-            
+
             collect_element_conditions(test)
-            
+
             # If we have more than just the isinstance check, try to extract attributes
             if len(element_conditions) > 1:
                 # Build combined test for x[idx]
                 element_test = element_conditions[0]
                 for cond in element_conditions[1:]:
                     element_test = cst.BooleanOperation(
-                        left=element_test,
-                        operator=cst.And(),
-                        right=cond
+                        left=element_test, operator=cst.And(), right=cond
                     )
-                
+
                 # Try to extract as isinstance with attributes
                 # The element_test has conditions about x[idx], but _extract_isinstance_with_attrs
                 # expects the subject to be x[idx]. We need to check if this is valid.
                 result = self._extract_isinstance_with_attrs(element_test)
                 if result:
                     class_expr, attrs = result
-                    patterns[idx] = ('isinstance_with_attrs', class_expr, attrs)
+                    patterns[idx] = ("isinstance_with_attrs", class_expr, attrs)
                 else:
                     # Just isinstance without valid attributes
-                    patterns[idx] = ('isinstance', [class_arg])
+                    patterns[idx] = ("isinstance", [class_arg])
             else:
                 # Just isinstance without attributes
-                patterns[idx] = ('isinstance', [class_arg])
-        
+                patterns[idx] = ("isinstance", [class_arg])
+
         # Validate all indices are covered
         if None in patterns:
             return None
@@ -961,7 +1071,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
 
     def _is_simple_equality_chain(self, node: cst.If) -> bool:
         """Very cheap heuristic – we only convert obvious == chains or isinstance chains.
-        
+
         Supports:
         - Pure equality chains with literals: if x == 1: ... elif x == 2: ...
         - Pure isinstance chains: if isinstance(x, int): ... elif isinstance(x, str): ...
@@ -983,9 +1093,11 @@ class IfToMatchTransformer(cst.CSTTransformer):
                 current_subject = self._extract_subject(current.test)
                 if current_subject is None or not current_subject.deep_equals(subject):
                     return False
-                
+
                 # Each branch must be either isinstance, isinstance with and, sequence pattern, or equality with literal
-                if self._is_isinstance_call(current.test) or self._is_isinstance_with_and(current.test):
+                if self._is_isinstance_call(
+                    current.test
+                ) or self._is_isinstance_with_and(current.test):
                     # isinstance is always valid
                     pass
                 elif self._is_sequence_pattern(current.test):
@@ -996,14 +1108,14 @@ class IfToMatchTransformer(cst.CSTTransformer):
                     comparison = current.test  # type: ignore
                     comparator = comparison.comparisons[0].comparator
                     operator = comparison.comparisons[0].operator
-                    
+
                     # 'is' operator should only be used with singletons (None, True, False)
                     if isinstance(operator, cst.Is):
                         if not self._is_singleton_name(comparator):
                             return False
                     elif not self._is_literal_value(comparator):
                         return False
-                
+
                 orelse = current.orelse
                 if orelse is None:
                     break
@@ -1028,7 +1140,9 @@ class IfToMatchTransformer(cst.CSTTransformer):
 
     def leave_If(
         self, original_node: cst.If, updated_node: cst.If
-    ) -> cst.BaseStatement | cst.FlattenSentinel[cst.BaseStatement] | cst.RemovalSentinel:
+    ) -> (
+        cst.BaseStatement | cst.FlattenSentinel[cst.BaseStatement] | cst.RemovalSentinel
+    ):
         # We only care about the *first* If of a chain
         if self._current_subject is not None:
             # Already inside a chain that is being replaced → let the root handle it
@@ -1040,7 +1154,6 @@ class IfToMatchTransformer(cst.CSTTransformer):
 
         if not self._is_simple_equality_chain(original_node):
             return updated_node
-        
 
         # ------------------------------------------------------------------
         # Collect the whole chain
@@ -1062,7 +1175,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
             case_pattern = self._build_case_pattern_from_test(current.test)
             if case_pattern is None:
                 return updated_node
-            
+
             cases.append(
                 cst.MatchCase(
                     pattern=case_pattern,
@@ -1105,7 +1218,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
 
 def convert_file(path: pathlib.Path) -> tuple[pathlib.Path, bool, str | None]:
     """Convert a single file.
-    
+
     Returns:
         Tuple of (path, changed, error_message)
     """
@@ -1147,37 +1260,36 @@ def main() -> None:
         "paths",
         nargs="+",
         type=pathlib.Path,
-        help="Python files or directories to process"
+        help="Python files or directories to process",
     )
     parser.add_argument(
-        "-j", "--jobs",
+        "-j",
+        "--jobs",
         type=int,
         default=None,
-        help="Number of parallel jobs (default: number of CPU cores)"
+        help="Number of parallel jobs (default: number of CPU cores)",
     )
     parser.add_argument(
-        "-v", "--verbose",
-        action="store_true",
-        help="Show files with no changes"
+        "-v", "--verbose", action="store_true", help="Show files with no changes"
     )
-    
+
     args = parser.parse_args()
-    
+
     # Collect all Python files
     python_files = collect_python_files(args.paths)
-    
+
     if not python_files:
         print("No Python files found to process")
         return
-    
+
     # Determine number of workers
     max_workers = args.jobs or multiprocessing.cpu_count()
-    
+
     # Process files in parallel
     converted_count = 0
     unchanged_count = 0
     error_count = 0
-    
+
     if len(python_files) == 1:
         # Single file - no need for multiprocessing
         path, changed, error = convert_file(python_files[0])
@@ -1196,8 +1308,10 @@ def main() -> None:
         # Multiple files - use parallel processing
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             # Submit all tasks
-            future_to_path = {executor.submit(convert_file, path): path for path in python_files}
-            
+            future_to_path = {
+                executor.submit(convert_file, path): path for path in python_files
+            }
+
             # Process results as they complete
             for future in as_completed(future_to_path):
                 path, changed, error = future.result()
@@ -1212,9 +1326,11 @@ def main() -> None:
                     unchanged_count += 1
                 else:
                     unchanged_count += 1
-    
+
     # Print summary
-    print(f"\nSummary: {converted_count} converted, {unchanged_count} unchanged, {error_count} errors")
+    print(
+        f"\nSummary: {converted_count} converted, {unchanged_count} unchanged, {error_count} errors"
+    )
 
 
 if __name__ == "__main__":
