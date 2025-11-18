@@ -31,6 +31,7 @@ pip install matchify
   - Class patterns with attributes (`isinstance(p, Point) and p.x == 5`)
   - Sequence patterns (`len(x) == 2 and x[0] == 0 and x[1] == 1`)
   - Nested sequences (`[[1, 2], 3]`)
+  - Sequence attributes in class patterns (`Data(value=[1, 2, 3])`)
   - Or patterns for isinstance tuples (`isinstance(x, (int, float))`)
 - **Parallel processing** for fast conversion of large codebases
 - **Safe transformations** - only converts when semantics are preserved
@@ -136,6 +137,32 @@ match data:
         print("nested list")
     case Point(), [0, 0]:
         print("point with coordinates")
+```
+
+**Class patterns with sequence attributes:**
+```python
+# Before
+class Data:
+    def __init__(self, value):
+        self.value = value
+
+obj = Data([1, 2, 3])
+if isinstance(obj, Data) and len(obj.value) == 3 and obj.value[0] == 1 and obj.value[1] == 2 and obj.value[2] == 3:
+    print("data with list")
+elif isinstance(obj, Data):
+    print("other data")
+
+# After
+class Data:
+    def __init__(self, value):
+        self.value = value
+
+obj = Data([1, 2, 3])
+match obj:
+    case Data(value=[1, 2, 3]):
+        print("data with list")
+    case Data():
+        print("other data")
 ```
 
 <!-- -8<- [start:Feedback] -->

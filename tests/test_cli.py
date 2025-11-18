@@ -1308,6 +1308,105 @@ class TestIfToMatchTransformer:
 
         check_code(source, expected)
 
+    def test_isinstance_with_sequence_attribute_converted(self):
+        """Test that isinstance with sequence attributes converts to class patterns.
+        
+        Patterns like 'isinstance(obj, Data) and len(obj.value) == 3 and obj.value[0] == 1'
+        become 'case Data(value=[1, 2, 3]):'.
+        """
+        source = dedent("""
+            class Data:
+                def __init__(self, value):
+                    self.value = value
+            
+            obj = Data([1, 2, 3])
+            if isinstance(obj, Data) and len(obj.value) == 3 and obj.value[0] == 1 and obj.value[1] == 2 and obj.value[2] == 3:
+                print("match")
+            elif isinstance(obj, Data):
+                print("other data")
+        """).strip()
+
+        expected = dedent("""
+            class Data:
+                def __init__(self, value):
+                    self.value = value
+            
+            obj = Data([1, 2, 3])
+            match obj:
+                case Data(value=[1, 2, 3]):
+                    print("match")
+                case Data():
+                    print("other data")
+        """).strip()
+        
+        check_code(source, expected)
+
+    def test_isinstance_with_sequence_attribute_mixed_types(self):
+        """Test class pattern with sequence attribute containing mixed types."""
+        source = dedent("""
+            class Point:
+                pass
+            
+            class Data:
+                def __init__(self, value):
+                    self.value = value
+            
+            obj = Data([Point(), 1, 2])
+            if isinstance(obj, Data) and len(obj.value) == 3 and isinstance(obj.value[0], Point) and obj.value[1] == 1 and obj.value[2] == 2:
+                print("match")
+            elif isinstance(obj, Data):
+                print("other")
+        """).strip()
+
+        expected = dedent("""
+            class Point:
+                pass
+            
+            class Data:
+                def __init__(self, value):
+                    self.value = value
+            
+            obj = Data([Point(), 1, 2])
+            match obj:
+                case Data(value=[Point(), 1, 2]):
+                    print("match")
+                case Data():
+                    print("other")
+        """).strip()
+        
+        check_code(source, expected)
+
+    def test_isinstance_with_sequence_and_scalar_attributes(self):
+        """Test class pattern with both sequence and scalar attributes."""
+        source = dedent("""
+            class Container:
+                def __init__(self, items, count):
+                    self.items = items
+                    self.count = count
+            
+            obj = Container([1, 2, 3], 3)
+            if isinstance(obj, Container) and len(obj.items) == 3 and obj.items[0] == 1 and obj.items[1] == 2 and obj.items[2] == 3 and obj.count == 3:
+                print("match")
+            elif isinstance(obj, Container):
+                print("other")
+        """).strip()
+
+        expected = dedent("""
+            class Container:
+                def __init__(self, items, count):
+                    self.items = items
+                    self.count = count
+            
+            obj = Container([1, 2, 3], 3)
+            match obj:
+                case Container(items=[1, 2, 3], count=3):
+                    print("match")
+                case Container():
+                    print("other")
+        """).strip()
+        
+        check_code(source, expected)
+
 
 class TestConvertFile:
     """Test the convert_file function."""

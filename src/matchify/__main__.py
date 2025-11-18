@@ -212,10 +212,14 @@ class IfToMatchTransformer(cst.CSTTransformer):
             rbracket=cst.RightSquareBracket(),
         )
     
-    def _extract_isinstance_with_attrs(self, test: cst.BaseExpression) -> tuple[cst.BaseExpression, list[tuple[str, cst.BaseExpression]]] | None:
+    def _extract_isinstance_with_attrs(self, test: cst.BaseExpression) -> tuple[cst.BaseExpression, list[tuple[str, cst.BaseExpression | tuple[str, list]]]] | None:
         """Extract class and attribute checks from isinstance(subject, Class) and subject.attr == value.
         
         Returns (class_expr, [(attr_name, value), ...]) or None if not a valid pattern.
+        
+        The value can be:
+        - A CST expression for simple values: (attr_name, value_expr)
+        - A tuple for sequence patterns: (attr_name, ('sequence', pattern_list))
         """
         if not self._is_isinstance_with_and(test):
             return None
@@ -240,27 +244,143 @@ class IfToMatchTransformer(cst.CSTTransformer):
         if isinstance(class_arg, cst.Tuple):
             return None
         
+        # First, identify which attributes have sequence patterns
+        # Look for len(subject.attr) == N patterns
+        sequence_attrs: dict[str, bool] = {}
+        
+        def find_sequence_attrs(node: cst.BaseExpression) -> None:
+            """Find attributes that are checked as sequences."""
+            if m.matches(node, m.Comparison(comparisons=[m.ComparisonTarget(operator=m.Equal())])):
+                comp = node  # type: ignore
+                # Check for len(subject.attr) == N
+                if m.matches(comp.left, m.Call(func=m.Name(value="len"), args=[m.Arg()])):
+                    call = comp.left  # type: ignore
+                    if len(call.args) > 0:
+                        len_arg = call.args[0].value
+                        if m.matches(len_arg, m.Attribute()):
+                            attr_expr = len_arg  # type: ignore
+                            if attr_expr.value.deep_equals(subject):
+                                attr_name = attr_expr.attr.value
+                                sequence_attrs[attr_name] = True
+            elif m.matches(node, m.BooleanOperation(operator=m.And())):
+                and_op = node  # type: ignore
+                find_sequence_attrs(and_op.left)
+                find_sequence_attrs(and_op.right)
+        
+        find_sequence_attrs(test)
+        
         # Extract attribute checks from the entire test expression
         attrs = []
         
-        # Handle single comparison or chain of and comparisons
+        # For each sequence attribute, extract its pattern
+        for attr_name in sequence_attrs:
+            # Collect all conditions related to this attribute
+            attr_conditions = []
+            
+            def collect_attr_conditions(node: cst.BaseExpression) -> None:
+                """Collect conditions related to subject.attr sequence."""
+                if m.matches(node, m.Comparison(comparisons=[m.ComparisonTarget(operator=m.Equal() | m.Is())])):
+                    comp = node  # type: ignore
+                    # Check for len(subject.attr) == N
+                    if m.matches(comp.left, m.Call(func=m.Name(value="len"), args=[m.Arg()])):
+                        call = comp.left  # type: ignore
+                        if len(call.args) > 0:
+                            len_arg = call.args[0].value
+                            if m.matches(len_arg, m.Attribute()):
+                                attr_expr = len_arg  # type: ignore
+                                if attr_expr.value.deep_equals(subject) and attr_expr.attr.value == attr_name:
+                                    attr_conditions.append(node)
+                                    return
+                    # Check for subject.attr[i] == value or isinstance(subject.attr[i], Class)
+                    if m.matches(comp.left, m.Subscript()):
+                        subscript = comp.left  # type: ignore
+                        if m.matches(subscript.value, m.Attribute()):
+                            attr_expr = subscript.value  # type: ignore
+                            if attr_expr.value.deep_equals(subject) and attr_expr.attr.value == attr_name:
+                                attr_conditions.append(node)
+                                return
+                elif m.matches(node, m.Call(func=m.Name(value="isinstance"))):
+                    call = node  # type: ignore
+                    if len(call.args) >= 1:
+                        isinstance_arg = call.args[0].value
+                        # Check for isinstance(subject.attr[i], Class)
+                        if m.matches(isinstance_arg, m.Subscript()):
+                            subscript = isinstance_arg  # type: ignore
+                            if m.matches(subscript.value, m.Attribute()):
+                                attr_expr = subscript.value  # type: ignore
+                                if attr_expr.value.deep_equals(subject) and attr_expr.attr.value == attr_name:
+                                    attr_conditions.append(node)
+                                    return
+                elif m.matches(node, m.BooleanOperation(operator=m.And())):
+                    and_op = node  # type: ignore
+                    collect_attr_conditions(and_op.left)
+                    collect_attr_conditions(and_op.right)
+            
+            collect_attr_conditions(test)
+            
+            if attr_conditions:
+                # Build a test expression from these conditions
+                attr_test = attr_conditions[0]
+                for cond in attr_conditions[1:]:
+                    attr_test = cst.BooleanOperation(
+                        left=attr_test,
+                        operator=cst.And(),
+                        right=cond
+                    )
+                
+                # Extract as a sequence pattern, but the subject is subject.attr
+                # We need to build the equivalent check for subject.attr
+                result = self._extract_sequence_pattern(attr_test)
+                if result:
+                    _, patterns = result
+                    attrs.append((attr_name, ('sequence', patterns)))
+                else:
+                    return None
+        
+        # Handle single comparison or chain of and comparisons for scalar attributes
         def extract_attr_checks(node: cst.BaseExpression) -> bool:
             """Recursively extract attribute checks. Returns False if invalid pattern."""
             # Skip isinstance calls
             if self._is_isinstance_call(node):
                 return True
             
+            # Skip len() calls - these are handled by sequence attribute extraction
+            if m.matches(node, m.Comparison(comparisons=[m.ComparisonTarget(operator=m.Equal())])):
+                comp = node  # type: ignore
+                if m.matches(comp.left, m.Call(func=m.Name(value="len"))):
+                    return True
+            
+            # Skip checks on subscripted attributes (subject.attr[i])
+            if m.matches(node, m.Comparison(comparisons=[m.ComparisonTarget(operator=m.Equal() | m.Is())])):
+                comp = node  # type: ignore
+                if m.matches(comp.left, m.Subscript()):
+                    subscript = comp.left  # type: ignore
+                    if m.matches(subscript.value, m.Attribute()):
+                        return True
+            
+            # Skip isinstance checks on subscripted attributes
+            if m.matches(node, m.Call(func=m.Name(value="isinstance"))):
+                call = node  # type: ignore
+                if len(call.args) >= 1 and m.matches(call.args[0].value, m.Subscript()):
+                    subscript = call.args[0].value  # type: ignore
+                    if m.matches(subscript.value, m.Attribute()):
+                        return True
+            
             if m.matches(node, m.BooleanOperation(operator=m.And())):
                 and_op = node  # type: ignore
                 return extract_attr_checks(and_op.left) and extract_attr_checks(and_op.right)
             elif m.matches(node, m.Comparison(comparisons=[m.ComparisonTarget(operator=m.Equal() | m.Is())])):
                 comp = node  # type: ignore
-                # Check if left side is subject.attr
+                # Check if left side is subject.attr (not subscripted)
                 if m.matches(comp.left, m.Attribute()):
                     attr = comp.left  # type: ignore
                     # Verify the attribute is on the same subject
                     if attr.value.deep_equals(subject):
                         attr_name = attr.attr.value
+                        # Skip if this is a sequence attribute
+                        if attr_name in sequence_attrs:
+                            return True
+                        
                         value = comp.comparisons[0].comparator
                         operator = comp.comparisons[0].operator
                         
@@ -631,11 +751,50 @@ class IfToMatchTransformer(cst.CSTTransformer):
                 # Build keyword arguments for the class pattern
                 kwds = []
                 for attr_name, value in attrs:
-                    # Create MatchKeywordElement for each attribute
-                    if m.matches(value, m.Name(value="None") | m.Name(value="True") | m.Name(value="False")):
-                        pattern = cst.MatchSingleton(value=value)
+                    # Check if this is a sequence attribute
+                    if isinstance(value, tuple) and value[0] == 'sequence':
+                        # Build sequence pattern for this attribute
+                        _, seq_patterns = value
+                        seq_elements = []
+                        for j, (pattern_type, pattern_data) in enumerate(seq_patterns):
+                            if pattern_type == 'literal':
+                                literal_value = pattern_data
+                                if m.matches(literal_value, m.Name(value="None") | m.Name(value="True") | m.Name(value="False")):
+                                    seq_pattern = cst.MatchSingleton(value=literal_value)
+                                else:
+                                    seq_pattern = cst.MatchValue(value=literal_value)
+                            elif pattern_type == 'isinstance':
+                                classes = pattern_data
+                                if len(classes) == 1:
+                                    seq_pattern = cst.MatchClass(cls=classes[0], patterns=[])
+                                else:
+                                    class_patterns = [cst.MatchClass(cls=cls, patterns=[]) for cls in classes]
+                                    seq_pattern = cst.MatchOr(patterns=class_patterns)
+                            elif pattern_type == 'sequence':
+                                # Recursively handle deeper nesting
+                                seq_pattern = self._build_nested_sequence_pattern(pattern_data)
+                            else:
+                                raise ValueError(f"Unknown pattern type in sequence attribute: {pattern_type}")
+                            
+                            if j < len(seq_patterns) - 1:
+                                seq_elements.append(cst.MatchSequenceElement(
+                                    value=seq_pattern,
+                                    comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" "))
+                                ))
+                            else:
+                                seq_elements.append(cst.MatchSequenceElement(value=seq_pattern))
+                        
+                        pattern = cst.MatchList(
+                            patterns=seq_elements,
+                            lbracket=cst.LeftSquareBracket(),
+                            rbracket=cst.RightSquareBracket(),
+                        )
                     else:
-                        pattern = cst.MatchValue(value=value)
+                        # Create MatchKeywordElement for scalar attribute
+                        if m.matches(value, m.Name(value="None") | m.Name(value="True") | m.Name(value="False")):
+                            pattern = cst.MatchSingleton(value=value)
+                        else:
+                            pattern = cst.MatchValue(value=value)
                     
                     kwds.append(cst.MatchKeywordElement(
                         key=cst.Name(attr_name),
