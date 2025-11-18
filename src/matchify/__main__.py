@@ -237,58 +237,67 @@ class IfToMatchTransformer(cst.CSTTransformer):
             ))
         return kwds
     
+    def _build_pattern_from_info(self, pattern_info: tuple) -> cst.MatchPattern:
+        """Build a match pattern from a pattern_info tuple.
+        
+        Args:
+            pattern_info: Tuple of (pattern_type, pattern_data, ...) where:
+                - 'literal': (type, value)
+                - 'isinstance': (type, [classes])
+                - 'isinstance_with_attrs': (type, class_expr, attrs)
+                - 'sequence': (type, nested_patterns)
+        
+        Returns:
+            A match pattern node
+        """
+        pattern_type = pattern_info[0]
+        
+        if pattern_type == 'literal':
+            value = pattern_info[1]
+            return self._build_pattern_from_value(value)
+        elif pattern_type == 'isinstance':
+            classes = pattern_info[1]
+            return self._build_match_or_from_classes(classes)
+        elif pattern_type == 'isinstance_with_attrs':
+            class_expr = pattern_info[1]
+            attrs = pattern_info[2]
+            kwds = self._build_class_pattern_keywords(attrs)
+            return cst.MatchClass(cls=class_expr, patterns=[], kwds=kwds)
+        elif pattern_type == 'sequence':
+            nested_patterns = pattern_info[1]
+            return self._build_nested_sequence_pattern(nested_patterns)
+        else:
+            raise ValueError(f"Unknown pattern type: {pattern_type}")
+    
+    def _build_sequence_elements(self, patterns: list) -> list[cst.MatchSequenceElement]:
+        """Build a list of MatchSequenceElement nodes from pattern info list.
+        
+        Args:
+            patterns: List of pattern_info tuples
+            
+        Returns:
+            List of MatchSequenceElement nodes with proper comma separators
+        """
+        elements = []
+        for i, pattern_info in enumerate(patterns):
+            pattern = self._build_pattern_from_info(pattern_info)
+            
+            if i < len(patterns) - 1:
+                elements.append(cst.MatchSequenceElement(
+                    value=pattern,
+                    comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" "))
+                ))
+            else:
+                elements.append(cst.MatchSequenceElement(value=pattern))
+        
+        return elements
+    
     def _build_sequence_pattern_for_attr(self, seq_patterns: list) -> cst.MatchList:
         """Build a sequence pattern for a class attribute.
         
         Used for patterns like Data(value=[1, 2, 3]) where value is a sequence attribute.
         """
-        seq_elements = []
-        for j, pattern_info in enumerate(seq_patterns):
-            pattern_type = pattern_info[0]
-            pattern_data = pattern_info[1] if len(pattern_info) > 1 else None
-            
-            if pattern_type == 'literal':
-                literal_value = pattern_data
-                if m.matches(literal_value, m.Name(value="None") | m.Name(value="True") | m.Name(value="False")):
-                    seq_pattern = cst.MatchSingleton(value=literal_value)
-                else:
-                    seq_pattern = cst.MatchValue(value=literal_value)
-            elif pattern_type == 'isinstance':
-                classes = pattern_data
-                seq_pattern = self._build_match_or_from_classes(classes)
-            elif pattern_type == 'isinstance_with_attrs':
-                # Recursively handle isinstance with attributes in sequence
-                class_expr = pattern_info[1]
-                attrs = pattern_info[2]
-                kwds = []
-                for attr_name, attr_value in attrs:
-                    if isinstance(attr_value, tuple) and attr_value[0] == 'sequence':
-                        _, inner_seq_patterns = attr_value
-                        attr_pattern = self._build_sequence_pattern_for_attr(inner_seq_patterns)
-                    else:
-                        if m.matches(attr_value, m.Name(value="None") | m.Name(value="True") | m.Name(value="False")):
-                            attr_pattern = cst.MatchSingleton(value=attr_value)
-                        else:
-                            attr_pattern = cst.MatchValue(value=attr_value)
-                    kwds.append(cst.MatchKeywordElement(
-                        key=cst.Name(attr_name),
-                        pattern=attr_pattern
-                    ))
-                seq_pattern = cst.MatchClass(cls=class_expr, patterns=[], kwds=kwds)
-            elif pattern_type == 'sequence':
-                # Recursively handle deeper nesting
-                seq_pattern = self._build_nested_sequence_pattern(pattern_data)
-            else:
-                raise ValueError(f"Unknown pattern type in sequence attribute: {pattern_type}")
-            
-            if j < len(seq_patterns) - 1:
-                seq_elements.append(cst.MatchSequenceElement(
-                    value=seq_pattern,
-                    comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" "))
-                ))
-            else:
-                seq_elements.append(cst.MatchSequenceElement(value=seq_pattern))
-        
+        seq_elements = self._build_sequence_elements(seq_patterns)
         return cst.MatchList(
             patterns=seq_elements,
             lbracket=cst.LeftSquareBracket(),
@@ -304,53 +313,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
         Returns:
             A MatchList node containing the nested patterns
         """
-        elements = []
-        for j, pattern_info in enumerate(patterns):
-            pattern_type = pattern_info[0]
-            pattern_data = pattern_info[1] if len(pattern_info) > 1 else None
-            
-            if pattern_type == 'literal':
-                value = pattern_data
-                if m.matches(value, m.Name(value="None") | m.Name(value="True") | m.Name(value="False")):
-                    pattern = cst.MatchSingleton(value=value)
-                else:
-                    pattern = cst.MatchValue(value=value)
-            elif pattern_type == 'isinstance':
-                classes = pattern_data
-                pattern = self._build_match_or_from_classes(classes)
-            elif pattern_type == 'isinstance_with_attrs':
-                # Recursively handle isinstance with attributes
-                class_expr = pattern_info[1]
-                attrs = pattern_info[2]
-                kwds = []
-                for attr_name, attr_value in attrs:
-                    if isinstance(attr_value, tuple) and attr_value[0] == 'sequence':
-                        _, inner_seq_patterns = attr_value
-                        attr_pattern = self._build_sequence_pattern_for_attr(inner_seq_patterns)
-                    else:
-                        if m.matches(attr_value, m.Name(value="None") | m.Name(value="True") | m.Name(value="False")):
-                            attr_pattern = cst.MatchSingleton(value=attr_value)
-                        else:
-                            attr_pattern = cst.MatchValue(value=attr_value)
-                    kwds.append(cst.MatchKeywordElement(
-                        key=cst.Name(attr_name),
-                        pattern=attr_pattern
-                    ))
-                pattern = cst.MatchClass(cls=class_expr, patterns=[], kwds=kwds)
-            elif pattern_type == 'sequence':
-                # Recursive call for deeper nesting
-                pattern = self._build_nested_sequence_pattern(pattern_data)
-            else:
-                raise ValueError(f"Unknown pattern type: {pattern_type}")
-            
-            if j < len(patterns) - 1:
-                elements.append(cst.MatchSequenceElement(
-                    value=pattern,
-                    comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" "))
-                ))
-            else:
-                elements.append(cst.MatchSequenceElement(value=pattern))
-        
+        elements = self._build_sequence_elements(patterns)
         # Return MatchList WITH brackets for nested sequences
         return cst.MatchList(
             patterns=elements,
