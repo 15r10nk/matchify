@@ -85,6 +85,12 @@ class IfToMatchTransformer(cst.CSTTransformer):
             if result is not None:
                 return result
         
+        # Check for sequence pattern: len(x) == N and x[0] == val0 ...
+        if self._is_sequence_pattern(test):
+            result = self._extract_sequence_pattern(test)
+            if result is not None:
+                return result[0]
+        
         return None
 
     def _is_literal_value(self, node: cst.BaseExpression) -> bool:
@@ -229,6 +235,104 @@ class IfToMatchTransformer(cst.CSTTransformer):
             return (class_arg, attrs)
         return None
 
+    def _is_sequence_pattern(self, test: cst.BaseExpression) -> bool:
+        """Check if test matches: len(x) == N and x[0] == val0 and x[1] == val1 ..."""
+        if not m.matches(test, m.BooleanOperation(operator=m.And())):
+            return False
+        
+        # Need to find len(subject) == N check
+        def has_len_check(node: cst.BaseExpression) -> bool:
+            if m.matches(node, m.Comparison(comparisons=[m.ComparisonTarget(operator=m.Equal())])):
+                comp = node  # type: ignore
+                # Check for len(x) == N
+                if m.matches(comp.left, m.Call(func=m.Name(value="len"), args=[m.Arg()])):
+                    comparator = comp.comparisons[0].comparator
+                    return m.matches(comparator, m.Integer())
+            if m.matches(node, m.BooleanOperation(operator=m.And())):
+                bool_op = node  # type: ignore
+                return has_len_check(bool_op.left) or has_len_check(bool_op.right)
+            return False
+        
+        return has_len_check(test)
+    
+    def _extract_sequence_pattern(self, test: cst.BaseExpression) -> tuple[cst.BaseExpression, list[cst.BaseExpression]] | None:
+        """Extract subject and values from: len(x) == N and x[0] == val0 and x[1] == val1 ...
+        
+        Returns (subject, [val0, val1, ...]) or None if not a valid sequence pattern.
+        """
+        if not self._is_sequence_pattern(test):
+            return None
+        
+        # Find len(subject) == N
+        subject = None
+        expected_len = None
+        
+        def find_len_check(node: cst.BaseExpression) -> None:
+            nonlocal subject, expected_len
+            if m.matches(node, m.Comparison(comparisons=[m.ComparisonTarget(operator=m.Equal())])):
+                comp = node  # type: ignore
+                if m.matches(comp.left, m.Call(func=m.Name(value="len"), args=[m.Arg()])):
+                    call = comp.left  # type: ignore
+                    subject = call.args[0].value
+                    comparator = comp.comparisons[0].comparator
+                    if m.matches(comparator, m.Integer()):
+                        expected_len = int(comparator.value)  # type: ignore
+            elif m.matches(node, m.BooleanOperation(operator=m.And())):
+                bool_op = node  # type: ignore
+                find_len_check(bool_op.left)
+                if subject is None:
+                    find_len_check(bool_op.right)
+        
+        find_len_check(test)
+        if subject is None or expected_len is None:
+            return None
+        
+        # Now collect x[i] == value checks
+        values: list[cst.BaseExpression | None] = [None] * expected_len
+        expected_len_val = expected_len  # For type checking in closure
+        
+        def collect_subscript_checks(node: cst.BaseExpression) -> bool:
+            """Returns False if pattern is invalid."""
+            if m.matches(node, m.Comparison(comparisons=[m.ComparisonTarget(operator=m.Equal())])):
+                comp = node  # type: ignore
+                # Check for x[i] == value
+                if m.matches(comp.left, m.Subscript()):
+                    subscript = comp.left  # type: ignore
+                    # Verify it's subscripting the same subject
+                    if subscript.value.deep_equals(subject):
+                        # Get the index
+                        if len(subscript.slice) == 1:
+                            slice_elem = subscript.slice[0]
+                            if isinstance(slice_elem.slice, cst.Index):
+                                index_val = slice_elem.slice.value
+                                if m.matches(index_val, m.Integer()):
+                                    idx = int(index_val.value)  # type: ignore
+                                    if 0 <= idx < expected_len_val:
+                                        value = comp.comparisons[0].comparator
+                                        # Only support literal values
+                                        if self._is_literal_value(value):
+                                            values[idx] = value
+                                            return True
+                return True  # Not a subscript check, skip it
+            elif m.matches(node, m.BooleanOperation(operator=m.And())):
+                bool_op = node  # type: ignore
+                return collect_subscript_checks(bool_op.left) and collect_subscript_checks(bool_op.right)
+            # Skip len() checks
+            elif m.matches(node, m.Comparison()):
+                comp = node  # type: ignore
+                if m.matches(comp.left, m.Call(func=m.Name(value="len"))):
+                    return True
+            return True
+        
+        if not collect_subscript_checks(test):
+            return None
+        
+        # Verify all indices have values
+        if None in values:
+            return None
+        
+        return (subject, values)  # type: ignore
+
     def _is_simple_equality_chain(self, node: cst.If) -> bool:
         """Very cheap heuristic – we only convert obvious == chains or isinstance chains.
         
@@ -254,9 +358,12 @@ class IfToMatchTransformer(cst.CSTTransformer):
                 if current_subject is None or not current_subject.deep_equals(subject):
                     return False
                 
-                # Each branch must be either isinstance, isinstance with and, or equality with literal
+                # Each branch must be either isinstance, isinstance with and, sequence pattern, or equality with literal
                 if self._is_isinstance_call(current.test) or self._is_isinstance_with_and(current.test):
                     # isinstance is always valid
+                    pass
+                elif self._is_sequence_pattern(current.test):
+                    # sequence pattern is valid
                     pass
                 else:
                     # For equality/identity chains, check that we're comparing against a literal value
@@ -372,6 +479,33 @@ class IfToMatchTransformer(cst.CSTTransformer):
                         else:
                             or_elements.append(cst.MatchOrElement(pattern=match_class))
                     case_pattern = cst.MatchOr(patterns=or_elements)
+            elif self._is_sequence_pattern(current.test):
+                # len(x) == N and x[0] == val0 and x[1] == val1 ... -> case [val0, val1, ...]:
+                result = self._extract_sequence_pattern(current.test)
+                if result is None:
+                    return updated_node
+                _, values = result
+                
+                # Build sequence pattern elements
+                elements = []
+                for i, value in enumerate(values):
+                    # Create pattern for each element
+                    if m.matches(value, m.Name(value="None") | m.Name(value="True") | m.Name(value="False")):
+                        pattern = cst.MatchSingleton(value=value)
+                    else:
+                        pattern = cst.MatchValue(value=value)
+                    
+                    # Add comma for all but the last element
+                    if i < len(values) - 1:
+                        elements.append(cst.MatchSequenceElement(
+                            value=pattern,
+                            comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" "))
+                        ))
+                    else:
+                        elements.append(cst.MatchSequenceElement(value=pattern))
+                
+                # Use MatchList for list syntax [...]
+                case_pattern = cst.MatchList(patterns=elements)
             else:
                 # subject == value -> case value:
                 comparator = current.test.comparisons[0].comparator  # type: ignore

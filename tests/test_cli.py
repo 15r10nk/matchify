@@ -711,6 +711,111 @@ class TestIfToMatchTransformer:
         
         check_code(source, expected)
 
+    def test_sequence_pattern_simple(self):
+        """Test that sequence patterns with subscript checks are converted.
+        
+        Patterns like 'len(x) == 2 and x[0] == 0 and x[1] == 1' become 'case [0, 1]:'.
+        """
+        source = dedent("""
+            point = (0, 1)
+            if len(point) == 2 and point[0] == 0 and point[1] == 1:
+                print("origin offset")
+            elif len(point) == 2 and point[0] == 1 and point[1] == 1:
+                print("diagonal")
+            else:
+                print("other")
+        """).strip()
+
+        expected = dedent("""
+            point = (0, 1)
+            match point:
+                case 0, 1:
+                    print("origin offset")
+                case 1, 1:
+                    print("diagonal")
+                case _:
+                    print("other")
+        """).strip()
+        
+        check_code(source, expected)
+
+    def test_sequence_pattern_three_elements(self):
+        """Test sequence patterns with three elements."""
+        source = dedent("""
+            rgb = (255, 0, 0)
+            if len(rgb) == 3 and rgb[0] == 255 and rgb[1] == 0 and rgb[2] == 0:
+                print("red")
+            elif len(rgb) == 3 and rgb[0] == 0 and rgb[1] == 255 and rgb[2] == 0:
+                print("green")
+            else:
+                print("other")
+        """).strip()
+
+        expected = dedent("""
+            rgb = (255, 0, 0)
+            match rgb:
+                case 255, 0, 0:
+                    print("red")
+                case 0, 255, 0:
+                    print("green")
+                case _:
+                    print("other")
+        """).strip()
+        
+        check_code(source, expected)
+
+    def test_sequence_pattern_with_strings(self):
+        """Test sequence patterns with string literals."""
+        source = dedent("""
+            cmd = ["get", "item"]
+            if len(cmd) == 2 and cmd[0] == "get" and cmd[1] == "item":
+                print("get item")
+            elif len(cmd) == 2 and cmd[0] == "drop" and cmd[1] == "item":
+                print("drop item")
+        """).strip()
+
+        expected = dedent("""
+            cmd = ["get", "item"]
+            match cmd:
+                case "get", "item":
+                    print("get item")
+                case "drop", "item":
+                    print("drop item")
+        """).strip()
+        
+        check_code(source, expected)
+
+    def test_sequence_pattern_missing_index_not_converted(self):
+        """Test that incomplete sequence patterns are not converted.
+        
+        If we check len() == 3 but only check indices 0 and 1, don't convert.
+        """
+        source = dedent("""
+            point = (1, 2, 3)
+            if len(point) == 3 and point[0] == 1 and point[1] == 2:
+                print("incomplete")
+            elif len(point) == 3:
+                print("complete")
+        """).strip()
+
+        # Expected is same as source (no transformation)
+        expected = source
+        check_code(source, expected)
+
+    def test_sequence_pattern_without_len_not_converted(self):
+        """Test that subscript checks without len() are not converted."""
+        source = dedent("""
+            point = (1, 2)
+            if point[0] == 1 and point[1] == 2:
+                print("no len check")
+            elif point[0] == 0:
+                print("other")
+        """).strip()
+
+        # Expected is same as source (no transformation)
+        expected = source
+        check_code(source, expected)
+
 
 class TestConvertFile:
     """Test the convert_file function."""
