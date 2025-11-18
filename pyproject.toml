@@ -1,0 +1,116 @@
+[build-system]
+build-backend = "hatchling.build"
+requires = ["hatchling"]
+
+[project]
+authors = [
+  {name = "Frank Hoffmann", email = "15r10nk@polarbit.de"}
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Programming Language :: Python :: Implementation :: CPython",
+  "Programming Language :: Python :: Implementation :: PyPy"
+]
+dependencies = [
+    "libcst>=1.8.6",
+]
+description = 'converts if-else code to match statements'
+keywords = []
+license = "MIT"
+name = "matchify"
+readme = "README.md"
+requires-python = ">=3.10"
+version="0.0.1"
+
+
+[project.scripts]
+matchify = "matchify.__main__:main"
+
+
+[project.urls]
+Documentation = "https://github.com/15r10nk/matchify#readme"
+Issues = "https://github.com/15r10nk/matchify/issues"
+Source = "https://github.com/15r10nk/matchify"
+
+[tool.black]
+target-version = ["py310"]
+
+[tool.commitizen]
+changelog_incremental = true
+major_version_zero = true
+tag_format = "v$major.$minor.$patch$prerelease"
+update_changelog_on_bump = true
+version_files = [
+  "src/matchify/__init__.py:version"
+]
+version_provider = "pep621"
+
+[tool.coverage.paths]
+matchify = ["src/matchify", "*/matchify/src/matchify"]
+tests = ["tests", "*/matchify/tests"]
+
+[tool.coverage.report]
+exclude_lines = ["pragma: no cover", "assert False", "raise NotImplemented", "\\.\\.\\."]
+
+[tool.coverage.run]
+branch = true
+data_file = "$TOP/.coverage"
+omit = [
+  "src/matchify/__about__.py"
+]
+parallel = true
+
+[tool.hatch.envs.default]
+scripts.test = "pytest {args:tests}"
+dependencies = [
+  "pytest",
+  "inline-snapshot"
+]
+
+[tool.hatch.envs.all]
+dependencies = [
+  "coverage[toml]>=6.5",
+  "coverage-enable-subprocess",
+  "pytest",
+  "inline-snapshot"
+]
+env-vars.TOP = "{root}"
+scripts.test-cov = "coverage run -m pytest {args:tests}"
+
+[[tool.hatch.envs.all.matrix]]
+python = ["3.10", "3.11", "3.12", "3.13", "3.14"]
+
+[tool.hatch.envs.cov]
+dependencies = ["coverage[toml]>=6.5"]
+detached = true
+env-vars.TOP = "{root}"
+scripts.test = [
+  "- coverage erase",
+  "hatch run all:test-cov -- {args}",
+  "coverage combine",
+  "coverage html",
+  "coverage report "
+]
+
+
+[tool.hatch.envs.docs]
+dependencies = [
+  "mkdocs>=1.4.2",
+  "mkdocs-material[imaging]>=8.5.10",
+  "mkdocstrings>=0.19.0"
+]
+scripts.serve = ["mkdocs serve {args}"]
+
+[tool.hatch.version]
+path = "src/matchify/__init__.py"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.1",
+]

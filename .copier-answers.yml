@@ -1,0 +1,20 @@
+# Changes here will be overwritten by Copier
+_commit: v0.0.6
+_src_path: git@github.com:15r10nk/project-template.git
+full_coverage: false
+github_user: 15r10nk
+insider_only: false
+module_name: matchify
+project_description: converts if-else code to match statements
+project_main: true
+project_name: matchify
+pypy_versions:
+- pypy3.10
+python_versions:
+- '3.10'
+- '3.11'
+- '3.12'
+- '3.13'
+- '3.14'
+show_project_logo: false
+use_mkdocs: false
