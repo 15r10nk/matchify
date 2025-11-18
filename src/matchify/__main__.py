@@ -93,6 +93,11 @@ class IfToMatchTransformer(cst.CSTTransformer):
         Only literal values can be safely used in match case patterns.
         Names would become binding patterns, which changes semantics.
         """
+        # Check for unary minus/plus on numbers (e.g., -5, +3.14)
+        if m.matches(node, m.UnaryOperation(operator=m.Minus() | m.Plus())):
+            unary = node  # type: ignore
+            return m.matches(unary.expression, m.Integer() | m.Float())
+        
         return m.matches(
             node,
             m.Integer()
@@ -197,7 +202,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
             if m.matches(node, m.BooleanOperation(operator=m.And())):
                 and_op = node  # type: ignore
                 return extract_attr_checks(and_op.left) and extract_attr_checks(and_op.right)
-            elif m.matches(node, m.Comparison(comparisons=[m.ComparisonTarget(operator=m.Equal())])):
+            elif m.matches(node, m.Comparison(comparisons=[m.ComparisonTarget(operator=m.Equal() | m.Is())])):
                 comp = node  # type: ignore
                 # Check if left side is subject.attr
                 if m.matches(comp.left, m.Attribute()):
@@ -206,10 +211,18 @@ class IfToMatchTransformer(cst.CSTTransformer):
                     if attr.value.deep_equals(subject):
                         attr_name = attr.attr.value
                         value = comp.comparisons[0].comparator
-                        # Only support literal values
-                        if self._is_literal_value(value):
-                            attrs.append((attr_name, value))
-                            return True
+                        operator = comp.comparisons[0].operator
+                        
+                        # 'is' operator should only be used with singletons
+                        if isinstance(operator, cst.Is):
+                            if not m.matches(value, m.Name(value="None") | m.Name(value="True") | m.Name(value="False")):
+                                return False
+                        # Only support literal values for '=='
+                        elif not self._is_literal_value(value):
+                            return False
+                        
+                        attrs.append((attr_name, value))
+                        return True
             return False
         
         if extract_attr_checks(test):

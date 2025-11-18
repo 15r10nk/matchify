@@ -582,6 +582,136 @@ class TestIfToMatchTransformer:
         
         check_code(source, expected)
 
+    def test_isinstance_with_is_none_attribute(self):
+        """Test that isinstance with 'is None' attribute check works.
+        
+        Conditions like 'isinstance(node, Point) and node.x is None' 
+        become 'case Point(x=None):'.
+        """
+        source = dedent("""
+            class Point:
+                def __init__(self, x, y):
+                    self.x = x
+                    self.y = y
+            node = Point(None, 10)
+            if isinstance(node, Point) and node.x is None:
+                print("x is none")
+            elif isinstance(node, Point) and node.x == 5:
+                print("x is 5")
+            else:
+                print("other")
+        """).strip()
+
+        expected = dedent("""
+            class Point:
+                def __init__(self, x, y):
+                    self.x = x
+                    self.y = y
+            node = Point(None, 10)
+            match node:
+                case Point(x=None):
+                    print("x is none")
+                case Point(x=5):
+                    print("x is 5")
+                case _:
+                    print("other")
+        """).strip()
+        
+        check_code(source, expected)
+
+    def test_isinstance_with_is_true_false(self):
+        """Test that isinstance with 'is True/False' attribute checks work.
+        
+        Conditions like 'isinstance(obj, Config) and obj.enabled is True' 
+        become 'case Config(enabled=True):'.
+        """
+        source = dedent("""
+            class Config:
+                def __init__(self, enabled):
+                    self.enabled = enabled
+            obj = Config(True)
+            if isinstance(obj, Config) and obj.enabled is True:
+                print("enabled")
+            elif isinstance(obj, Config) and obj.enabled is False:
+                print("disabled")
+            else:
+                print("other")
+        """).strip()
+
+        expected = dedent("""
+            class Config:
+                def __init__(self, enabled):
+                    self.enabled = enabled
+            obj = Config(True)
+            match obj:
+                case Config(enabled=True):
+                    print("enabled")
+                case Config(enabled=False):
+                    print("disabled")
+                case _:
+                    print("other")
+        """).strip()
+        
+        check_code(source, expected)
+
+    def test_negative_numbers_in_comparisons(self):
+        """Test that negative numbers work in comparisons.
+        
+        Both top-level and attribute checks should support negative numbers.
+        """
+        source = dedent("""
+            x = -5
+            if x == -5:
+                print("negative five")
+            elif x == -10:
+                print("negative ten")
+            else:
+                print("other")
+        """).strip()
+
+        expected = dedent("""
+            x = -5
+            match x:
+                case -5:
+                    print("negative five")
+                case -10:
+                    print("negative ten")
+                case _:
+                    print("other")
+        """).strip()
+        
+        check_code(source, expected)
+
+    def test_negative_numbers_in_attributes(self):
+        """Test that negative numbers work in isinstance attribute checks."""
+        source = dedent("""
+            class Point:
+                def __init__(self, x, y):
+                    self.x = x
+                    self.y = y
+            p = Point(-5, 10)
+            if isinstance(p, Point) and p.x == -5:
+                print("x is -5")
+            elif isinstance(p, Point) and p.y == 10:
+                print("y is 10")
+        """).strip()
+
+        expected = dedent("""
+            class Point:
+                def __init__(self, x, y):
+                    self.x = x
+                    self.y = y
+            p = Point(-5, 10)
+            match p:
+                case Point(x=-5):
+                    print("x is -5")
+                case Point(y=10):
+                    print("y is 10")
+        """).strip()
+        
+        check_code(source, expected)
+
+
 class TestConvertFile:
     """Test the convert_file function."""
 
