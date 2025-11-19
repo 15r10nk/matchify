@@ -1730,7 +1730,6 @@ class TestMain:
 
     def test_main_no_arguments(self, capsys):
         """Test main function with no arguments."""
-        import sys
 
         original_argv = sys.argv
         try:
@@ -1748,7 +1747,6 @@ class TestMain:
 
     def test_main_with_single_file(self, capsys):
         """Test main function with a single Python file."""
-        import sys
 
         with tempfile.TemporaryDirectory() as tmpdir:
             test_file = pathlib.Path(tmpdir) / "test.py"
@@ -1777,7 +1775,6 @@ class TestMain:
 
     def test_main_with_directory(self, capsys):
         """Test main function with a directory."""
-        import sys
 
         with tempfile.TemporaryDirectory() as tmpdir:
             test_dir = pathlib.Path(tmpdir)
@@ -1814,7 +1811,6 @@ class TestMain:
 
     def test_main_with_nested_directory(self, capsys):
         """Test main function with nested directories."""
-        import sys
 
         with tempfile.TemporaryDirectory() as tmpdir:
             test_dir = pathlib.Path(tmpdir)
@@ -1849,7 +1845,6 @@ class TestMain:
 
     def test_main_with_non_python_file(self, capsys):
         """Test main function with a non-Python file."""
-        import sys
 
         with tempfile.TemporaryDirectory() as tmpdir:
             test_file = pathlib.Path(tmpdir) / "test.txt"
@@ -1867,7 +1862,6 @@ class TestMain:
 
     def test_main_with_multiple_arguments(self, capsys):
         """Test main function with multiple file arguments."""
-        import sys
 
         with tempfile.TemporaryDirectory() as tmpdir:
             test_dir = pathlib.Path(tmpdir)
@@ -1936,3 +1930,263 @@ class TestExtractSubject:
         subject = transformer._extract_subject(test_expr)
         assert subject is not None
         assert subject.deep_equals(cst.parse_expression("obj.attr"))
+
+
+class TestEdgeCases:
+    """Test edge cases and error handling."""
+
+    def test_isinstance_with_starred_element_not_converted(self):
+        """Test that isinstance with *args in tuple is not converted."""
+        source = dedent(
+            """
+            types = (int, str)
+            value = 42
+            if isinstance(value, (*types,)):
+                print("matches")
+            elif value == 0:
+                print("zero")
+        """
+        ).strip()
+
+        # Expected is same as source (no transformation due to starred element)
+        expected = source
+        check_code(source, expected)
+
+    def test_isinstance_with_empty_tuple_not_converted(self):
+        """Test that isinstance with empty tuple is not converted."""
+        source = dedent(
+            """
+            x = 42
+            if isinstance(x, ()):
+                print("empty tuple")
+            elif x == 42:
+                print("forty two")
+        """
+        ).strip()
+
+        # Expected is same as source (no transformation - empty tuple not supported)
+        expected = source
+        check_code(source, expected)
+
+    def test_unknown_pattern_type_raises_error(self):
+        """Test that unknown pattern type raises ValueError."""
+        transformer = IfToMatchTransformer()
+        
+        with pytest.raises(ValueError, match="Unknown pattern type"):
+            transformer._build_pattern_from_info(("unknown_type", None))
+
+    def test_verbose_flag_with_unchanged_file(self, capsys):
+        """Test --verbose flag shows unchanged files."""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_file = pathlib.Path(tmpdir) / "test.py"
+            source = dedent(
+                """
+                # No convertible patterns
+                if x > 5:
+                    print("big")
+            """
+            ).strip()
+            test_file.write_text(source, encoding="utf-8")
+
+            original_argv = sys.argv
+            try:
+                sys.argv = ["matchify", "--verbose", str(test_file)]
+                main()
+
+                captured = capsys.readouterr()
+                assert "No changes:" in captured.out
+            finally:
+                sys.argv = original_argv
+
+    def test_verbose_flag_with_directory(self, capsys):
+        """Test --verbose flag with directory of unchanged files."""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_dir = pathlib.Path(tmpdir)
+            test_file = test_dir / "test.py"
+            source = "# No patterns\nprint('hello')"
+            test_file.write_text(source, encoding="utf-8")
+
+            original_argv = sys.argv
+            try:
+                sys.argv = ["matchify", "-v", str(test_dir)]
+                main()
+
+                captured = capsys.readouterr()
+                assert "No changes:" in captured.out
+            finally:
+                sys.argv = original_argv
+
+    def test_jobs_argument(self, capsys):
+        """Test --jobs argument for parallel processing."""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_dir = pathlib.Path(tmpdir)
+            
+            # Create multiple files
+            for i in range(3):
+                test_file = test_dir / f"test{i}.py"
+                source = dedent(
+                    f"""
+                    x = {i}
+                    if x == 1:
+                        print("one")
+                    elif x == 2:
+                        print("two")
+                """
+                ).strip()
+                test_file.write_text(source, encoding="utf-8")
+
+            original_argv = sys.argv
+            try:
+                sys.argv = ["matchify", "--jobs", "2", str(test_dir)]
+                main()
+
+                captured = capsys.readouterr()
+                assert "Converted:" in captured.out or "No changes:" in captured.out
+            finally:
+                sys.argv = original_argv
+
+    def test_convert_file_with_syntax_error(self):
+        """Test converting a file with syntax errors."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_file = pathlib.Path(tmpdir) / "test.py"
+            source = "if x == :\n    print('broken')"
+            test_file.write_text(source, encoding="utf-8")
+
+            path, changed, error = convert_file(test_file)
+
+            assert path == test_file
+            assert changed is False
+            assert error is not None
+            assert "Syntax Error" in error or "ParserSyntaxError" in error
+
+    def test_main_with_error_file(self, capsys):
+        """Test main function with a file that causes errors."""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_file = pathlib.Path(tmpdir) / "test.py"
+            source = "if x == :\n    print('broken')"
+            test_file.write_text(source, encoding="utf-8")
+
+            original_argv = sys.argv
+            try:
+                sys.argv = ["matchify", str(test_file)]
+                main()
+
+                captured = capsys.readouterr()
+                assert "Error processing" in captured.out
+                assert "1 errors" in captured.out or "error" in captured.out.lower()
+            finally:
+                sys.argv = original_argv
+
+    def test_isinstance_tuple_with_attributes_not_converted(self):
+        """Test that isinstance with tuple of classes AND attributes is not converted.
+        
+        This is not supported because we can't determine which class's attributes to check.
+        """
+        source = dedent(
+            """
+            class Point:
+                def __init__(self, x):
+                    self.x = x
+            class Line:
+                def __init__(self, x):
+                    self.x = x
+            
+            obj = Point(5)
+            if isinstance(obj, (Point, Line)) and obj.x == 5:
+                print("match")
+            elif obj == 0:
+                print("zero")
+        """
+        ).strip()
+
+        # Expected is same as source (no transformation)
+        expected = source
+        check_code(source, expected)
+
+    def test_isinstance_with_non_literal_attribute_not_converted(self):
+        """Test that isinstance with variable in attribute check is not converted."""
+        source = dedent(
+            """
+            class Point:
+                def __init__(self, x):
+                    self.x = x
+            
+            TARGET = 5
+            obj = Point(5)
+            if isinstance(obj, Point) and obj.x == TARGET:
+                print("match")
+            elif isinstance(obj, Point):
+                print("other")
+        """
+        ).strip()
+
+        # Expected is same as source (no transformation - variable not literal)
+        expected = source
+        check_code(source, expected)
+
+    def test_sequence_with_non_integer_subscript_not_converted(self):
+        """Test that sequences with non-integer indices are not converted."""
+        source = dedent(
+            """
+            x = {"a": 1, "b": 2}
+            # This would be x["a"] which we don't support
+            if len(x) == 2:
+                print("two items")
+            elif x == 0:
+                print("zero")
+        """
+        ).strip()
+
+        # Expected is same as source (no transformation)
+        expected = source
+        check_code(source, expected)
+
+    def test_is_operator_with_non_singleton_not_converted(self):
+        """Test that 'is' operator with non-singletons (not None/True/False) is not converted."""
+        source = dedent(
+            """
+            SENTINEL = object()
+            x = SENTINEL
+            if x is SENTINEL:
+                print("sentinel")
+            elif x == 1:
+                print("one")
+        """
+        ).strip()
+
+        # Expected is same as source (no transformation - is with non-singleton)
+        expected = source
+        check_code(source, expected)
+
+    def test_mixed_sequence_patterns_in_chain(self):
+        """Test multiple sequence patterns in same chain."""
+        source = dedent(
+            """
+            point = (1, 2)
+            if len(point) == 2 and point[0] == 1 and point[1] == 2:
+                print("1, 2")
+            elif len(point) == 2 and point[0] == 0 and point[1] == 0:
+                print("0, 0")
+            elif len(point) == 3 and point[0] == 1 and point[1] == 1 and point[2] == 1:
+                print("1, 1, 1")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            point = (1, 2)
+            match point:
+                case 1, 2:
+                    print("1, 2")
+                case 0, 0:
+                    print("0, 0")
+                case 1, 1, 1:
+                    print("1, 1, 1")
+        """
+        ).strip()
+
+        check_code(source, expected)
