@@ -386,6 +386,43 @@ class IfToMatchTransformer(cst.CSTTransformer):
                     return int(index_val.value)  # type: ignore
         return None
 
+    def _traverse_boolean_and(self, node: cst.BaseExpression, predicate) -> bool:
+        """Recursively traverse BooleanOperation(And) tree and check if predicate matches any node.
+        
+        Args:
+            node: The node to check
+            predicate: A callable that takes a node and returns bool
+            
+        Returns:
+            True if predicate matches any node in the tree
+        """
+        if predicate(node):
+            return True
+        if m.matches(node, m.BooleanOperation(operator=m.And())):
+            bool_op = node  # type: ignore
+            return self._traverse_boolean_and(bool_op.left, predicate) or self._traverse_boolean_and(bool_op.right, predicate)
+        return False
+    
+    def _find_in_boolean_and(self, node: cst.BaseExpression, predicate) -> cst.BaseExpression | None:
+        """Recursively traverse BooleanOperation(And) tree and return first node matching predicate.
+        
+        Args:
+            node: The node to search
+            predicate: A callable that takes a node and returns bool
+            
+        Returns:
+            First matching node or None
+        """
+        if predicate(node):
+            return node
+        if m.matches(node, m.BooleanOperation(operator=m.And())):
+            bool_op = node  # type: ignore
+            result = self._find_in_boolean_and(bool_op.left, predicate)
+            if result is not None:
+                return result
+            return self._find_in_boolean_and(bool_op.right, predicate)
+        return None
+
     def _is_isinstance_call(self, test: cst.BaseExpression) -> bool:
         """Check if test is an isinstance(subject, type) call."""
         return m.matches(
@@ -427,21 +464,16 @@ class IfToMatchTransformer(cst.CSTTransformer):
         if not m.matches(test, m.BooleanOperation(operator=m.And())):
             return False
 
-        # Need to find isinstance(subject, ...) where subject is not a subscript
-        def has_isinstance_on_subject(node: cst.BaseExpression) -> bool:
+        def is_isinstance_on_subject(node: cst.BaseExpression) -> bool:
             if self._is_isinstance_call(node):
                 call = node  # type: ignore
                 if len(call.args) >= 1:
                     isinstance_arg = call.args[0].value
                     # Only match if argument is NOT a subscript (not subject[idx])
-                    if not m.matches(isinstance_arg, m.Subscript()):
-                        return True
-            if m.matches(node, m.BooleanOperation(operator=m.And())):
-                bool_op = node  # type: ignore
-                return has_isinstance_on_subject(bool_op.left) or has_isinstance_on_subject(bool_op.right)
+                    return not m.matches(isinstance_arg, m.Subscript())
             return False
 
-        return has_isinstance_on_subject(test)
+        return self._traverse_boolean_and(test, is_isinstance_on_subject)
 
     def _extract_isinstance_classes(
         self, test: cst.BaseExpression
@@ -687,15 +719,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
 
     def _find_isinstance_call(self, node: cst.BaseExpression) -> cst.Call | None:
         """Find the isinstance call in a potentially nested BooleanOperation."""
-        if self._is_isinstance_call(node):
-            return node  # type: ignore
-        if m.matches(node, m.BooleanOperation(operator=m.And())):
-            bool_op = node  # type: ignore
-            result = self._find_isinstance_call(bool_op.left)
-            if result is not None:
-                return result
-            return self._find_isinstance_call(bool_op.right)
-        return None
+        return self._find_in_boolean_and(node, self._is_isinstance_call)  # type: ignore
 
     def _find_sequence_attrs(self, test: cst.BaseExpression, subject: cst.BaseExpression) -> dict[str, bool]:
         """Find attributes that are checked as sequences."""
@@ -928,15 +952,15 @@ class IfToMatchTransformer(cst.CSTTransformer):
         
         return attrs
 
-    def _extract_isinstance_with_attrs(
-        self, test: cst.BaseExpression
+    def _extract_isinstance_with_attrs_from_call(
+        self, test: cst.BaseExpression, isinstance_call: cst.Call
     ) -> (
         tuple[
             cst.BaseExpression, list[tuple[str, cst.BaseExpression | tuple[str, list[PatternInfo]]]]
         ]
         | None
     ):
-        """Extract class and attribute checks from isinstance(subject, Class) and subject.attr == value.
+        """Extract class and attribute checks from an isinstance call with additional conditions.
 
         Returns (class_expr, [(attr_name, value), ...]) or None if not a valid pattern.
 
@@ -944,13 +968,6 @@ class IfToMatchTransformer(cst.CSTTransformer):
         - A CST expression for simple values: (attr_name, value_expr)
         - A tuple for sequence patterns: (attr_name, ('sequence', pattern_list))
         """
-        if not self._is_isinstance_with_and(test):
-            return None
-
-        isinstance_call = self._find_isinstance_call(test)
-        if isinstance_call is None:
-            return None
-
         subject = isinstance_call.args[0].value
         class_arg = isinstance_call.args[1].value
 
@@ -965,6 +982,27 @@ class IfToMatchTransformer(cst.CSTTransformer):
             return None
 
         return (class_arg, attrs)
+
+    def _extract_isinstance_with_attrs(
+        self, test: cst.BaseExpression
+    ) -> (
+        tuple[
+            cst.BaseExpression, list[tuple[str, cst.BaseExpression | tuple[str, list[PatternInfo]]]]
+        ]
+        | None
+    ):
+        """Extract class and attribute checks from isinstance(subject, Class) and subject.attr == value.
+
+        Returns (class_expr, [(attr_name, value), ...]) or None if not a valid pattern.
+        """
+        if not self._is_isinstance_with_and(test):
+            return None
+
+        isinstance_call = self._find_isinstance_call(test)
+        if isinstance_call is None:
+            return None
+
+        return self._extract_isinstance_with_attrs_from_call(test, isinstance_call)
 
     def _is_sequence_pattern(self, test: cst.BaseExpression) -> bool:
         """Check if test matches: len(x) == N and x[0] == val0 and x[1] == val1 ..."""
@@ -1069,54 +1107,48 @@ class IfToMatchTransformer(cst.CSTTransformer):
         self, test: cst.BaseExpression, subject: cst.BaseExpression, idx: int
     ) -> bool:
         """Check if isinstance(subject[idx], Class) has additional attribute conditions."""
-        def has_attr_check(node: cst.BaseExpression) -> bool:
+        def is_attr_check_for_index(node: cst.BaseExpression) -> bool:
+            if not m.matches(node, m.Comparison()):
+                return False
+            
+            comp = node  # type: ignore
+            
             # Check for subject[idx].attr comparisons
-            if m.matches(node, m.Comparison()):
-                comp = node  # type: ignore
-                if m.matches(comp.left, m.Attribute()):
-                    attr = comp.left  # type: ignore
-                    if m.matches(attr.value, m.Subscript()):
-                        subscript = attr.value  # type: ignore
-                        if (subscript.value.deep_equals(subject) and
-                            self._extract_subscript_index(subscript) == idx):
-                            return True
+            if m.matches(comp.left, m.Attribute()):
+                attr = comp.left  # type: ignore
+                if m.matches(attr.value, m.Subscript()):
+                    subscript = attr.value  # type: ignore
+                    if (subscript.value.deep_equals(subject) and
+                        self._extract_subscript_index(subscript) == idx):
+                        return True
             
             # Check for len(subject[idx].attr)
-            if m.matches(node, m.Comparison()):
-                comp = node  # type: ignore
-                if m.matches(comp.left, m.Call(func=m.Name(value="len"))):
-                    call = comp.left  # type: ignore
-                    if len(call.args) > 0:
-                        len_arg = call.args[0].value
-                        if m.matches(len_arg, m.Attribute()):
-                            attr = len_arg  # type: ignore
-                            if m.matches(attr.value, m.Subscript()):
-                                subscript = attr.value  # type: ignore
-                                if (subscript.value.deep_equals(subject) and
-                                    self._extract_subscript_index(subscript) == idx):
-                                    return True
-            
-            # Check for subject[idx].attr[subidx]
-            if m.matches(node, m.Comparison()):
-                comp = node  # type: ignore
-                if m.matches(comp.left, m.Subscript()):
-                    subscript = comp.left  # type: ignore
-                    if m.matches(subscript.value, m.Attribute()):
-                        attr = subscript.value  # type: ignore
+            if m.matches(comp.left, m.Call(func=m.Name(value="len"))):
+                call = comp.left  # type: ignore
+                if len(call.args) > 0:
+                    len_arg = call.args[0].value
+                    if m.matches(len_arg, m.Attribute()):
+                        attr = len_arg  # type: ignore
                         if m.matches(attr.value, m.Subscript()):
-                            inner_subscript = attr.value  # type: ignore
-                            if (inner_subscript.value.deep_equals(subject) and
-                                self._extract_subscript_index(inner_subscript) == idx):
+                            subscript = attr.value  # type: ignore
+                            if (subscript.value.deep_equals(subject) and
+                                self._extract_subscript_index(subscript) == idx):
                                 return True
             
-            # Recurse into boolean operations
-            if m.matches(node, m.BooleanOperation(operator=m.And())):
-                bool_op = node  # type: ignore
-                return has_attr_check(bool_op.left) or has_attr_check(bool_op.right)
+            # Check for subject[idx].attr[subidx]
+            if m.matches(comp.left, m.Subscript()):
+                subscript = comp.left  # type: ignore
+                if m.matches(subscript.value, m.Attribute()):
+                    attr = subscript.value  # type: ignore
+                    if m.matches(attr.value, m.Subscript()):
+                        inner_subscript = attr.value  # type: ignore
+                        if (inner_subscript.value.deep_equals(subject) and
+                            self._extract_subscript_index(inner_subscript) == idx):
+                            return True
             
             return False
         
-        return has_attr_check(test)
+        return self._traverse_boolean_and(test, is_attr_check_for_index)
     
     def _collect_sequence_patterns(self, test: cst.BaseExpression, collector: SequencePatternCollector) -> bool:
         """Collect all pattern information from the test expression."""
@@ -1146,21 +1178,16 @@ class IfToMatchTransformer(cst.CSTTransformer):
         if not m.matches(test, m.BooleanOperation(operator=m.And())):
             return False
 
-        # Need to find isinstance(subject[idx], ...) where subject IS a subscript
-        def has_subscript_isinstance(node: cst.BaseExpression) -> bool:
+        def is_subscript_isinstance(node: cst.BaseExpression) -> bool:
             if self._is_isinstance_call(node):
                 call = node  # type: ignore
                 if len(call.args) >= 1:
                     isinstance_arg = call.args[0].value
                     # Only match if argument IS a subscript
-                    if m.matches(isinstance_arg, m.Subscript()):
-                        return True
-            if m.matches(node, m.BooleanOperation(operator=m.And())):
-                bool_op = node  # type: ignore
-                return has_subscript_isinstance(bool_op.left) or has_subscript_isinstance(bool_op.right)
+                    return m.matches(isinstance_arg, m.Subscript())
             return False
 
-        return has_subscript_isinstance(test)
+        return self._traverse_boolean_and(test, is_subscript_isinstance)
 
     def _extract_subscript_isinstance_with_attrs(
         self, test: cst.BaseExpression
@@ -1172,7 +1199,6 @@ class IfToMatchTransformer(cst.CSTTransformer):
     ):
         """Extract class and attribute checks from isinstance(subject[idx], Class) and subject[idx].attr == value.
 
-        Similar to _extract_isinstance_with_attrs but for subscripted subjects.
         Returns (class_expr, [(attr_name, value), ...]) or None if not a valid pattern.
         """
         if not self._is_subscript_isinstance_with_and(test):
@@ -1182,20 +1208,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
         if isinstance_call is None:
             return None
 
-        subscripted_subject = isinstance_call.args[0].value
-        class_arg = isinstance_call.args[1].value
-
-        # Don't support tuple of classes with attributes yet
-        if isinstance(class_arg, cst.Tuple):
-            return None
-
-        sequence_attrs = self._find_sequence_attrs(test, subscripted_subject)
-        attrs = self._extract_attr_checks(test, subscripted_subject, sequence_attrs)
-        
-        if attrs is None:
-            return None
-
-        return (class_arg, attrs)
+        return self._extract_isinstance_with_attrs_from_call(test, isinstance_call)
 
     def _extract_nested_sequence_pattern(
         self, test: cst.BaseExpression, subject: cst.BaseExpression, idx: int
