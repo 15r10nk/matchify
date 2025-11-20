@@ -1184,6 +1184,268 @@ class TestIfToMatchTransformer:
 
         check_code(source, expected)
 
+    def test_sequence_pattern_with_star(self):
+        """Test that star patterns work with >= operator.
+        
+        Patterns like 'len(x) >= 2 and x[0] == 1 and x[1] == 2' become 'case [1, 2, *_]:'.
+        """
+        source = dedent(
+            """
+            data = [1, 2, 3, 4, 5]
+            if len(data) >= 2 and data[0] == 1 and data[1] == 2:
+                print("starts with 1, 2")
+            elif len(data) >= 1 and data[0] == 0:
+                print("starts with 0")
+            else:
+                print("other")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            data = [1, 2, 3, 4, 5]
+            match data:
+                case 1, 2, *_:
+                    print("starts with 1, 2")
+                case 0, *_:
+                    print("starts with 0")
+                case _:
+                    print("other")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_sequence_pattern_star_with_isinstance(self):
+        """Test star patterns with isinstance elements."""
+        source = dedent(
+            """
+            class Point:
+                pass
+            data = [Point(), 1, 2, 3]
+            if len(data) >= 2 and isinstance(data[0], Point) and data[1] == 1:
+                print("point then 1")
+            elif len(data) >= 1 and isinstance(data[0], Point):
+                print("starts with point")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Point:
+                pass
+            data = [Point(), 1, 2, 3]
+            match data:
+                case Point(), 1, *_:
+                    print("point then 1")
+                case Point(), *_:
+                    print("starts with point")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_wildcard_pattern_simple(self):
+        """Test basic wildcard pattern with single gap.
+        
+        Patterns like 'len(x) == 3 and x[0] == 1 and x[2] == 3' become 'case [1, _, 3]:'.
+        """
+        source = dedent(
+            """
+            data = [1, "middle", 3]
+            if len(data) == 3 and data[0] == 1 and data[2] == 3:
+                print("1 and 3 with middle gap")
+            elif len(data) == 3 and data[0] == 0 and data[2] == 2:
+                print("0 and 2 with middle gap")
+            else:
+                print("other")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            data = [1, "middle", 3]
+            match data:
+                case 1, _, 3:
+                    print("1 and 3 with middle gap")
+                case 0, _, 2:
+                    print("0 and 2 with middle gap")
+                case _:
+                    print("other")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_wildcard_pattern_two_consecutive(self):
+        """Test wildcard pattern with two consecutive gaps (maximum allowed)."""
+        source = dedent(
+            """
+            data = [1, "a", "b", 4]
+            if len(data) == 4 and data[0] == 1 and data[3] == 4:
+                print("1 and 4 with two gaps")
+            elif len(data) == 4 and data[0] == 0 and data[3] == 3:
+                print("0 and 3 with two gaps")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            data = [1, "a", "b", 4]
+            match data:
+                case 1, _, _, 4:
+                    print("1 and 4 with two gaps")
+                case 0, _, _, 3:
+                    print("0 and 3 with two gaps")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_wildcard_pattern_three_consecutive_not_converted(self):
+        """Test that three consecutive wildcards prevent conversion."""
+        source = dedent(
+            """
+            data = [1, "a", "b", "c", 5]
+            if len(data) == 5 and data[0] == 1 and data[4] == 5:
+                print("1 and 5 with three gaps")
+            elif len(data) == 5 and data[0] == 0 and data[4] == 4:
+                print("0 and 4 with three gaps")
+        """
+        ).strip()
+
+        # Should NOT be converted (3 consecutive wildcards)
+        check_code(source, source)
+
+    def test_wildcard_pattern_multiple_groups(self):
+        """Test wildcard pattern with multiple separate wildcard groups."""
+        source = dedent(
+            """
+            data = [1, "a", 2, "b", "c", 5]
+            if len(data) == 6 and data[0] == 1 and data[2] == 2 and data[5] == 5:
+                print("1, 2, 5 with gaps")
+            elif len(data) == 6 and data[0] == 0 and data[2] == 1 and data[5] == 3:
+                print("0, 1, 3 with gaps")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            data = [1, "a", 2, "b", "c", 5]
+            match data:
+                case 1, _, 2, _, _, 5:
+                    print("1, 2, 5 with gaps")
+                case 0, _, 1, _, _, 3:
+                    print("0, 1, 3 with gaps")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_wildcard_pattern_with_isinstance(self):
+        """Test wildcard patterns mixed with isinstance checks."""
+        source = dedent(
+            """
+            class Point:
+                pass
+            data = [Point(), "a", 3]
+            if len(data) == 3 and isinstance(data[0], Point) and data[2] == 3:
+                print("point and 3 with gap")
+            elif len(data) == 3 and isinstance(data[0], Point) and data[2] == 5:
+                print("point and 5 with gap")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Point:
+                pass
+            data = [Point(), "a", 3]
+            match data:
+                case Point(), _, 3:
+                    print("point and 3 with gap")
+                case Point(), _, 5:
+                    print("point and 5 with gap")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_wildcard_pattern_at_start(self):
+        """Test wildcard at the beginning of a sequence."""
+        source = dedent(
+            """
+            data = ["a", 1, 2]
+            if len(data) == 3 and data[1] == 1 and data[2] == 2:
+                print("gap then 1, 2")
+            elif len(data) == 3 and data[1] == 0 and data[2] == 1:
+                print("gap then 0, 1")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            data = ["a", 1, 2]
+            match data:
+                case _, 1, 2:
+                    print("gap then 1, 2")
+                case _, 0, 1:
+                    print("gap then 0, 1")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_wildcard_pattern_at_end(self):
+        """Test wildcard at the end of a sequence."""
+        source = dedent(
+            """
+            data = [1, 2, "trailing"]
+            if len(data) == 3 and data[0] == 1 and data[1] == 2:
+                print("1, 2 then gap")
+            elif len(data) == 3 and data[0] == 0 and data[1] == 1:
+                print("0, 1 then gap")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            data = [1, 2, "trailing"]
+            match data:
+                case 1, 2, _:
+                    print("1, 2 then gap")
+                case 0, 1, _:
+                    print("0, 1 then gap")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_wildcard_pattern_with_is_none(self):
+        """Test wildcard patterns mixed with is None checks."""
+        source = dedent(
+            """
+            data = [None, "a", 3]
+            if len(data) == 3 and data[0] is None and data[2] == 3:
+                print("none and 3 with gap")
+            elif len(data) == 3 and data[0] is None and data[2] == 5:
+                print("none and 5 with gap")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            data = [None, "a", 3]
+            match data:
+                case None, _, 3:
+                    print("none and 3 with gap")
+                case None, _, 5:
+                    print("none and 5 with gap")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_mixed_pattern_types_in_chain(self):
         """Test that all pattern types can be mixed in a single if/elif chain.
 

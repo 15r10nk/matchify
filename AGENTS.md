@@ -92,9 +92,16 @@ match_stmt = cst.Match(
 5. **Sequence Patterns** - Length and element checks
    - `if len(x) == 2 and x[0] == 0 and x[1] == 1:` → `case 0, 1:`
    - `if len(rgb) == 3 and rgb[0] == 255 and rgb[1] == 0 and rgb[2] == 0:` → `case 255, 0, 0:`
-   - All indices must be checked (with literals, isinstance, or `is`)
+   - All indices must be checked (with literals, isinstance, or `is`) OR left as wildcards
    - Supports nested patterns: `if len(x) == 2 and isinstance(x[0], Point) and x[1] == 2:` → `case Point(), 2:`
    - Supports mixed element types: literals, isinstance checks, and identity (`is None`)
+   - **Star patterns**: `if len(x) >= 2 and x[0] == 1 and x[1] == 2:` → `case 1, 2, *_:`
+   - **Wildcard patterns**: `if len(x) == 3 and x[0] == 1 and x[2] == 3:` → `case 1, _, 3:`
+     - Unchecked indices become `_` (wildcard) in the pattern
+     - Maximum 2 consecutive wildcards allowed (3+ consecutive prevents conversion)
+     - Can appear at start, middle, or end of sequence
+     - Multiple wildcard groups allowed in same pattern (e.g., `case 1, _, 2, _, _, 5:`)
+     - Works with all element types: literals, isinstance, `is None`
 
 6. **Nested Sequence Patterns** - Sequences within sequences
    - `if len(x) == 2 and len(x[0]) == 2 and x[0][0] == 1 and x[0][1] == 2 and x[1] == 3:` → `case [1, 2], 3:`
@@ -118,12 +125,14 @@ match_stmt = cst.Match(
 ✅ Mixed scalar and sequence attributes (e.g., `Container(items=[1, 2], count=2)`)
 ✅ Nested isinstance with sequence attributes (e.g., `Data(value=[Data(value=[1, 2, 3])])`)
 ✅ isinstance tuple inside sequences (e.g., `isinstance(x[0], (Point, Line))` → `case Point() | Line(), ...:` )
+✅ Star patterns: `if len(x) >= 2 and x[0] == 1 and x[1] == 2:` → `case [1, 2, *_]:`
+✅ Wildcard patterns: `if len(x) == 3 and x[0] == 1 and x[2] == 3:` → `case [1, _, 3]:`
 
 ### Will NOT Convert
 ❌ Single `if` without `elif`
 ❌ Chains comparing different variables/subjects
 ❌ Non-equality operators (`>`, `<`, `!=`, etc.) except `is`
-❌ Sequence patterns with missing indices
+❌ Sequence patterns with 3+ consecutive wildcards (e.g., `x[0] == 1 and x[4] == 5`)
 ❌ Sequence patterns without `len()` check
 ❌ isinstance tuple with attributes (e.g., `isinstance(x, (Point, Line)) and x.value == 5`)
 ❌ Non-literal values in patterns (variables would create binding patterns)

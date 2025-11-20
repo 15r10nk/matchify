@@ -53,18 +53,28 @@ class SequencePatternCollector:
     def __init__(self, subject: cst.BaseExpression):
         self.subject = subject
         self.expected_len: int | None = None
+        self.min_len: int | None = None  # For >= operator (star patterns)
+        self.use_star_pattern: bool = False
         self.elements: dict[int, PatternInfo] = {}
         self.nested_sequences: set[int] = set()
         
     def collect_from_node(self, node: cst.BaseExpression) -> bool:
         """Collect pattern information from a single AST node. Returns False if invalid."""
         
-        # Check for len(subject) == N
+        # Check for len(subject) == N or len(subject) >= N
         if self._is_len_check(node):
-            if self.expected_len is not None:
+            if self.expected_len is not None or self.min_len is not None:
                 return False  # Multiple len checks
-            self.expected_len = self._extract_len_value(node)
-            return self.expected_len is not None
+            len_info = self._extract_len_value(node)
+            if len_info is None:
+                return False
+            if isinstance(len_info, tuple):
+                # (min_len, True) for >= operator
+                self.min_len, self.use_star_pattern = len_info
+            else:
+                # Just an int for == operator
+                self.expected_len = len_info
+            return True
             
         # Check for subject[idx] == value or subject[idx] is value
         if self._is_subscript_literal_check(node):
@@ -106,8 +116,8 @@ class SequencePatternCollector:
         return True  # Skip unknown patterns
         
     def _is_len_check(self, node: cst.BaseExpression) -> bool:
-        """Check if node is len(subject) == N"""
-        if not m.matches(node, m.Comparison(comparisons=[m.ComparisonTarget(operator=m.Equal())])):
+        """Check if node is len(subject) == N or len(subject) >= N"""
+        if not m.matches(node, m.Comparison(comparisons=[m.ComparisonTarget(operator=m.Equal() | m.GreaterThanEqual())])):
             return False
         comp = node  # type: ignore
         if not self._is_len_call(comp.left):
@@ -117,12 +127,24 @@ class SequencePatternCollector:
             return False
         return call.args[0].value.deep_equals(self.subject)
         
-    def _extract_len_value(self, node: cst.BaseExpression) -> int | None:
-        """Extract the expected length from len(subject) == N"""
+    def _extract_len_value(self, node: cst.BaseExpression) -> int | tuple[int, bool] | None:
+        """Extract the length constraint from len(subject) == N or len(subject) >= N.
+        
+        Returns:
+            - int for == operator (exact length)
+            - (int, True) for >= operator (minimum length, use star pattern)
+            - None if invalid
+        """
         comp = node  # type: ignore
         comparator = comp.comparisons[0].comparator
+        operator = comp.comparisons[0].operator
+        
         if m.matches(comparator, m.Integer()):
-            return int(comparator.value)  # type: ignore
+            length = int(comparator.value)  # type: ignore
+            if isinstance(operator, cst.GreaterThanEqual):
+                return (length, True)  # min length, use star pattern
+            else:
+                return length  # exact length
         return None
         
     def _is_subscript_literal_check(self, node: cst.BaseExpression) -> bool:
@@ -606,16 +628,20 @@ class IfToMatchTransformer(cst.CSTTransformer):
         elif pattern_type == "sequence":
             assert isinstance(data, list)
             return self._build_nested_sequence_pattern(data)
+        elif pattern_type == "wildcard":
+            # Wildcard pattern: _
+            return cst.MatchAs(pattern=None, name=None)
         else:
             raise ValueError(f"Unknown pattern type: {pattern_type}")
 
     def _build_sequence_elements(
-        self, patterns: list[PatternInfo]
+        self, patterns: list[PatternInfo], use_star: bool = False
     ) -> list[cst.MatchSequenceElement]:
         """Build a list of MatchSequenceElement nodes from pattern info list.
 
         Args:
             patterns: List of PatternInfo objects
+            use_star: If True, add a star pattern (*_) at the end
 
         Returns:
             List of MatchSequenceElement nodes with proper comma separators
@@ -624,15 +650,25 @@ class IfToMatchTransformer(cst.CSTTransformer):
         for i, pattern_info in enumerate(patterns):
             pattern = self._build_pattern_from_info(pattern_info)
 
-            if i < len(patterns) - 1:
-                elements.append(
-                    cst.MatchSequenceElement(
-                        value=pattern,
-                        comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" ")),
-                    )
+            elements.append(
+                cst.MatchSequenceElement(
+                    value=pattern,
+                    comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" ")),
                 )
-            else:
-                elements.append(cst.MatchSequenceElement(value=pattern))
+            )
+        
+        # Add star pattern if requested
+        if use_star:
+            star_pattern = cst.MatchStar(
+                name=cst.Name("_"),
+                comma=cst.MaybeSentinel.DEFAULT,
+            )
+            elements.append(cst.MatchSequenceElement(value=star_pattern))
+        else:
+            # Remove comma from last element if no star pattern
+            if elements:
+                last = elements[-1]
+                elements[-1] = cst.MatchSequenceElement(value=last.value)
 
         return elements
 
@@ -667,13 +703,14 @@ class IfToMatchTransformer(cst.CSTTransformer):
 
         elif self._is_sequence_pattern(test):
             # len(x) == N and x[0] == val0 and x[1] == val1 ... -> case [val0, val1, ...]:
+            # len(x) >= N and x[0] == val0 and x[1] == val1 ... -> case [val0, val1, *_]:
             result = self._extract_sequence_pattern(test)
             if result is None:
                 return None
-            _, patterns = result
+            _, patterns, use_star = result
 
             # Build sequence pattern elements using helper
-            elements = self._build_sequence_elements(patterns)
+            elements = self._build_sequence_elements(patterns, use_star=use_star)
 
             # Use MatchList WITHOUT brackets for comma-separated patterns
             # This creates: case [1, 2], 3: (not case [[1, 2], 3]:)
@@ -857,7 +894,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
                 # Extract as a sequence pattern, but the subject is subject.attr
                 result = self._extract_sequence_pattern(attr_test)
                 if result:
-                    _, patterns = result
+                    _, patterns, _ = result  # Ignore star pattern flag for class attribute sequences
                     attrs.append((attr_name, ("sequence", patterns)))
                 else:
                     # Invalid sequence pattern
@@ -1005,17 +1042,17 @@ class IfToMatchTransformer(cst.CSTTransformer):
         return self._extract_isinstance_with_attrs_from_call(test, isinstance_call)
 
     def _is_sequence_pattern(self, test: cst.BaseExpression) -> bool:
-        """Check if test matches: len(x) == N and x[0] == val0 and x[1] == val1 ..."""
+        """Check if test matches: len(x) == N and x[0] == val0 ... or len(x) >= N and x[0] == val0 ..."""
         if not m.matches(test, m.BooleanOperation(operator=m.And())):
             return False
 
-        # Need to find len(subject) == N check
+        # Need to find len(subject) == N or len(subject) >= N check
         def has_len_check(node: cst.BaseExpression) -> bool:
             if m.matches(
-                node, m.Comparison(comparisons=[m.ComparisonTarget(operator=m.Equal())])
+                node, m.Comparison(comparisons=[m.ComparisonTarget(operator=m.Equal() | m.GreaterThanEqual())])
             ):
                 comp = node  # type: ignore
-                # Check for len(x) == N
+                # Check for len(x) == N or len(x) >= N
                 if self._is_len_call(comp.left):
                     comparator = comp.comparisons[0].comparator
                     return m.matches(comparator, m.Integer())
@@ -1030,16 +1067,17 @@ class IfToMatchTransformer(cst.CSTTransformer):
         tuple[
             cst.BaseExpression,
             list[PatternInfo],
+            bool,
         ]
         | None
     ):
         """Extract subject and pattern info from sequence patterns.
 
         Handles patterns like:
-        - len(x) == N and x[0] == val0 and x[1] == val1 -> (x, [PatternInfo('literal', val0), PatternInfo('literal', val1)])
-        - len(x) == N and isinstance(x[0], Class) and x[1] == val -> (x, [PatternInfo('isinstance', Class), PatternInfo('literal', val)])
+        - len(x) == N and x[0] == val0 and x[1] == val1 -> (x, [PatternInfo(...), PatternInfo(...)], False)
+        - len(x) >= N and x[0] == val0 and x[1] == val1 -> (x, [PatternInfo(...), PatternInfo(...)], True)
 
-        Returns (subject, [PatternInfo, ...]) or None if not valid.
+        Returns (subject, [PatternInfo, ...], use_star) or None if not valid.
         """
         if not self._is_sequence_pattern(test):
             return None
@@ -1054,11 +1092,17 @@ class IfToMatchTransformer(cst.CSTTransformer):
         if not self._collect_sequence_patterns(test, collector):
             return None
 
-        # Validate we have a complete sequence
-        if collector.expected_len is None:
+        # Determine the length to validate
+        if collector.expected_len is not None:
+            # Exact length (== operator)
+            required_len = collector.expected_len
+            use_star = False
+        elif collector.min_len is not None:
+            # Minimum length (>= operator)
+            required_len = collector.min_len
+            use_star = collector.use_star_pattern
+        else:
             return None
-            
-        expected_len = collector.expected_len
         
         # Handle nested sequences first
         for idx in collector.nested_sequences:
@@ -1067,24 +1111,57 @@ class IfToMatchTransformer(cst.CSTTransformer):
                 collector.elements[idx] = nested_result
             # If nested_result is None, keep the original pattern (isinstance without attrs)
             
-        # Now validate all indices are covered
-        if len(collector.elements) != expected_len:
-            return None
-
-        # Build the final pattern list in order
-        patterns = []
-        for i in range(expected_len):
-            if i not in collector.elements:
+        # For star patterns, we need at least min_len elements checked
+        # For exact patterns with wildcards, we can have missing indices (they become _)
+        if use_star:
+            # Star pattern: must have at least required_len elements
+            if len(collector.elements) < required_len:
                 return None
-            patterns.append(collector.elements[i])
+        else:
+            # Exact length: can have gaps (wildcards) but must not exceed length
+            if len(collector.elements) == 0 or max(collector.elements.keys()) >= required_len:
+                return None
+            
+            # Validate wildcard constraint: no more than 2 consecutive wildcards
+            if not self._validate_wildcard_constraint(collector.elements, required_len):
+                return None
 
-        return (subject, patterns)
+        # Build the final pattern list in order, using wildcards for missing indices
+        patterns = []
+        for i in range(required_len):
+            if i in collector.elements:
+                patterns.append(collector.elements[i])
+            else:
+                # Missing index becomes a wildcard
+                patterns.append(PatternInfo("wildcard", None))
+
+        return (subject, patterns, use_star)
         
+    def _validate_wildcard_constraint(self, elements: dict[int, PatternInfo], total_len: int) -> bool:
+        """Validate that there are no more than 2 consecutive wildcards.
+        
+        Args:
+            elements: Dictionary of index -> PatternInfo for checked positions
+            total_len: Total expected length of the sequence
+            
+        Returns:
+            True if valid (max 2 consecutive wildcards), False otherwise
+        """
+        consecutive_wildcards = 0
+        for i in range(total_len):
+            if i not in elements:
+                consecutive_wildcards += 1
+                if consecutive_wildcards >= 3:
+                    return False
+            else:
+                consecutive_wildcards = 0
+        return True
+    
     def _find_sequence_subject(self, test: cst.BaseExpression) -> cst.BaseExpression | None:
-        """Find the subject variable from len(subject) == N check."""
+        """Find the subject variable from len(subject) == N or len(subject) >= N check."""
         def find_subject_recursive(node: cst.BaseExpression) -> cst.BaseExpression | None:
             if m.matches(
-                node, m.Comparison(comparisons=[m.ComparisonTarget(operator=m.Equal())])
+                node, m.Comparison(comparisons=[m.ComparisonTarget(operator=m.Equal() | m.GreaterThanEqual())])
             ):
                 comp = node  # type: ignore
                 if m.matches(
@@ -1329,7 +1406,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
         # Otherwise, try to extract as a sequence pattern
         nested_result = self._extract_sequence_pattern(nested_test)
         if nested_result is not None:
-            _, nested_patterns = nested_result
+            _, nested_patterns, _ = nested_result  # Ignore star pattern flag for nested sequences
             return PatternInfo("sequence", nested_patterns)
             
         return None
