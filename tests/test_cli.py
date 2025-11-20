@@ -8,6 +8,7 @@ import pytest
 
 from matchify.__main__ import (
     IfToMatchTransformer,
+    CapturePatternTransformer,
     convert_file,
     main,
 )
@@ -17,13 +18,17 @@ def check_code(source: str, expected: str) -> None:
     """
     Test helper that:
     1. Transforms source code using IfToMatchTransformer
-    2. Verifies the transformed code matches expected output
-    3. Executes both source and expected code and verifies identical output
+    2. Applies CapturePatternTransformer (second pass)
+    3. Verifies the transformed code matches expected output
+    4. Executes both source and expected code and verifies identical output
     """
     # Transform the source code
     module = cst.parse_module(source)
     wrapper = cst.MetadataWrapper(module)
     transformed = wrapper.visit(IfToMatchTransformer())
+    
+    # Second pass: add capture patterns
+    transformed = transformed.visit(CapturePatternTransformer())
 
     # Check transformation matches expected
     assert transformed.code.strip() == expected.strip(), (
@@ -556,8 +561,8 @@ class TestIfToMatchTransformer:
         """Test that chains with different subjects are NOT converted.
 
         When if uses isinstance(command, X) but elif uses len(command) == Y,
-        the subjects are different (command vs len(command)), so no conversion
-        should happen to avoid partial chain conversion.
+        the bare len() checks without index checks are not converted (to avoid
+        incorrect semantics for dicts and other non-sequence types).
         """
         source = dedent(
             """
@@ -1446,6 +1451,31 @@ class TestIfToMatchTransformer:
 
         check_code(source, expected)
 
+    def test_wildcard_pattern_not_used_for_mixed(self):
+        """Test that wildcard patterns work when some indices are checked."""
+        source = dedent(
+            """
+            data = [1, "middle", 3]
+            if len(data) == 3 and data[0] == 1 and data[2] == 3:
+                print(f"1 and 3 with {data[1]} in middle")
+            elif len(data) == 3 and data[0] == 0 and data[2] == 2:
+                print(f"0 and 2 with {data[1]} in middle")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            data = [1, "middle", 3]
+            match data:
+                case 1, _, 3:
+                    print(f"1 and 3 with {data[1]} in middle")
+                case 0, _, 2:
+                    print(f"0 and 2 with {data[1]} in middle")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_or_pattern_simple(self):
         """Test basic OR pattern with two values."""
         source = dedent(
@@ -1668,6 +1698,44 @@ class TestIfToMatchTransformer:
 
         # Should NOT be converted (different subjects)
         check_code(source, source)
+
+    def test_capture_pattern_from_assignment(self):
+        """Test capture pattern with assignment-based variable binding.
+        
+        When first statement is 'var = obj.attr[0]' and pattern has len(obj.attr) >= N,
+        convert to use capture: case Class(attr=[var, *_]):
+        """
+        source = dedent(
+            """
+            class Point:
+                def __init__(self, x):
+                    self.x = x
+
+            n = Point([1, 2, 3])
+            if isinstance(n, Point) and len(n.x) >= 1:
+                value = n.x[0]
+                print(value)
+            elif isinstance(n, Point):
+                print("empty")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Point:
+                def __init__(self, x):
+                    self.x = x
+
+            n = Point([1, 2, 3])
+            match n:
+                case Point(x=[value, *_]):
+                    print(value)
+                case Point():
+                    print("empty")
+        """
+        ).strip()
+
+        check_code(source, expected)
 
     def test_mixed_pattern_types_in_chain(self):
         """Test that all pattern types can be mixed in a single if/elif chain.

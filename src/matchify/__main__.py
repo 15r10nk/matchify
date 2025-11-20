@@ -326,16 +326,6 @@ class IfToMatchTransformer(cst.CSTTransformer):
             if result is not None:
                 return result[0]
         
-        # Check for equality or identity comparison
-        if m.matches(
-            test,
-            m.Comparison(
-                comparisons=[m.ComparisonTarget(operator=m.Equal() | m.Is())],
-            ),
-        ):
-            comp = test  # type: ignore
-            return comp.left
-
         # Check for isinstance(subject, type)
         if m.matches(
             test,
@@ -365,12 +355,24 @@ class IfToMatchTransformer(cst.CSTTransformer):
             result = find_isinstance_subject(test)
             if result is not None:
                 return result
-
-        # Check for sequence pattern: len(x) == N and x[0] == val0 ...
+        
+        # Check for sequence pattern (before general comparison check)
+        # This prevents len(x) == N from being treated as a comparison on len(x)
+        # Must check AFTER isinstance to avoid extracting obj.value instead of obj
         if self._is_sequence_pattern(test):
             result = self._extract_sequence_pattern(test)
             if result is not None:
                 return result[0]
+        
+        # Check for equality or identity comparison
+        if m.matches(
+            test,
+            m.Comparison(
+                comparisons=[m.ComparisonTarget(operator=m.Equal() | m.Is())],
+            ),
+        ):
+            comp = test  # type: ignore
+            return comp.left
 
         return None
 
@@ -719,7 +721,12 @@ class IfToMatchTransformer(cst.CSTTransformer):
             # Check if this is a sequence attribute
             if isinstance(value, tuple) and value[0] == "sequence":
                 # Build sequence pattern for this attribute
-                _, seq_patterns = value
+                # Handle both old 2-tuple and new 3-tuple format
+                if len(value) == 3:
+                    _, seq_patterns, use_star = value
+                else:
+                    _, seq_patterns = value
+                    use_star = False
                 pattern = self._build_sequence_pattern_for_attr(seq_patterns)
             else:
                 # Scalar attribute - create literal/singleton pattern
@@ -768,13 +775,14 @@ class IfToMatchTransformer(cst.CSTTransformer):
             raise ValueError(f"Unknown pattern type: {pattern_type}")
 
     def _build_sequence_elements(
-        self, patterns: list[PatternInfo], use_star: bool = False
+        self, patterns: list[PatternInfo], use_star: bool = False, is_top_level: bool = True
     ) -> list[cst.MatchSequenceElement]:
         """Build a list of MatchSequenceElement nodes from pattern info list.
 
         Args:
             patterns: List of PatternInfo objects
             use_star: If True, add a star pattern (*_) at the end
+            is_top_level: If True, keep trailing comma for single element (required for top-level patterns)
 
         Returns:
             List of MatchSequenceElement nodes with proper comma separators
@@ -798,10 +806,18 @@ class IfToMatchTransformer(cst.CSTTransformer):
             )
             elements.append(cst.MatchSequenceElement(value=star_pattern))
         else:
-            # Remove comma from last element if no star pattern
-            if elements:
+            # Keep comma for single element in top-level patterns (required by Python syntax: case x,)
+            # Remove comma from last element for 2+ elements or nested patterns
+            if len(elements) > 1 or not is_top_level:
                 last = elements[-1]
                 elements[-1] = cst.MatchSequenceElement(value=last.value)
+            else:
+                # Single element top-level: keep comma but with no trailing whitespace
+                last = elements[-1]
+                elements[-1] = cst.MatchSequenceElement(
+                    value=last.value,
+                    comma=cst.Comma(whitespace_after=cst.SimpleWhitespace("")),
+                )
 
         return elements
 
@@ -871,7 +887,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
 
         Used for patterns like Data(value=[1, 2, 3]) where value is a sequence attribute.
         """
-        seq_elements = self._build_sequence_elements(seq_patterns)
+        seq_elements = self._build_sequence_elements(seq_patterns, is_top_level=False)
         return cst.MatchList(
             patterns=seq_elements,
             lbracket=cst.LeftSquareBracket(),
@@ -887,7 +903,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
         Returns:
             A MatchList node containing the nested patterns
         """
-        elements = self._build_sequence_elements(patterns)
+        elements = self._build_sequence_elements(patterns, is_top_level=False)
         # Return MatchList WITH brackets for nested sequences
         return cst.MatchList(
             patterns=elements,
@@ -905,10 +921,10 @@ class IfToMatchTransformer(cst.CSTTransformer):
 
         def find_sequence_attrs_recursive(node: cst.BaseExpression) -> None:
             if m.matches(
-                node, m.Comparison(comparisons=[m.ComparisonTarget(operator=m.Equal())])
+                node, m.Comparison(comparisons=[m.ComparisonTarget(operator=m.Equal() | m.GreaterThanEqual())])
             ):
                 comp = node  # type: ignore
-                # Check for len(subject.attr) == N
+                # Check for len(subject.attr) == N or len(subject.attr) >= N
                 if self._is_len_call(comp.left):
                     call = comp.left  # type: ignore
                     if len(call.args) > 0:
@@ -936,11 +952,11 @@ class IfToMatchTransformer(cst.CSTTransformer):
             if m.matches(
                 node,
                 m.Comparison(
-                    comparisons=[m.ComparisonTarget(operator=m.Equal() | m.Is())]
+                    comparisons=[m.ComparisonTarget(operator=m.Equal() | m.Is() | m.GreaterThanEqual())]
                 ),
             ):
                 comp = node  # type: ignore
-                # Check for len(subject.attr) == N or len(subject.attr[i].nested_attr)
+                # Check for len(subject.attr) == N, len(subject.attr) >= N, or len(subject.attr[i].nested_attr)
                 if self._is_len_call(comp.left):
                     call = comp.left  # type: ignore
                     if len(call.args) > 0:
@@ -1035,8 +1051,9 @@ class IfToMatchTransformer(cst.CSTTransformer):
                 # Extract as a sequence pattern, but the subject is subject.attr
                 result = self._extract_sequence_pattern(attr_test)
                 if result:
-                    _, patterns, _ = result  # Ignore star pattern flag for class attribute sequences
-                    attrs.append((attr_name, ("sequence", patterns)))
+                    _, patterns, use_star = result
+                    # Store both patterns and star flag for capture detection
+                    attrs.append((attr_name, ("sequence", patterns, use_star)))
                 else:
                     # Invalid sequence pattern
                     return None
@@ -1050,7 +1067,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
 
             # Skip len() calls - these are handled by sequence attribute extraction
             if m.matches(
-                node, m.Comparison(comparisons=[m.ComparisonTarget(operator=m.Equal())])
+                node, m.Comparison(comparisons=[m.ComparisonTarget(operator=m.Equal() | m.GreaterThanEqual())])
             ):
                 comp = node  # type: ignore
                 if m.matches(comp.left, m.Call(func=m.Name(value="len"))):
@@ -1183,10 +1200,10 @@ class IfToMatchTransformer(cst.CSTTransformer):
         return self._extract_isinstance_with_attrs_from_call(test, isinstance_call)
 
     def _is_sequence_pattern(self, test: cst.BaseExpression) -> bool:
-        """Check if test matches: len(x) == N and x[0] == val0 ... or len(x) >= N and x[0] == val0 ..."""
-        if not m.matches(test, m.BooleanOperation(operator=m.And())):
-            return False
-
+        """Check if test matches: len(x) == N and x[0] == val0 ... or len(x) >= N and x[0] == val0 ...
+        
+        Requires at least one index check (no bare len() patterns).
+        """
         # Need to find len(subject) == N or len(subject) >= N check
         def has_len_check(node: cst.BaseExpression) -> bool:
             if m.matches(
@@ -1253,21 +1270,28 @@ class IfToMatchTransformer(cst.CSTTransformer):
             # If nested_result is None, keep the original pattern (isinstance without attrs)
             
         # For star patterns, we need at least min_len elements checked
-        # For exact patterns with wildcards, we can have missing indices (they become _)
+        # For exact patterns, we can have missing indices (wildcards)
         if use_star:
-            # Star pattern: must have at least required_len elements
-            if len(collector.elements) < required_len:
-                return None
+            # Star pattern: can have zero elements (for capture patterns)
+            # or must have at least required_len elements checked
+            # Empty star patterns are okay for capture: [*_] is valid
+            pass
         else:
-            # Exact length: can have gaps (wildcards) but must not exceed length
-            if len(collector.elements) == 0 or max(collector.elements.keys()) >= required_len:
+            # Exact length: can have gaps but must not exceed length
+            # Require at least one element check (no bare len() patterns)
+            # This is because bare len() doesn't prove the type is a sequence
+            # (e.g., dicts have len() but don't unpack like sequences in match)
+            if len(collector.elements) == 0:
+                return None
+            if max(collector.elements.keys()) >= required_len:
                 return None
             
             # Validate wildcard constraint: no more than 2 consecutive wildcards
             if not self._validate_wildcard_constraint(collector.elements, required_len):
                 return None
-
-        # Build the final pattern list in order, using wildcards for missing indices
+        
+        # Build the final pattern list in order
+        # Missing indices become wildcards (_)
         patterns = []
         for i in range(required_len):
             if i in collector.elements:
@@ -1702,6 +1726,202 @@ class IfToMatchTransformer(cst.CSTTransformer):
         return match_stmt
 
 
+class CapturePatternTransformer(cst.CSTTransformer):
+    """Second-pass transformer that adds capture patterns to match statements.
+    
+    This transformer looks for match statements where the case body starts with
+    an assignment like `var = subject.attr[index]` and converts it to a capture
+    pattern like `case Point(attr=[var, *_]):`.
+    """
+    
+    def leave_Match(
+        self, original_node: cst.Match, updated_node: cst.Match
+    ) -> cst.Match:
+        """Process match statements to add capture patterns."""
+        new_cases = []
+        
+        for case in updated_node.cases:
+            # Check if this is a MatchClass pattern (like Point(...))
+            if not isinstance(case.pattern, cst.MatchClass):
+                new_cases.append(case)
+                continue
+            
+            # Check if body starts with an assignment
+            if not isinstance(case.body, cst.IndentedBlock):
+                new_cases.append(case)
+                continue
+            
+            first_stmt = case.body.body[0]
+            if not isinstance(first_stmt, cst.SimpleStatementLine):
+                new_cases.append(case)
+                continue
+            
+            if len(first_stmt.body) != 1 or not isinstance(first_stmt.body[0], cst.Assign):
+                new_cases.append(case)
+                continue
+            
+            assign = first_stmt.body[0]
+            
+            # Check if assignment is like: var = subject.attr[index]
+            capture_info = self._detect_capture_assignment(assign, updated_node.subject)
+            if capture_info is None:
+                new_cases.append(case)
+                continue
+            
+            var_name, attr_name, index = capture_info
+            
+            # Check if the pattern has this attribute with a sequence pattern
+            new_pattern = self._add_capture_to_pattern(
+                case.pattern, attr_name, var_name, index
+            )
+            if new_pattern is None:
+                new_cases.append(case)
+                continue
+            
+            # Remove the assignment from the body
+            new_body = self._remove_first_statement(case.body)
+            
+            # Create new case with capture pattern and updated body
+            new_case = case.with_changes(pattern=new_pattern, body=new_body)
+            new_cases.append(new_case)
+        
+        return updated_node.with_changes(cases=new_cases)
+    
+    def _detect_capture_assignment(
+        self, assign: cst.Assign, subject: cst.BaseExpression
+    ) -> tuple[str, str, int] | None:
+        """Detect if assignment is like: var = subject.attr[index]
+        
+        Returns:
+            Tuple of (var_name, attr_name, index) or None if not matching pattern
+        """
+        # Check target is a simple name
+        if len(assign.targets) != 1:
+            return None
+        
+        target = assign.targets[0].target
+        if not isinstance(target, cst.Name):
+            return None
+        
+        var_name = target.value
+        
+        # Check value is a subscript
+        if not isinstance(assign.value, cst.Subscript):
+            return None
+        
+        subscript = assign.value
+        
+        # Check subscript is on an attribute of the subject
+        if not isinstance(subscript.value, cst.Attribute):
+            return None
+        
+        attr = subscript.value
+        attr_name = attr.attr.value
+        
+        # Check the base is the match subject
+        if not attr.value.deep_equals(subject):
+            return None
+        
+        # Check index is an integer literal
+        if not isinstance(subscript.slice[0].slice, cst.Index):
+            return None
+        
+        index_node = subscript.slice[0].slice.value
+        if not isinstance(index_node, cst.Integer):
+            return None
+        
+        index = int(index_node.value)
+        
+        return (var_name, attr_name, index)
+    
+    def _add_capture_to_pattern(
+        self,
+        pattern: cst.MatchClass,
+        attr_name: str,
+        var_name: str,
+        index: int,
+    ) -> cst.MatchClass | None:
+        """Add capture pattern to the specified attribute.
+        
+        Transforms a pattern like Point(x=[1, 2, *_]) to Point(x=[var, 2, *_])
+        when index=0.
+        """
+        # Find the attribute in the pattern
+        new_kwds = []
+        found = False
+        
+        for kwd in pattern.kwds:
+            if not isinstance(kwd, cst.MatchKeywordElement):
+                new_kwds.append(kwd)
+                continue
+            
+            # Check if this is the attribute we're looking for
+            if not isinstance(kwd.pattern, cst.MatchSequence):
+                new_kwds.append(kwd)
+                continue
+            
+            if kwd.key.value != attr_name:
+                new_kwds.append(kwd)
+                continue
+            
+            # Found it! Now check if we can add capture at the specified index
+            seq_pattern = kwd.pattern
+            elements = list(seq_pattern.patterns)
+            
+            # Only support index=0 for now
+            if index != 0:
+                return None
+            
+            # Check if pattern is just a single wildcard [_]
+            # If so, transform to [var, *_] to capture first element
+            if len(elements) == 1 and isinstance(elements[0].value, cst.MatchAs):
+                if elements[0].value.pattern is None and elements[0].value.name is None:
+                    # It's a wildcard - replace with [var, *_]
+                    capture_element = cst.MatchSequenceElement(
+                        value=cst.MatchAs(pattern=None, name=cst.Name(var_name)),
+                        comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" ")),
+                    )
+                    star_element = cst.MatchSequenceElement(
+                        value=cst.MatchStar(name=cst.Name("_"))
+                    )
+                    new_elements = [capture_element, star_element]
+                    new_seq_pattern = seq_pattern.with_changes(patterns=new_elements)
+                    new_kwd = kwd.with_changes(pattern=new_seq_pattern)
+                    new_kwds.append(new_kwd)
+                    found = True
+                    continue
+            
+            # Check if first element is a wildcard or value pattern
+            if len(elements) == 0:
+                return None
+            
+            # Replace first element with capture pattern
+            capture_element = cst.MatchSequenceElement(
+                value=cst.MatchAs(pattern=None, name=cst.Name(var_name))
+            )
+            
+            new_elements = [capture_element] + elements[1:]
+            new_seq_pattern = seq_pattern.with_changes(patterns=new_elements)
+            new_kwd = kwd.with_changes(pattern=new_seq_pattern)
+            new_kwds.append(new_kwd)
+            found = True
+        
+        if not found:
+            return None
+        
+        return pattern.with_changes(kwds=new_kwds)
+    
+    def _remove_first_statement(self, body: cst.IndentedBlock) -> cst.IndentedBlock:
+        """Remove first statement from body, or replace with pass if only statement."""
+        if len(body.body) == 1:
+            # Replace with pass statement
+            pass_stmt = cst.SimpleStatementLine(body=[cst.Pass()])
+            return body.with_changes(body=[pass_stmt])
+        else:
+            # Remove first statement
+            return body.with_changes(body=body.body[1:])
+
+
 def convert_file(path: pathlib.Path) -> tuple[pathlib.Path, bool, str | None]:
     """Convert a single file.
 
@@ -1712,8 +1932,12 @@ def convert_file(path: pathlib.Path) -> tuple[pathlib.Path, bool, str | None]:
         source = path.read_text(encoding="utf-8")
         module = cst.parse_module(source)
 
+        # First pass: convert if/elif/else to match
         wrapper = cst.MetadataWrapper(module)
         transformed = wrapper.visit(IfToMatchTransformer())
+        
+        # Second pass: add capture patterns to match statements
+        transformed = transformed.visit(CapturePatternTransformer())
 
         # Only write back if something changed
         if transformed.code != source:
