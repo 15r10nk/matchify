@@ -110,6 +110,15 @@ match_stmt = cst.Match(
    - Can mix nested sequences with other pattern types
    - Each nested sequence must have its own `len()` check
 
+7. **OR Patterns (|)** - Multiple values for same subject
+   - `if x == 1 or x == 2:` → `case 1 | 2:`
+   - `if color == "red" or color == "green" or color == "blue":` → `case "red" | "green" | "blue":`
+   - `if x is None or x is False:` → `case None | False:`
+   - All comparisons must be against the same subject
+   - All values must be literals (integers, floats, strings, None, True, False)
+   - Supports both `==` and `is` operators (but `is` only with singletons)
+   - Can be mixed with other pattern types in a chain
+
 ### Will Convert
 ✅ If/elif chains comparing the same variable/expression
 ✅ Chains with at least one `elif` (minimum 2 branches)
@@ -127,6 +136,7 @@ match_stmt = cst.Match(
 ✅ isinstance tuple inside sequences (e.g., `isinstance(x[0], (Point, Line))` → `case Point() | Line(), ...:` )
 ✅ Star patterns: `if len(x) >= 2 and x[0] == 1 and x[1] == 2:` → `case [1, 2, *_]:`
 ✅ Wildcard patterns: `if len(x) == 3 and x[0] == 1 and x[2] == 3:` → `case [1, _, 3]:`
+✅ OR patterns: `if x == 1 or x == 2:` → `case 1 | 2:`
 
 ### Will NOT Convert
 ❌ Single `if` without `elif`
@@ -136,6 +146,8 @@ match_stmt = cst.Match(
 ❌ Sequence patterns without `len()` check
 ❌ isinstance tuple with attributes (e.g., `isinstance(x, (Point, Line)) and x.value == 5`)
 ❌ Non-literal values in patterns (variables would create binding patterns)
+❌ OR patterns with different subjects (e.g., `if x == 1 or y == 2:`)
+❌ OR patterns with non-literal values (e.g., `if x == 1 or x == variable:`)
 
 ## Testing Guidelines
 

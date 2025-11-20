@@ -1446,6 +1446,229 @@ class TestIfToMatchTransformer:
 
         check_code(source, expected)
 
+    def test_or_pattern_simple(self):
+        """Test basic OR pattern with two values."""
+        source = dedent(
+            """
+            x = 1
+            if x == 1 or x == 2:
+                print("one or two")
+            elif x == 3 or x == 4:
+                print("three or four")
+            else:
+                print("other")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            x = 1
+            match x:
+                case 1 | 2:
+                    print("one or two")
+                case 3 | 4:
+                    print("three or four")
+                case _:
+                    print("other")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_or_pattern_three_values(self):
+        """Test OR pattern with three values."""
+        source = dedent(
+            """
+            color = "red"
+            if color == "red" or color == "green" or color == "blue":
+                print("primary color")
+            elif color == "yellow" or color == "cyan" or color == "magenta":
+                print("secondary color")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            color = "red"
+            match color:
+                case "red" | "green" | "blue":
+                    print("primary color")
+                case "yellow" | "cyan" | "magenta":
+                    print("secondary color")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_or_pattern_with_strings(self):
+        """Test OR pattern with string literals."""
+        source = dedent(
+            '''
+            status = "ready"
+            if status == "ready" or status == "running":
+                print("active")
+            elif status == "stopped" or status == "error":
+                print("inactive")
+        '''
+        ).strip()
+
+        expected = dedent(
+            '''
+            status = "ready"
+            match status:
+                case "ready" | "running":
+                    print("active")
+                case "stopped" | "error":
+                    print("inactive")
+        '''
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_or_pattern_mixed_types(self):
+        """Test OR pattern with mixed number types."""
+        source = dedent(
+            """
+            value = 1
+            if value == 1 or value == 2.5:
+                print("small")
+            elif value == 10 or value == 20.0:
+                print("large")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            value = 1
+            match value:
+                case 1 | 2.5:
+                    print("small")
+                case 10 | 20.0:
+                    print("large")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_or_pattern_with_is_none(self):
+        """Test OR pattern with 'is None'."""
+        source = dedent(
+            """
+            value = None
+            if value is None or value is False:
+                print("falsy singleton")
+            elif value is True:
+                print("truthy singleton")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            value = None
+            match value:
+                case None | False:
+                    print("falsy singleton")
+                case True:
+                    print("truthy singleton")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_or_pattern_with_negative_numbers(self):
+        """Test OR pattern with negative numbers."""
+        source = dedent(
+            """
+            temp = -5
+            if temp == -5 or temp == -10:
+                print("very cold")
+            elif temp == 0 or temp == 5:
+                print("cold")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            temp = -5
+            match temp:
+                case -5 | -10:
+                    print("very cold")
+                case 0 | 5:
+                    print("cold")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_or_pattern_in_mixed_chain(self):
+        """Test OR pattern mixed with other pattern types in a chain."""
+        source = dedent(
+            """
+            class Point:
+                pass
+            value = 1
+            if value == 1 or value == 2:
+                print("one or two")
+            elif isinstance(value, Point):
+                print("point")
+            elif value is None:
+                print("none")
+            else:
+                print("other")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Point:
+                pass
+            value = 1
+            match value:
+                case 1 | 2:
+                    print("one or two")
+                case Point():
+                    print("point")
+                case None:
+                    print("none")
+                case _:
+                    print("other")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_or_pattern_with_variable_not_converted(self):
+        """Test that OR patterns with variables (non-literals) are not converted."""
+        source = dedent(
+            """
+            x = 1
+            y = 2
+            if x == 1 or x == y:
+                print("match")
+            elif x == 3:
+                print("three")
+        """
+        ).strip()
+
+        # Should NOT be converted (y is a variable, not a literal)
+        check_code(source, source)
+
+    def test_or_pattern_different_subjects_not_converted(self):
+        """Test that OR patterns comparing different subjects are not converted."""
+        source = dedent(
+            """
+            x = 1
+            y = 2
+            if x == 1 or y == 2:
+                print("match")
+            elif x == 3:
+                print("three")
+        """
+        ).strip()
+
+        # Should NOT be converted (different subjects)
+        check_code(source, source)
+
     def test_mixed_pattern_types_in_chain(self):
         """Test that all pattern types can be mixed in a single if/elif chain.
 

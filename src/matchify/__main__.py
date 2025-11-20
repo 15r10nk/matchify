@@ -320,6 +320,12 @@ class IfToMatchTransformer(cst.CSTTransformer):
     # ------------------------------------------------------------------ #
     def _extract_subject(self, test: cst.BaseExpression) -> cst.BaseExpression | None:
         """Return the left side of a simple == or 'is' comparison or isinstance call, otherwise None."""
+        # Check for OR pattern: subject == val1 or subject == val2 or ...
+        if self._is_or_pattern(test):
+            result = self._extract_or_values(test)
+            if result is not None:
+                return result[0]
+        
         # Check for equality or identity comparison
         if m.matches(
             test,
@@ -552,6 +558,133 @@ class IfToMatchTransformer(cst.CSTTransformer):
                 or_elements.append(cst.MatchOrElement(pattern=match_class))
         return cst.MatchOr(patterns=or_elements)
 
+    def _is_or_pattern(self, test: cst.BaseExpression) -> bool:
+        """Check if test is 'subject == val1 or subject == val2 or ...' or 'subject is val1 or subject is val2 ...'.
+        
+        All comparisons must be against the same subject with == or 'is' operators,
+        and all values must be literals.
+        
+        Args:
+            test: The test expression to check
+            
+        Returns:
+            True if it's a valid OR pattern
+        """
+        if not m.matches(test, m.BooleanOperation(operator=m.Or())):
+            return False
+        
+        # Extract the subject from the first comparison to establish reference
+        first_subject = None
+        
+        def check_comparison(node: cst.BaseExpression) -> bool:
+            """Check if node is a valid equality/identity comparison for OR pattern."""
+            nonlocal first_subject
+            
+            if not m.matches(
+                node,
+                m.Comparison(
+                    comparisons=[m.ComparisonTarget(operator=m.Equal() | m.Is())],
+                ),
+            ):
+                return False
+            
+            comp = node  # type: ignore
+            subject = comp.left
+            comparator = comp.comparisons[0].comparator
+            operator = comp.comparisons[0].operator
+            
+            # Check that comparator is a literal
+            if not self._is_literal_value(comparator):
+                return False
+            
+            # 'is' operator should only be used with singletons
+            if isinstance(operator, cst.Is) and not self._is_singleton_name(comparator):
+                return False
+            
+            # Check subject consistency
+            if first_subject is None:
+                first_subject = subject
+                return True
+            return subject.deep_equals(first_subject)
+        
+        # Recursively check all parts of the OR tree
+        def validate_or_tree(node: cst.BaseExpression) -> bool:
+            if m.matches(node, m.BooleanOperation(operator=m.Or())):
+                bool_op = node  # type: ignore
+                return validate_or_tree(bool_op.left) and validate_or_tree(bool_op.right)
+            return check_comparison(node)
+        
+        return validate_or_tree(test)
+
+    def _extract_or_values(
+        self, test: cst.BaseExpression
+    ) -> tuple[cst.BaseExpression, list[cst.BaseExpression]] | None:
+        """Extract subject and list of values from 'subject == val1 or subject == val2 or ...'.
+        
+        Args:
+            test: A BooleanOperation(Or) node
+            
+        Returns:
+            Tuple of (subject, [val1, val2, ...]) or None if invalid
+        """
+        if not self._is_or_pattern(test):
+            return None
+        
+        subject = None
+        values = []
+        
+        def extract_from_tree(node: cst.BaseExpression) -> None:
+            nonlocal subject
+            if m.matches(node, m.BooleanOperation(operator=m.Or())):
+                bool_op = node  # type: ignore
+                extract_from_tree(bool_op.left)
+                extract_from_tree(bool_op.right)
+            elif m.matches(
+                node,
+                m.Comparison(
+                    comparisons=[m.ComparisonTarget(operator=m.Equal() | m.Is())],
+                ),
+            ):
+                comp = node  # type: ignore
+                if subject is None:
+                    subject = comp.left
+                values.append(comp.comparisons[0].comparator)
+        
+        extract_from_tree(test)
+        
+        if subject is None or not values:
+            return None
+        return (subject, values)
+
+    def _build_match_or_from_values(
+        self, values: list[cst.BaseExpression]
+    ) -> cst.MatchSingleton | cst.MatchValue | cst.MatchOr:
+        """Build a MatchOr pattern from multiple literal values.
+        
+        For single value: returns the pattern for that value
+        For multiple values: returns MatchOr with val1 | val2 | ...
+        
+        Args:
+            values: List of literal value expressions
+            
+        Returns:
+            A match pattern node (MatchSingleton, MatchValue, or MatchOr)
+        """
+        if len(values) == 1:
+            return self._build_pattern_from_value(values[0])
+
+        # Multiple values need MatchOrElement wrappers with separators
+        or_elements = []
+        for i, value in enumerate(values):
+            pattern = self._build_pattern_from_value(value)
+            if i < len(values) - 1:
+                or_elements.append(
+                    cst.MatchOrElement(pattern=pattern, separator=cst.BitOr())
+                )
+            else:
+                or_elements.append(cst.MatchOrElement(pattern=pattern))
+        return cst.MatchOr(patterns=or_elements)
+
     def _build_pattern_from_value(
         self, value: cst.BaseExpression
     ) -> cst.MatchSingleton | cst.MatchValue:
@@ -719,6 +852,14 @@ class IfToMatchTransformer(cst.CSTTransformer):
                 lbracket=None,  # No outer brackets
                 rbracket=None,
             )
+
+        elif self._is_or_pattern(test):
+            # subject == val1 or subject == val2 or ... -> case val1 | val2 | ...:
+            result = self._extract_or_values(test)
+            if result is None:
+                return None
+            _, values = result
+            return self._build_match_or_from_values(values)
 
         else:
             # subject == value -> case value:
@@ -1436,7 +1577,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
                 if current_subject is None or not current_subject.deep_equals(subject):
                     return False
 
-                # Each branch must be either isinstance, isinstance with and, sequence pattern, or equality with literal
+                # Each branch must be either isinstance, isinstance with and, sequence pattern, OR pattern, or equality with literal
                 if self._is_isinstance_call(
                     current.test
                 ) or self._is_isinstance_with_and(current.test):
@@ -1444,6 +1585,9 @@ class IfToMatchTransformer(cst.CSTTransformer):
                     pass
                 elif self._is_sequence_pattern(current.test):
                     # sequence pattern is valid
+                    pass
+                elif self._is_or_pattern(current.test):
+                    # OR pattern is valid (already validated in _is_or_pattern)
                     pass
                 else:
                     # For equality/identity chains, check that we're comparing against a literal value
