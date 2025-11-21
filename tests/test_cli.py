@@ -3593,3 +3593,52 @@ class TestEdgeCases:
         ).strip()
 
         check_code(source, expected)
+
+    def test_comment_preservation_before_elif_and_else(self):
+        """Test that comments before elif and else are preserved."""
+        source = dedent(
+            """
+            class Decorator:
+                pass
+            
+            class Handler:
+                pass
+            
+            item = Decorator()
+            
+            # Comment before if
+            if isinstance(item, Decorator):
+                print("decorator")
+            # Comment before elif
+            elif isinstance(item, Handler):
+                print("handler")
+            # Comment before else
+            else:
+                print("other")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Decorator:
+                pass
+            
+            class Handler:
+                pass
+            
+            item = Decorator()
+            
+            # Comment before if
+            match item:
+                case Decorator():
+                    print("decorator")
+                # Comment before elif
+                case Handler():
+                    print("handler")
+                # Comment before else
+                case _:
+                    print("other")
+        """
+        ).strip()
+
+        check_code(source, expected)

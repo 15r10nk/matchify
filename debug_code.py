@@ -1,11 +1,18 @@
 class Decorator:
     pass
 
+class Handler:
+    pass
+
 item = Decorator()
 
-# TODO: support decorated overloaded functions properly
+# Comment before if
 match item:
     case Decorator():
         print("decorator")
-    case int():
-        print("int")
+    # Comment before elif
+    case Handler():
+        print("handler")
+    # Comment before else
+    case _:
+        print("something else")

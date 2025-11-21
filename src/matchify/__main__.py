@@ -2045,6 +2045,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
         # ------------------------------------------------------------------
         cases: List[cst.MatchCase] = []
         current: cst.If | None = original_node
+        is_first = True
 
         while current is not None:
             subject = self._extract_subject(current.test)
@@ -2066,16 +2067,22 @@ class IfToMatchTransformer(cst.CSTTransformer):
             case_pattern, guard = pattern_result
 
             # Add proper whitespace around guard clause if present
+            # Preserve leading_lines (comments) from elif/else nodes, but not from the first if
+            # (the first if's leading_lines will be on the match statement itself)
             match_case_args = {
                 "pattern": case_pattern,
                 "guard": guard,
                 "body": current.body,
             }
+            if not is_first:
+                match_case_args["leading_lines"] = current.leading_lines
+            
             if guard is not None:
                 match_case_args["whitespace_before_if"] = cst.SimpleWhitespace(" ")
                 match_case_args["whitespace_after_if"] = cst.SimpleWhitespace(" ")
             
             cases.append(cst.MatchCase(**match_case_args))
+            is_first = False
 
             # Move to the next part of the chain
             orelse = current.orelse
@@ -2086,6 +2093,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
                     cst.MatchCase(
                         pattern=wildcard_pattern,
                         body=orelse.body,
+                        leading_lines=orelse.leading_lines,
                     )
                 )
                 break
