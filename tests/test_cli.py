@@ -3408,6 +3408,31 @@ class TestEdgeCases:
         expected = source
         check_code(source, expected)
 
+    def test_walrus_operator_in_isinstance_not_converted(self):
+        """Test that isinstance with walrus operator (NamedExpr) is not converted."""
+        source = dedent(
+            """
+            class CallExpr:
+                pass
+            
+            class CallableType:
+                pass
+            
+            def get_type(x):
+                return CallableType()
+            
+            obj = CallExpr()
+            if isinstance(obj, CallExpr) and isinstance((call_tp := get_type(obj)), CallableType):
+                print("matched")
+            elif obj == None:
+                print("none")
+        """
+        ).strip()
+
+        # Expected is same as source (no transformation - walrus operator cannot be converted)
+        expected = source
+        check_code(source, expected)
+
     def test_mixed_sequence_patterns_in_chain(self):
         """Test multiple sequence patterns in same chain."""
         source = dedent(

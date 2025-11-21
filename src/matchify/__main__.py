@@ -456,14 +456,29 @@ class IfToMatchTransformer(cst.CSTTransformer):
         return None
 
     def _is_isinstance_call(self, test: cst.BaseExpression) -> bool:
-        """Check if test is an isinstance(subject, type) call."""
-        return m.matches(
+        """Check if test is an isinstance(subject, type) call.
+        
+        Returns False if the subject contains a walrus operator (NamedExpr),
+        as these cannot be properly converted to match patterns.
+        """
+        if not m.matches(
             test,
             m.Call(
                 func=m.Name(value="isinstance"),
                 args=[m.Arg(), m.Arg()],
             ),
-        )
+        ):
+            return False
+        
+        # Check if the subject (first argument) contains a walrus operator
+        call = test  # type: ignore
+        subject_arg = call.args[0].value
+        
+        # Reject if subject contains NamedExpr (walrus operator)
+        if m.findall(subject_arg, m.NamedExpr()):
+            return False
+        
+        return True
 
     def _is_len_call(self, node: cst.BaseExpression) -> bool:
         """Check if node is a len() call."""
@@ -492,6 +507,8 @@ class IfToMatchTransformer(cst.CSTTransformer):
         
         This should NOT match sequence patterns that happen to contain isinstance elements.
         We distinguish by checking if isinstance is on the subject itself (not subject[idx]).
+        
+        Also rejects patterns containing walrus operators in isinstance calls.
         """
         if not m.matches(test, m.BooleanOperation(operator=m.And())):
             return False
@@ -505,7 +522,26 @@ class IfToMatchTransformer(cst.CSTTransformer):
                     return not m.matches(isinstance_arg, m.Subscript())
             return False
 
-        return self._traverse_boolean_and(test, is_isinstance_on_subject)
+        # First check if there's any isinstance call on the subject
+        if not self._traverse_boolean_and(test, is_isinstance_on_subject):
+            return False
+        
+        # Also check that no isinstance call anywhere in the expression contains a walrus operator
+        # We need to check all Call nodes, not just those that match _is_isinstance_call
+        def has_walrus_in_isinstance(node: cst.BaseExpression) -> bool:
+            # Check all isinstance calls in the expression
+            if m.matches(node, m.Call(func=m.Name(value="isinstance"))):
+                call = node  # type: ignore
+                # Check if any argument contains a NamedExpr (walrus operator)
+                for arg in call.args:
+                    if m.findall(arg.value, m.NamedExpr()):
+                        return True
+            elif m.matches(node, m.BooleanOperation(operator=m.And())):
+                and_op = node  # type: ignore
+                return has_walrus_in_isinstance(and_op.left) or has_walrus_in_isinstance(and_op.right)
+            return False
+        
+        return not has_walrus_in_isinstance(test)
 
     def _extract_isinstance_classes(
         self, test: cst.BaseExpression
@@ -2004,7 +2040,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
                 elif self._is_or_pattern(current.test):
                     # OR pattern is valid (already validated in _is_or_pattern)
                     pass
-                else:
+                elif m.matches(current.test, m.Comparison()):
                     # For equality/identity chains, check that we're comparing against a literal value
                     comparison = current.test  # type: ignore
                     comparator = comparison.comparisons[0].comparator
@@ -2016,6 +2052,9 @@ class IfToMatchTransformer(cst.CSTTransformer):
                             return False
                     elif not self._is_literal_value(comparator):
                         return False
+                else:
+                    # Unrecognized pattern type - don't convert
+                    return False
 
                 orelse = current.orelse
                 if orelse is None:

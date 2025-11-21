@@ -191,6 +191,7 @@ match_stmt = cst.Match(
 ❌ OR patterns with non-literal values (e.g., `if x == 1 or x == variable:`)
 ❌ Guard patterns that reference the subject (e.g., `isinstance(x, Class) and x.attr == value` should be class pattern)
 ❌ Capture patterns with duplicate indices (e.g., `n.x[0]` twice)
+❌ isinstance with walrus operator (e.g., `isinstance((x := func()), Class)` - cannot preserve assignment)
 
 ## Testing Guidelines
 
