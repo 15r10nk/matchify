@@ -3035,6 +3035,46 @@ class TestEdgeCases:
         ).strip()
         check_code(source, expected_converted, ignore_types_pattern=None)
 
+    def test_isinstance_with_type_variable_in_tuple_ignored(self):
+        """Test that isinstance with tuple containing type variables is not converted."""
+        source = dedent(
+            """
+            SYMBOL_FUNCBASE_TYPES = (FuncDef, OverloadedFuncDef)
+            
+            class Var:
+                pass
+            
+            node = Var()
+            if isinstance(node, (Var, SYMBOL_FUNCBASE_TYPES)):
+                print("match")
+            elif isinstance(node, int):
+                print("int")
+        """
+        ).strip()
+
+        # With default --no-types pattern (.*_TYPES$), this should NOT be converted
+        # because SYMBOL_FUNCBASE_TYPES is in the tuple
+        expected = source
+        check_code(source, expected)
+        
+        # Without the pattern, it should convert
+        expected_converted = dedent(
+            """
+            SYMBOL_FUNCBASE_TYPES = (FuncDef, OverloadedFuncDef)
+            
+            class Var:
+                pass
+            
+            node = Var()
+            match node:
+                case Var() | SYMBOL_FUNCBASE_TYPES():
+                    print("match")
+                case int():
+                    print("int")
+        """
+        ).strip()
+        check_code(source, expected_converted, ignore_types_pattern=None)
+
     def test_sequence_with_non_integer_subscript_not_converted(self):
         """Test that sequences with non-integer indices are not converted."""
         source = dedent(

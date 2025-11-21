@@ -530,6 +530,12 @@ class IfToMatchTransformer(cst.CSTTransformer):
                 classes = []
                 for element in class_arg.elements:
                     if isinstance(element, cst.Element):
+                        # Check if element is an ignored type variable
+                        if self._ignore_types_pattern and m.matches(element.value, m.Name()):
+                            import re
+                            name = element.value.value  # type: ignore
+                            if re.match(self._ignore_types_pattern, name):
+                                return None
                         classes.append(element.value)
                     elif isinstance(element, cst.StarredElement):
                         # Don't support *args in isinstance tuples
