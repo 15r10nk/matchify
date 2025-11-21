@@ -308,12 +308,14 @@ class IfToMatchTransformer(cst.CSTTransformer):
 
     METADATA_DEPENDENCIES = (PositionProvider,)
 
-    def __init__(self) -> None:
+    def __init__(self, ignore_types_pattern: str | None = None) -> None:
         super().__init__()
         # Will be set when we enter the first If of a chain
         self._current_subject: cst.BaseExpression | None = None
         # Track which If nodes are elif clauses (in orelse position)
         self._elif_nodes: set[int] = set()
+        # Pattern to ignore isinstance type arguments (e.g., variables ending in _TYPES)
+        self._ignore_types_pattern = ignore_types_pattern
 
     # ------------------------------------------------------------------ #
     # Helper methods
@@ -515,6 +517,13 @@ class IfToMatchTransformer(cst.CSTTransformer):
         if self._is_isinstance_call(test):
             call = test  # type: ignore
             class_arg = call.args[1].value
+
+            # Check if class_arg is a variable name matching ignore pattern
+            if self._ignore_types_pattern and m.matches(class_arg, m.Name()):
+                import re
+                name = class_arg.value  # type: ignore
+                if re.match(self._ignore_types_pattern, name):
+                    return None
 
             # Check if it's a tuple of classes
             if isinstance(class_arg, cst.Tuple):
@@ -2156,7 +2165,7 @@ class CapturePatternTransformer(cst.CSTTransformer):
             return body.with_changes(body=body.body[count:])
 
 
-def convert_file(path: pathlib.Path) -> tuple[pathlib.Path, bool, str | None]:
+def convert_file(path: pathlib.Path, ignore_types_pattern: str | None = None) -> tuple[pathlib.Path, bool, str | None]:
     """Convert a single file.
 
     Returns:
@@ -2168,7 +2177,7 @@ def convert_file(path: pathlib.Path) -> tuple[pathlib.Path, bool, str | None]:
 
         # First pass: convert if/elif/else to match
         wrapper = cst.MetadataWrapper(module)
-        transformed = wrapper.visit(IfToMatchTransformer())
+        transformed = wrapper.visit(IfToMatchTransformer(ignore_types_pattern=ignore_types_pattern))
         
         # Second pass: add capture patterns to match statements
         transformed = transformed.visit(CapturePatternTransformer())
@@ -2216,6 +2225,12 @@ def main() -> None:
     parser.add_argument(
         "-v", "--verbose", action="store_true", help="Show files with no changes"
     )
+    parser.add_argument(
+        "--no-types",
+        type=str,
+        default=r".*_TYPES$",
+        help="Regex pattern for isinstance type variables to ignore (default: .*_TYPES$)",
+    )
 
     args = parser.parse_args()
 
@@ -2236,7 +2251,7 @@ def main() -> None:
 
     if len(python_files) == 1:
         # Single file - no need for multiprocessing
-        path, changed, error = convert_file(python_files[0])
+        path, changed, error = convert_file(python_files[0], ignore_types_pattern=args.no_types)
         if error:
             print(f"Error processing {path}: {error}")
             error_count += 1
@@ -2253,7 +2268,7 @@ def main() -> None:
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             # Submit all tasks
             future_to_path = {
-                executor.submit(convert_file, path): path for path in python_files
+                executor.submit(convert_file, path, args.no_types): path for path in python_files
             }
 
             # Process results as they complete

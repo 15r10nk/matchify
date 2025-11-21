@@ -3002,6 +3002,38 @@ class TestEdgeCases:
         expected = source
         check_code(source, expected)
 
+    def test_isinstance_with_type_variable_ignored(self):
+        """Test that isinstance with type variables matching --no-types pattern are not converted."""
+        source = dedent(
+            """
+            SYMBOL_TYPES = (FuncDef, OverloadedFuncDef)
+            
+            n = None
+            if isinstance(n, SYMBOL_TYPES):
+                print("match")
+            elif isinstance(n, int):
+                print("int")
+        """
+        ).strip()
+
+        # With default --no-types pattern (.*_TYPES$), this should NOT be converted
+        # Transform the source code with default pattern
+        module = cst.parse_module(source)
+        wrapper = cst.MetadataWrapper(module)
+        transformed = wrapper.visit(IfToMatchTransformer(ignore_types_pattern=r".*_TYPES$"))
+        
+        # Should remain unchanged
+        assert transformed.code.strip() == source.strip()
+        
+        # Without the pattern, it should convert
+        module2 = cst.parse_module(source)
+        wrapper2 = cst.MetadataWrapper(module2)
+        transformed2 = wrapper2.visit(IfToMatchTransformer(ignore_types_pattern=None))
+        
+        # Should be converted now
+        assert "match n:" in transformed2.code
+        assert "case SYMBOL_TYPES():" in transformed2.code
+
     def test_sequence_with_non_integer_subscript_not_converted(self):
         """Test that sequences with non-integer indices are not converted."""
         source = dedent(
