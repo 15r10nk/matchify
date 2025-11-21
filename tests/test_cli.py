@@ -3408,8 +3408,8 @@ class TestEdgeCases:
         expected = source
         check_code(source, expected)
 
-    def test_walrus_operator_in_isinstance_not_converted(self):
-        """Test that isinstance with walrus operator (NamedExpr) is not converted."""
+    def test_walrus_operator_in_isinstance_converted_to_guard(self):
+        """Test that isinstance with walrus operator is converted to guard clause."""
         source = dedent(
             """
             class CallExpr:
@@ -3429,8 +3429,25 @@ class TestEdgeCases:
         """
         ).strip()
 
-        # Expected is same as source (no transformation - walrus operator cannot be converted)
-        expected = source
+        expected = dedent(
+            """
+            class CallExpr:
+                pass
+            
+            class CallableType:
+                pass
+            
+            def get_type(x):
+                return CallableType()
+            
+            obj = CallExpr()
+            match obj:
+                case CallExpr() if isinstance((call_tp := get_type(obj)), CallableType):
+                    print("matched")
+                case None:
+                    print("none")
+        """
+        ).strip()
         check_code(source, expected)
 
     def test_mixed_sequence_patterns_in_chain(self):
@@ -3722,6 +3739,83 @@ class TestEdgeCases:
                 # Comment before else
                 case _:
                     print("other")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_nested_isinstance_with_walrus_converted_to_pattern_and_guard(self):
+        """Test that nested isinstance with walrus combines pattern + guard clause."""
+        source = dedent(
+            """
+            class CallExpr:
+                def __init__(self, callee=None):
+                    self.callee = callee
+            
+            class RefExpr:
+                def __init__(self, node=None):
+                    self.node = node
+            
+            class Decorator:
+                def __init__(self):
+                    self.type = None
+            
+            class FuncDef:
+                def __init__(self):
+                    self.type = None
+            
+            class Var:
+                def __init__(self):
+                    self.type = None
+            
+            class CallableType:
+                pass
+            
+            def get_proper_type(x):
+                return CallableType()
+            
+            dec = CallExpr(RefExpr(Var()))
+            if isinstance(dec, CallExpr) and isinstance(dec.callee, RefExpr) and isinstance(dec.callee.node, (Decorator, FuncDef, Var)) and isinstance((call_tp := get_proper_type(dec.callee.node.type)), CallableType):
+                print("matched")
+            elif isinstance(dec, RefExpr):
+                print("refexpr")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class CallExpr:
+                def __init__(self, callee=None):
+                    self.callee = callee
+            
+            class RefExpr:
+                def __init__(self, node=None):
+                    self.node = node
+            
+            class Decorator:
+                def __init__(self):
+                    self.type = None
+            
+            class FuncDef:
+                def __init__(self):
+                    self.type = None
+            
+            class Var:
+                def __init__(self):
+                    self.type = None
+            
+            class CallableType:
+                pass
+            
+            def get_proper_type(x):
+                return CallableType()
+            
+            dec = CallExpr(RefExpr(Var()))
+            match dec:
+                case CallExpr(callee=RefExpr(node=Decorator() | FuncDef() | Var())) if isinstance((call_tp := get_proper_type(dec.callee.node.type)), CallableType):
+                    print("matched")
+                case RefExpr():
+                    print("refexpr")
         """
         ).strip()
 

@@ -134,10 +134,13 @@ match_stmt = cst.Match(
    - `if isinstance(x, (Handler, Worker)) and PRODUCTION:` → `case Handler() | Worker() if PRODUCTION:`
    - `if isinstance(x, Config) and DEBUG and not VERBOSE:` → `case Config() if DEBUG and not VERBOSE:`
    - `if isinstance(tvar, ParamSpecType) and isinstance(mapped_arg, ParamSpecType):` → `case ParamSpecType() if isinstance(mapped_arg, ParamSpecType):`
-   - Guard conditions must NOT reference the match subject (only independent variables/expressions)
-   - Used for conditions that can't be expressed as pattern matching
-   - Works with single classes or OR patterns of multiple classes
-   - Can have isinstance checks on different variables as guards
+   - **Walrus operators in isinstance**: `if isinstance(obj, CallExpr) and isinstance((call_tp := get_type(obj)), CallableType):` → `case CallExpr() if isinstance((call_tp := get_type(obj)), CallableType):`
+   - **Nested isinstance + walrus**: `if isinstance(dec, CallExpr) and isinstance(dec.callee, RefExpr) and isinstance((call_tp := get_type(dec)), Type):` → `case CallExpr(callee=RefExpr()) if isinstance((call_tp := get_type(dec)), Type):`
+   - **Multiple walrus operators**: Combined with AND in guard: `case Handler() if isinstance((h := get_h()), Handler) and isinstance((w := get_w()), Worker):`
+   - Guard conditions must NOT reference the match subject for attribute comparisons (those become class patterns)
+   - isinstance checks on different variables automatically become guards
+   - isinstance with walrus operator (`:=`) automatically becomes guard (preserves assignment)
+   - Works with single classes, OR patterns, or nested isinstance patterns
    - Proper whitespace automatically added around `if` keyword
 
 9. **Capture Patterns** - Extract values with variable binding
@@ -189,9 +192,9 @@ match_stmt = cst.Match(
 ❌ Non-literal values in patterns (variables would create binding patterns)
 ❌ OR patterns with different subjects (e.g., `if x == 1 or y == 2:`)
 ❌ OR patterns with non-literal values (e.g., `if x == 1 or x == variable:`)
-❌ Guard patterns that reference the subject (e.g., `isinstance(x, Class) and x.attr == value` should be class pattern)
+❌ Guard patterns that reference the subject for attribute comparisons (e.g., `isinstance(x, Class) and x.attr == value` should be class pattern)
 ❌ Capture patterns with duplicate indices (e.g., `n.x[0]` twice)
-❌ isinstance with walrus operator (e.g., `isinstance((x := func()), Class)` - cannot preserve assignment)
+❌ Walrus operator in isinstance subject position (e.g., `isinstance((x := func()), Class)` - cannot preserve assignment with pattern matching)
 
 ## Testing Guidelines
 

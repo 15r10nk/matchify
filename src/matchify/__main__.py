@@ -456,29 +456,14 @@ class IfToMatchTransformer(cst.CSTTransformer):
         return None
 
     def _is_isinstance_call(self, test: cst.BaseExpression) -> bool:
-        """Check if test is an isinstance(subject, type) call.
-        
-        Returns False if the subject contains a walrus operator (NamedExpr),
-        as these cannot be properly converted to match patterns.
-        """
-        if not m.matches(
+        """Check if test is an isinstance(subject, type) call."""
+        return m.matches(
             test,
             m.Call(
                 func=m.Name(value="isinstance"),
                 args=[m.Arg(), m.Arg()],
             ),
-        ):
-            return False
-        
-        # Check if the subject (first argument) contains a walrus operator
-        call = test  # type: ignore
-        subject_arg = call.args[0].value
-        
-        # Reject if subject contains NamedExpr (walrus operator)
-        if m.findall(subject_arg, m.NamedExpr()):
-            return False
-        
-        return True
+        )
 
     def _is_len_call(self, node: cst.BaseExpression) -> bool:
         """Check if node is a len() call."""
@@ -507,8 +492,6 @@ class IfToMatchTransformer(cst.CSTTransformer):
         
         This should NOT match sequence patterns that happen to contain isinstance elements.
         We distinguish by checking if isinstance is on the subject itself (not subject[idx]).
-        
-        Also rejects patterns containing walrus operators in isinstance calls.
         """
         if not m.matches(test, m.BooleanOperation(operator=m.And())):
             return False
@@ -522,26 +505,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
                     return not m.matches(isinstance_arg, m.Subscript())
             return False
 
-        # First check if there's any isinstance call on the subject
-        if not self._traverse_boolean_and(test, is_isinstance_on_subject):
-            return False
-        
-        # Also check that no isinstance call anywhere in the expression contains a walrus operator
-        # We need to check all Call nodes, not just those that match _is_isinstance_call
-        def has_walrus_in_isinstance(node: cst.BaseExpression) -> bool:
-            # Check all isinstance calls in the expression
-            if m.matches(node, m.Call(func=m.Name(value="isinstance"))):
-                call = node  # type: ignore
-                # Check if any argument contains a NamedExpr (walrus operator)
-                for arg in call.args:
-                    if m.findall(arg.value, m.NamedExpr()):
-                        return True
-            elif m.matches(node, m.BooleanOperation(operator=m.And())):
-                and_op = node  # type: ignore
-                return has_walrus_in_isinstance(and_op.left) or has_walrus_in_isinstance(and_op.right)
-            return False
-        
-        return not has_walrus_in_isinstance(test)
+        return self._traverse_boolean_and(test, is_isinstance_on_subject)
 
     def _extract_isinstance_classes(
         self, test: cst.BaseExpression
@@ -918,7 +882,12 @@ class IfToMatchTransformer(cst.CSTTransformer):
             if result is not None:
                 class_expr, attrs = result
                 kwds = self._build_class_pattern_keywords(attrs)
-                return (cst.MatchClass(cls=class_expr, patterns=[], kwds=kwds), None)
+                pattern = cst.MatchClass(cls=class_expr, patterns=[], kwds=kwds)
+                
+                # Check if there are additional guard conditions (e.g., isinstance with walrus)
+                # Extract guard from any remaining conditions
+                guard = self._extract_additional_guard(test)
+                return (pattern, guard)
             
             # isinstance(subject, Class) and other_expr -> case Class() if other_expr:
             # Only use guard if we couldn't extract as attribute pattern
@@ -1412,7 +1381,15 @@ class IfToMatchTransformer(cst.CSTTransformer):
         - A CST expression for simple values: (attr_name, value_expr)
         - A tuple for sequence patterns: (attr_name, ('sequence', pattern_list))
         - A tuple for nested isinstance: (attr_name, ('isinstance', class_expr, nested_attrs))
+        
+        Returns None if any isinstance call in the expression contains a walrus operator,
+        as those should be handled as guard patterns instead.
         """
+        # Check if there are any isinstance calls with walrus operators
+        # If so, this should be handled as a mixed pattern (class pattern + guard)
+        # We'll handle this later, so for now just continue
+        # The guard extraction will pick up the walrus isinstance calls
+        
         subject = isinstance_call.args[0].value
         class_arg = isinstance_call.args[1].value
 
@@ -1459,6 +1436,39 @@ class IfToMatchTransformer(cst.CSTTransformer):
 
         return self._extract_isinstance_with_attrs_from_call(test, isinstance_call)
 
+    def _has_walrus_operator(self, node: cst.BaseExpression) -> bool:
+        """Check if node contains a walrus operator (NamedExpr)."""
+        return len(m.findall(node, m.NamedExpr())) > 0
+    
+    def _extract_additional_guard(self, test: cst.BaseExpression) -> cst.BaseExpression | None:
+        """Extract additional guard conditions like isinstance with walrus operators.
+        
+        This is called after attribute extraction to check if there are any remaining
+        conditions that should become guard clauses.
+        """
+        guard_parts = []
+        
+        def collect_guard_conditions(node: cst.BaseExpression):
+            # If this is an isinstance with walrus, include it in guard
+            if self._is_isinstance_call(node) and self._has_walrus_operator(node):
+                guard_parts.append(node)
+            elif m.matches(node, m.BooleanOperation(operator=m.And())):
+                and_op = node  # type: ignore
+                collect_guard_conditions(and_op.left)
+                collect_guard_conditions(and_op.right)
+        
+        collect_guard_conditions(test)
+        
+        if not guard_parts:
+            return None
+        
+        # Build guard expression from parts
+        guard = guard_parts[0]
+        for part in guard_parts[1:]:
+            guard = cst.BooleanOperation(left=guard, operator=cst.And(), right=part)
+        
+        return guard
+    
     def _extract_isinstance_with_guard(
         self, test: cst.BaseExpression
     ) -> tuple[list[cst.BaseExpression], cst.BaseExpression] | None:
@@ -1469,23 +1479,82 @@ class IfToMatchTransformer(cst.CSTTransformer):
         
         Guard patterns can reference the subject for things like boolean attributes,
         but not for attribute comparisons (which should be class patterns).
+        
+        Special handling: If an isinstance call contains a walrus operator, the entire
+        isinstance call becomes part of the guard expression.
         """
         if not self._is_isinstance_with_and(test):
             return None
         
-        isinstance_call = self._find_isinstance_call(test)
-        if isinstance_call is None:
+        # Collect all isinstance calls in the expression
+        isinstance_calls = []
+        def collect_isinstance(node: cst.BaseExpression):
+            if self._is_isinstance_call(node):
+                isinstance_calls.append(node)
+            elif m.matches(node, m.BooleanOperation(operator=m.And())):
+                and_op = node  # type: ignore
+                collect_isinstance(and_op.left)
+                collect_isinstance(and_op.right)
+        collect_isinstance(test)
+        
+        # Separate isinstance calls into those with and without walrus operators
+        isinstance_without_walrus = [call for call in isinstance_calls if not self._has_walrus_operator(call)]
+        
+        # Must have at least one isinstance without walrus to form the pattern
+        if not isinstance_without_walrus:
             return None
+        
+        # Use the first isinstance without walrus for the pattern
+        isinstance_call = isinstance_without_walrus[0]
         
         # Extract class expressions from isinstance call
         class_exprs = self._extract_isinstance_classes(isinstance_call)
         if class_exprs is None:
             return None
         
-        # Extract the guard condition (everything except the isinstance check)
-        guard = self._extract_guard_condition(test, isinstance_call)
-        if guard is None:
+        # Build the guard from:
+        # 1. Any isinstance calls with walrus operators
+        # 2. isinstance calls on different subjects (different variables)
+        # 3. Other conditions that are not isinstance calls
+        guard_parts = []
+        
+        # Get the subject of the main isinstance call
+        main_subject = isinstance_call.args[0].value
+        
+        def collect_guard_parts(node: cst.BaseExpression):
+            # If this is an isinstance with walrus, include it in guard
+            if self._is_isinstance_call(node) and self._has_walrus_operator(node):
+                guard_parts.append(node)
+            # If this is the main isinstance call, skip it
+            elif node is isinstance_call:
+                pass
+            # If this is another isinstance call, check if it's on the same subject
+            elif self._is_isinstance_call(node):
+                # Get the subject of this isinstance call
+                call = node  # type: ignore
+                this_subject = call.args[0].value
+                # If different subject, include as guard
+                if not this_subject.deep_equals(main_subject):
+                    guard_parts.append(node)
+                # If same subject, skip (will be handled as separate case)
+            # If this is a boolean AND, recurse
+            elif m.matches(node, m.BooleanOperation(operator=m.And())):
+                and_op = node  # type: ignore
+                collect_guard_parts(and_op.left)
+                collect_guard_parts(and_op.right)
+            # Otherwise, this is a guard condition
+            else:
+                guard_parts.append(node)
+        
+        collect_guard_parts(test)
+        
+        if not guard_parts:
             return None
+        
+        # Build guard expression from parts
+        guard = guard_parts[0]
+        for part in guard_parts[1:]:
+            guard = cst.BooleanOperation(left=guard, operator=cst.And(), right=part)
         
         # Don't use guard patterns if the guard is an attribute comparison
         # (those should be handled by class patterns like Class(attr=value))
