@@ -3097,6 +3097,100 @@ class TestEdgeCases:
 
         check_code(source, expected)
 
+    def test_isinstance_with_nested_isinstance_on_attributes(self):
+        """Test isinstance with nested isinstance checks on attributes.
+        
+        Pattern: isinstance(x, Class1) and isinstance(x.attr, Class2)
+        Should become: case Class1(attr=Class2()):
+        """
+        source = dedent(
+            """
+            class NameExpr:
+                def __init__(self, node=None):
+                    self.node = node
+            
+            class Var:
+                pass
+            
+            lvalue = NameExpr(Var())
+            if isinstance(lvalue, NameExpr) and isinstance(lvalue.node, Var):
+                print("match")
+            elif isinstance(lvalue, int):
+                print("int")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class NameExpr:
+                def __init__(self, node=None):
+                    self.node = node
+            
+            class Var:
+                pass
+            
+            lvalue = NameExpr(Var())
+            match lvalue:
+                case NameExpr(node=Var()):
+                    print("match")
+                case int():
+                    print("int")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_isinstance_with_deeply_nested_isinstance_on_attributes(self):
+        """Test isinstance with deeply nested isinstance checks.
+        
+        Pattern: isinstance(x, A) and isinstance(x.b, B) and isinstance(x.b.c, C)
+        Should become: case A(b=B(c=C())):
+        """
+        source = dedent(
+            """
+            class NameExpr:
+                def __init__(self, node=None):
+                    self.node = node
+            
+            class Var:
+                def __init__(self, type=None):
+                    self.type = type
+            
+            class PartialType:
+                pass
+            
+            lvalue = NameExpr(Var(PartialType()))
+            if isinstance(lvalue, NameExpr) and isinstance(lvalue.node, Var) and isinstance(lvalue.node.type, PartialType):
+                print("match")
+            elif isinstance(lvalue, int):
+                print("int")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class NameExpr:
+                def __init__(self, node=None):
+                    self.node = node
+            
+            class Var:
+                def __init__(self, type=None):
+                    self.type = type
+            
+            class PartialType:
+                pass
+            
+            lvalue = NameExpr(Var(PartialType()))
+            match lvalue:
+                case NameExpr(node=Var(type=PartialType())):
+                    print("match")
+                case int():
+                    print("int")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_isinstance_with_type_variable_in_tuple_ignored(self):
         """Test that isinstance with tuple containing type variables is not converted."""
         source = dedent(

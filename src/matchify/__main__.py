@@ -727,6 +727,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
             attrs: List of (attr_name, value) tuples where value is either:
                    - A CST expression node for scalar attributes
                    - A tuple ('sequence', patterns) for sequence attributes
+                   - A tuple ('isinstance', class_expr, isinstance_call) for nested isinstance
 
         Returns:
             List of MatchKeywordElement nodes
@@ -743,6 +744,17 @@ class IfToMatchTransformer(cst.CSTTransformer):
                     _, seq_patterns = value
                     use_star = False
                 pattern = self._build_sequence_pattern_for_attr(seq_patterns)
+            elif isinstance(value, tuple) and value[0] == "isinstance":
+                # Nested isinstance pattern: attr=Class()
+                _, class_expr, nested_attrs = value
+                # Check if there are further nested isinstance checks on this attribute
+                if nested_attrs:
+                    # Build nested class pattern with attributes
+                    nested_kwds = self._build_class_pattern_keywords(nested_attrs)
+                    pattern = cst.MatchClass(cls=class_expr, patterns=[], kwds=nested_kwds)
+                else:
+                    # Simple isinstance without additional attribute checks
+                    pattern = cst.MatchClass(cls=class_expr, patterns=[], kwds=[])
             else:
                 # Scalar attribute - create literal/singleton pattern
                 pattern = self._build_pattern_from_value(value)
@@ -1050,6 +1062,113 @@ class IfToMatchTransformer(cst.CSTTransformer):
         collect_attr_conditions_recursive(test)
         return attr_conditions
 
+    def _extract_nested_isinstance_checks(
+        self, test: cst.BaseExpression, subject: cst.BaseExpression
+    ) -> list[tuple[str, tuple[str, cst.BaseExpression, list]]] | None:
+        """Extract isinstance checks on attributes of the subject.
+        
+        For isinstance(x, A) and isinstance(x.b, B) and isinstance(x.b.c, C),
+        returns [('b', ('isinstance', B, [('c', ('isinstance', C, []))]))]
+        
+        This builds a nested structure of isinstance checks.
+        """
+        # Collect all isinstance calls in the test expression
+        isinstance_checks = []
+        
+        def collect_isinstance_calls(node: cst.BaseExpression):
+            """Recursively collect all isinstance calls."""
+            if self._is_isinstance_call(node):
+                isinstance_checks.append(node)
+            elif m.matches(node, m.BooleanOperation(operator=m.And())):
+                and_op = node  # type: ignore
+                collect_isinstance_calls(and_op.left)
+                collect_isinstance_calls(and_op.right)
+        
+        collect_isinstance_calls(test)
+        
+        # Group isinstance checks by attribute path
+        attr_isinstance_map = {}  # attr_path -> (class_expr, isinstance_call, full_path)
+        
+        for call in isinstance_checks:
+            call_subject = call.args[0].value  # type: ignore
+            if not m.matches(call_subject, m.Attribute()):
+                continue
+            
+            # Build attribute path
+            path_parts = []
+            current = call_subject
+            while m.matches(current, m.Attribute()):
+                path_parts.insert(0, current.attr.value)  # type: ignore
+                current = current.value  # type: ignore
+            
+            # Check if this starts with our subject
+            if not current.deep_equals(subject):
+                continue
+            
+            # Only handle direct attributes for now (subject.attr)
+            if len(path_parts) >= 1:
+                attr_name = path_parts[0]
+                class_arg = call.args[1].value  # type: ignore
+                
+                if attr_name not in attr_isinstance_map:
+                    attr_isinstance_map[attr_name] = []
+                attr_isinstance_map[attr_name].append((class_arg, call, path_parts))
+        
+        if not attr_isinstance_map:
+            return None
+        
+        # Build nested structure
+        result = []
+        for attr_name, checks in attr_isinstance_map.items():
+            # Sort by path length to process in order
+            checks.sort(key=lambda x: len(x[2]))
+            
+            # For simple case: just one isinstance check on this attribute
+            if len(checks) == 1 and len(checks[0][2]) == 1:
+                class_arg, call, _ = checks[0]
+                result.append((attr_name, ("isinstance", class_arg, [])))
+            # For nested case: isinstance(x.attr, A) and isinstance(x.attr.nested, B)
+            elif len(checks) > 1:
+                # The first check is the top-level class
+                class_arg, _, _ = checks[0]
+                # Recursively handle nested isinstance checks
+                nested_attrs = self._build_nested_isinstance_structure(checks[1:], checks[0][2])
+                result.append((attr_name, ("isinstance", class_arg, nested_attrs)))
+        
+        return result if result else None
+    
+    def _build_nested_isinstance_structure(
+        self, checks: list[tuple[cst.BaseExpression, cst.Call, list[str]]], base_path: list[str]
+    ) -> list[tuple[str, tuple[str, cst.BaseExpression, list]]]:
+        """Build nested isinstance structure from a list of checks."""
+        result = []
+        checks_by_next_attr = {}
+        
+        for class_arg, call, path_parts in checks:
+            # Remove the base path to get relative path
+            relative_path = path_parts[len(base_path):]
+            if not relative_path:
+                continue
+            
+            next_attr = relative_path[0]
+            if next_attr not in checks_by_next_attr:
+                checks_by_next_attr[next_attr] = []
+            checks_by_next_attr[next_attr].append((class_arg, call, path_parts))
+        
+        for attr_name, attr_checks in checks_by_next_attr.items():
+            if len(attr_checks) == 1 and len(attr_checks[0][2]) == len(base_path) + 1:
+                # Leaf node
+                class_arg, _, _ = attr_checks[0]
+                result.append((attr_name, ("isinstance", class_arg, [])))
+            else:
+                # Has further nesting
+                class_arg, _, _ = attr_checks[0]
+                new_base = base_path + [attr_name]
+                nested = self._build_nested_isinstance_structure(attr_checks[1:], new_base)
+                result.append((attr_name, ("isinstance", class_arg, nested)))
+        
+        return result
+    
     def _extract_attr_checks(
         self, test: cst.BaseExpression, subject: cst.BaseExpression, sequence_attrs: dict[str, bool]
     ) -> list[tuple[str, cst.BaseExpression | tuple[str, list[PatternInfo]]]] | None:
@@ -1084,7 +1203,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
         # Handle single comparison or chain of and comparisons for scalar attributes
         def extract_attr_checks_recursive(node: cst.BaseExpression) -> bool:
             """Recursively extract attribute checks. Returns False if invalid pattern."""
-            # Skip isinstance calls
+            # Skip isinstance calls (nested isinstance patterns are handled separately)
             if self._is_isinstance_call(node):
                 return True
 
@@ -1190,6 +1309,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
         The value can be:
         - A CST expression for simple values: (attr_name, value_expr)
         - A tuple for sequence patterns: (attr_name, ('sequence', pattern_list))
+        - A tuple for nested isinstance: (attr_name, ('isinstance', class_expr, nested_attrs))
         """
         subject = isinstance_call.args[0].value
         class_arg = isinstance_call.args[1].value
@@ -1198,8 +1318,18 @@ class IfToMatchTransformer(cst.CSTTransformer):
         if isinstance(class_arg, cst.Tuple):
             return None
 
+        # First, check for nested isinstance patterns
+        nested_isinstance_attrs = self._extract_nested_isinstance_checks(test, subject)
+        
         sequence_attrs = self._find_sequence_attrs(test, subject)
         attrs = self._extract_attr_checks(test, subject, sequence_attrs)
+        
+        # Merge nested isinstance attributes with regular attributes
+        if nested_isinstance_attrs:
+            if attrs is None:
+                attrs = nested_isinstance_attrs
+            else:
+                attrs.extend(nested_isinstance_attrs)
         
         if attrs is None:
             return None
