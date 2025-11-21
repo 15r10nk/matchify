@@ -14,7 +14,7 @@ from matchify.__main__ import (
 )
 
 
-def check_code(source: str, expected: str) -> None:
+def check_code(source: str, expected: str, ignore_types_pattern: str | None = r".*_TYPES$") -> None:
     """
     Test helper that:
     1. Transforms source code using IfToMatchTransformer
@@ -25,7 +25,7 @@ def check_code(source: str, expected: str) -> None:
     # Transform the source code
     module = cst.parse_module(source)
     wrapper = cst.MetadataWrapper(module)
-    transformed = wrapper.visit(IfToMatchTransformer())
+    transformed = wrapper.visit(IfToMatchTransformer(ignore_types_pattern=ignore_types_pattern))
     
     # Second pass: add capture patterns
     transformed = transformed.visit(CapturePatternTransformer())
@@ -3017,22 +3017,23 @@ class TestEdgeCases:
         ).strip()
 
         # With default --no-types pattern (.*_TYPES$), this should NOT be converted
-        # Transform the source code with default pattern
-        module = cst.parse_module(source)
-        wrapper = cst.MetadataWrapper(module)
-        transformed = wrapper.visit(IfToMatchTransformer(ignore_types_pattern=r".*_TYPES$"))
-        
-        # Should remain unchanged
-        assert transformed.code.strip() == source.strip()
+        expected = source
+        check_code(source, expected)
         
         # Without the pattern, it should convert
-        module2 = cst.parse_module(source)
-        wrapper2 = cst.MetadataWrapper(module2)
-        transformed2 = wrapper2.visit(IfToMatchTransformer(ignore_types_pattern=None))
-        
-        # Should be converted now
-        assert "match n:" in transformed2.code
-        assert "case SYMBOL_TYPES():" in transformed2.code
+        expected_converted = dedent(
+            """
+            SYMBOL_TYPES = (FuncDef, OverloadedFuncDef)
+            
+            n = None
+            match n:
+                case SYMBOL_TYPES():
+                    print("match")
+                case int():
+                    print("int")
+        """
+        ).strip()
+        check_code(source, expected_converted, ignore_types_pattern=None)
 
     def test_sequence_with_non_integer_subscript_not_converted(self):
         """Test that sequences with non-integer indices are not converted."""
