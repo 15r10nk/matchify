@@ -1873,11 +1873,33 @@ class IfToMatchTransformer(cst.CSTTransformer):
                 break
 
         # ------------------------------------------------------------------
-        # Build the final match statement
+        # Build the final match statement and recursively transform case bodies
         # ------------------------------------------------------------------
+        # We need to recursively transform the bodies of each case, since nested
+        # if-statements in those bodies weren't transformed during the initial traversal
+        transformed_cases = []
+        for case in cases:
+            # Transform each statement in the case body with a fresh transformer
+            new_body_statements = []
+            for stmt in case.body.body:
+                # Create a temporary module with metadata and fresh transformer
+                temp_module = cst.Module(body=[stmt])
+                temp_wrapper = cst.MetadataWrapper(temp_module)
+                fresh_transformer = IfToMatchTransformer()
+                transformed_module = temp_wrapper.visit(fresh_transformer)
+                # Extract the transformed statement
+                if transformed_module.body:
+                    new_body_statements.append(transformed_module.body[0])
+                else:
+                    new_body_statements.append(stmt)
+            
+            # Create new IndentedBlock with transformed statements
+            new_body = case.body.with_changes(body=new_body_statements)
+            transformed_cases.append(case.with_changes(body=new_body))
+        
         match_stmt = cst.Match(
             subject=self._current_subject,
-            cases=cases,
+            cases=transformed_cases,
         )
 
         # Reset for the next top-level If

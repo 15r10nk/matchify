@@ -255,7 +255,11 @@ class TestIfToMatchTransformer:
         check_code(source, expected)
 
     def test_nested_if_not_affected(self):
-        """Test that nested if statements are handled correctly."""
+        """Test that nested if statements are converted recursively.
+        
+        Previously, nested if-statements inside match case bodies were not converted.
+        Now they are recursively transformed.
+        """
         source = dedent(
             """
             x = 1
@@ -263,8 +267,10 @@ class TestIfToMatchTransformer:
             if x == 1:
                 if y == 2:
                     print("nested")
+                elif y == 3:
+                    print("three")
             elif x == 3:
-                print("three")
+                print("outer three")
         """
         ).strip()
 
@@ -274,10 +280,13 @@ class TestIfToMatchTransformer:
             y = 2
             match x:
                 case 1:
-                    if y == 2:
-                        print("nested")
+                    match y:
+                        case 2:
+                            print("nested")
+                        case 3:
+                            print("three")
                 case 3:
-                    print("three")
+                    print("outer three")
         """
         ).strip()
 
