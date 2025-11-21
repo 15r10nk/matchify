@@ -81,6 +81,15 @@ match_stmt = cst.Match(
    - `if isinstance(x, int):` → `case int():`
    - `if isinstance(x, (int, float)):` → `case int() | float():`
 
+3a. **Nested isinstance Patterns** - isinstance checks on nested attributes
+   - `if isinstance(x, NameExpr) and isinstance(x.node, Var):` → `case NameExpr(node=Var()):`
+   - `if isinstance(x, Point) and isinstance(x.data, Data) and isinstance(x.data.value, List):` → `case Point(data=Data(value=List())):`
+   - **With attribute checks on nested paths**: `if isinstance(x, NameExpr) and isinstance(x.node, Var) and x.node.type is None:` → `case NameExpr(node=Var(type=None)):`
+   - Multiple attribute checks: `if isinstance(x, Point) and isinstance(x.data, Data) and x.data.x == 5 and x.data.y == 10:` → `case Point(data=Data(x=5, y=10)):`
+   - Supports unlimited nesting depth (recursive)
+   - Attribute checks on nested paths are merged into the nested pattern structure
+   - Only supports literal values or None/True/False for attribute checks
+
 4. **Class Patterns with Attributes** - isinstance with attribute checks
    - `if isinstance(p, Point) and p.x == 5:` → `case Point(x=5):`
    - `if isinstance(p, Point) and p.x == 5 and p.y == 10:` → `case Point(x=5, y=10):`
@@ -156,6 +165,8 @@ match_stmt = cst.Match(
 ✅ Sequence attributes in class patterns (e.g., `Data(value=[1, 2, 3])`)
 ✅ Mixed scalar and sequence attributes (e.g., `Container(items=[1, 2], count=2)`)
 ✅ Nested isinstance with sequence attributes (e.g., `Data(value=[Data(value=[1, 2, 3])])`)
+✅ Nested isinstance on nested attributes (e.g., `isinstance(x.node, Var)` → `case X(node=Var())`)
+✅ Nested isinstance with attribute checks (e.g., `isinstance(x.node, Var) and x.node.type is None` → `case X(node=Var(type=None))`)
 ✅ isinstance tuple inside sequences (e.g., `isinstance(x[0], (Point, Line))` → `case Point() | Line(), ...:` )
 ✅ Star patterns: `if len(x) >= 2 and x[0] == 1 and x[1] == 2:` → `case [1, 2, *_]:`
 ✅ Wildcard patterns: `if len(x) == 3 and x[0] == 1 and x[2] == 3:` → `case [1, _, 3]:`

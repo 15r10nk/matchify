@@ -1070,7 +1070,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
         For isinstance(x, A) and isinstance(x.b, B) and isinstance(x.b.c, C),
         returns [('b', ('isinstance', B, [('c', ('isinstance', C, []))]))]
         
-        This builds a nested structure of isinstance checks.
+        Also collects attribute checks on nested paths like x.b.c == value.
         """
         # Collect all isinstance calls in the test expression
         isinstance_checks = []
@@ -1117,7 +1117,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
         if not attr_isinstance_map:
             return None
         
-        # Build nested structure
+        # Build nested structure with attribute checks
         result = []
         for attr_name, checks in attr_isinstance_map.items():
             # Sort by path length to process in order
@@ -1125,22 +1125,25 @@ class IfToMatchTransformer(cst.CSTTransformer):
             
             # For simple case: just one isinstance check on this attribute
             if len(checks) == 1 and len(checks[0][2]) == 1:
-                class_arg, call, _ = checks[0]
-                result.append((attr_name, ("isinstance", class_arg, [])))
+                class_arg, call, path = checks[0]
+                # Look for attribute checks on this nested path (e.g., x.attr.nested == value)
+                nested_attr_checks = self._extract_nested_attr_checks(test, subject, path)
+                result.append((attr_name, ("isinstance", class_arg, nested_attr_checks or [])))
             # For nested case: isinstance(x.attr, A) and isinstance(x.attr.nested, B)
             elif len(checks) > 1:
                 # The first check is the top-level class
-                class_arg, _, _ = checks[0]
+                class_arg, _, path = checks[0]
                 # Recursively handle nested isinstance checks
-                nested_attrs = self._build_nested_isinstance_structure(checks[1:], checks[0][2])
+                nested_attrs = self._build_nested_isinstance_structure(checks[1:], path, test, subject)
                 result.append((attr_name, ("isinstance", class_arg, nested_attrs)))
         
         return result if result else None
     
     def _build_nested_isinstance_structure(
-        self, checks: list[tuple[cst.BaseExpression, cst.Call, list[str]]], base_path: list[str]
+        self, checks: list[tuple[cst.BaseExpression, cst.Call, list[str]]], base_path: list[str],
+        test: cst.BaseExpression, subject: cst.BaseExpression
     ) -> list[tuple[str, tuple[str, cst.BaseExpression, list]]]:
-        """Build nested isinstance structure from a list of checks."""
+        """Build nested isinstance structure from a list of checks, including attribute checks."""
         result = []
         checks_by_next_attr = {}
         
@@ -1157,17 +1160,64 @@ class IfToMatchTransformer(cst.CSTTransformer):
         
         for attr_name, attr_checks in checks_by_next_attr.items():
             if len(attr_checks) == 1 and len(attr_checks[0][2]) == len(base_path) + 1:
-                # Leaf node
-                class_arg, _, _ = attr_checks[0]
-                result.append((attr_name, ("isinstance", class_arg, [])))
+                # Leaf node - check for attribute checks on this path
+                class_arg, _, path = attr_checks[0]
+                nested_attr_checks = self._extract_nested_attr_checks(test, subject, path)
+                result.append((attr_name, ("isinstance", class_arg, nested_attr_checks or [])))
             else:
                 # Has further nesting
                 class_arg, _, _ = attr_checks[0]
                 new_base = base_path + [attr_name]
-                nested = self._build_nested_isinstance_structure(attr_checks[1:], new_base)
+                nested = self._build_nested_isinstance_structure(attr_checks[1:], new_base, test, subject)
                 result.append((attr_name, ("isinstance", class_arg, nested)))
         
         return result
+    
+    def _extract_nested_attr_checks(
+        self, test: cst.BaseExpression, subject: cst.BaseExpression, path: list[str]
+    ) -> list[tuple[str, cst.BaseExpression]] | None:
+        """Extract attribute checks on a nested path (e.g., x.attr.nested == value).
+        
+        Given path=['node', 'type'], looks for checks like x.node.type == value or x.node.type is None.
+        Returns [(attr_name, value)] for each check found.
+        """
+        attr_checks = []
+        
+        def collect_checks(node: cst.BaseExpression):
+            """Recursively collect all comparison checks."""
+            if m.matches(node, m.Comparison()):
+                comp = node  # type: ignore
+                # Check if left side matches our path
+                left = comp.left
+                
+                # Build path from left side
+                left_path = []
+                current = left
+                while m.matches(current, m.Attribute()):
+                    left_path.insert(0, current.attr.value)  # type: ignore
+                    current = current.value  # type: ignore
+                
+                # Check if base matches subject and path matches
+                if current.deep_equals(subject) and left_path[:-1] == path and len(left_path) > len(path):
+                    # This is a check on an attribute of our path
+                    attr_name = left_path[-1]
+                    comparisons = comp.comparisons
+                    
+                    # Only handle single comparisons with == or is
+                    if len(comparisons) == 1:
+                        target = comparisons[0]
+                        if m.matches(target.operator, m.Equal() | m.Is()):
+                            value = target.comparator
+                            # Only accept literal values or None/True/False
+                            if self._is_literal_value(value):
+                                attr_checks.append((attr_name, value))
+            elif m.matches(node, m.BooleanOperation(operator=m.And())):
+                and_op = node  # type: ignore
+                collect_checks(and_op.left)
+                collect_checks(and_op.right)
+        
+        collect_checks(test)
+        return attr_checks if attr_checks else None
     
     def _extract_attr_checks(
         self, test: cst.BaseExpression, subject: cst.BaseExpression, sequence_attrs: dict[str, bool]

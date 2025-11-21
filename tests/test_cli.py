@@ -3191,6 +3191,90 @@ class TestEdgeCases:
 
         check_code(source, expected)
 
+    def test_isinstance_with_nested_isinstance_and_attr_checks(self):
+        """Test that nested isinstance with attribute checks on nested paths are converted."""
+        source = dedent(
+            """
+            class NameExpr:
+                def __init__(self, node=None):
+                    self.node = node
+            
+            class Var:
+                def __init__(self, type=None):
+                    self.type = type
+            
+            lv = NameExpr(Var(None))
+            if isinstance(lv, NameExpr) and isinstance(lv.node, Var) and lv.node.type is None:
+                print("match")
+            elif isinstance(lv, int):
+                print("int")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class NameExpr:
+                def __init__(self, node=None):
+                    self.node = node
+            
+            class Var:
+                def __init__(self, type=None):
+                    self.type = type
+            
+            lv = NameExpr(Var(None))
+            match lv:
+                case NameExpr(node=Var(type=None)):
+                    print("match")
+                case int():
+                    print("int")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_isinstance_with_nested_isinstance_and_multiple_attr_checks(self):
+        """Test nested isinstance with multiple attribute checks on nested paths."""
+        source = dedent(
+            """
+            class Point:
+                def __init__(self, data=None):
+                    self.data = data
+            
+            class Data:
+                def __init__(self, x=0, y=0):
+                    self.x = x
+                    self.y = y
+            
+            obj = Point(Data(5, 10))
+            if isinstance(obj, Point) and isinstance(obj.data, Data) and obj.data.x == 5 and obj.data.y == 10:
+                print("match")
+            elif isinstance(obj, int):
+                print("int")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Point:
+                def __init__(self, data=None):
+                    self.data = data
+            
+            class Data:
+                def __init__(self, x=0, y=0):
+                    self.x = x
+                    self.y = y
+            
+            obj = Point(Data(5, 10))
+            match obj:
+                case Point(data=Data(x=5, y=10)):
+                    print("match")
+                case int():
+                    print("int")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_isinstance_with_type_variable_in_tuple_ignored(self):
         """Test that isinstance with tuple containing type variables is not converted."""
         source = dedent(
