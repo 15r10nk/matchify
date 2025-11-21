@@ -2124,6 +2124,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
         match_stmt = cst.Match(
             subject=self._current_subject,
             cases=transformed_cases,
+            leading_lines=original_node.leading_lines,
         )
 
         # Reset for the next top-level If

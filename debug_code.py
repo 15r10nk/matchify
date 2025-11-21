@@ -1,14 +1,11 @@
-class NameExpr:
-    def __init__(self, node=None):
-        self.node = node
+class Decorator:
+    pass
 
-class Var:
-    def __init__(self, type=None):
-        self.type = type
+item = Decorator()
 
-lv = NameExpr(Var(None))
-match lv:
-    case NameExpr(node=Var(type=None)):
-        print("match - type is None")
+# TODO: support decorated overloaded functions properly
+match item:
+    case Decorator():
+        print("decorator")
     case int():
         print("int")

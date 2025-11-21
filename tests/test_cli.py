@@ -3558,3 +3558,38 @@ class TestEdgeCases:
         ).strip()
 
         check_code(source, expected)
+
+    def test_comment_preservation_before_if(self):
+        """Test that comments before if statements are preserved."""
+        source = dedent(
+            """
+            class Decorator:
+                pass
+            
+            item = Decorator()
+            
+            # TODO: support decorated overloaded functions properly
+            if isinstance(item, Decorator):
+                print("decorator")
+            elif isinstance(item, int):
+                print("int")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Decorator:
+                pass
+            
+            item = Decorator()
+            
+            # TODO: support decorated overloaded functions properly
+            match item:
+                case Decorator():
+                    print("decorator")
+                case int():
+                    print("int")
+        """
+        ).strip()
+
+        check_code(source, expected)
