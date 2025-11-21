@@ -3035,6 +3035,68 @@ class TestEdgeCases:
         ).strip()
         check_code(source, expected_converted, ignore_types_pattern=None)
 
+    def test_guard_pattern_with_boolean_attribute(self):
+        """Test isinstance with boolean attribute as guard (not comparison)."""
+        source = dedent(
+            """
+            class TupleType:
+                pass
+            
+            item = TupleType()
+            if isinstance(item, TupleType) and item.is_valid:
+                print("valid tuple")
+            elif isinstance(item, int):
+                print("int")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class TupleType:
+                pass
+            
+            item = TupleType()
+            match item:
+                case TupleType() if item.is_valid:
+                    print("valid tuple")
+                case int():
+                    print("int")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_guard_pattern_with_nested_boolean_attribute(self):
+        """Test isinstance with deeply nested boolean attribute as guard."""
+        source = dedent(
+            """
+            class TupleType:
+                pass
+            
+            item = TupleType()
+            if isinstance(item, TupleType) and item.partial_fallback.type.is_named_tuple:
+                print("named tuple")
+            elif isinstance(item, int):
+                print("int")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class TupleType:
+                pass
+            
+            item = TupleType()
+            match item:
+                case TupleType() if item.partial_fallback.type.is_named_tuple:
+                    print("named tuple")
+                case int():
+                    print("int")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_isinstance_with_type_variable_in_tuple_ignored(self):
         """Test that isinstance with tuple containing type variables is not converted."""
         source = dedent(

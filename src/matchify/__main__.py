@@ -1235,8 +1235,8 @@ class IfToMatchTransformer(cst.CSTTransformer):
         Returns (class_exprs, guard_expr) or None if not a valid guard pattern.
         This is used when the condition after isinstance is not a simple attribute check.
         
-        Guard patterns are only used for conditions that don't reference the subject itself,
-        to maintain clarity and avoid confusion with pattern matching.
+        Guard patterns can reference the subject for things like boolean attributes,
+        but not for attribute comparisons (which should be class patterns).
         """
         if not self._is_isinstance_with_and(test):
             return None
@@ -1255,13 +1255,42 @@ class IfToMatchTransformer(cst.CSTTransformer):
         if guard is None:
             return None
         
-        # Don't use guard patterns if the guard references the subject
-        # This includes attribute access or any other reference to the matched variable
+        # Don't use guard patterns if the guard is an attribute comparison
+        # (those should be handled by class patterns like Class(attr=value))
         subject = isinstance_call.args[0].value
-        if self._guard_references_subject(guard, subject):
+        if self._guard_is_attribute_comparison(guard, subject):
             return None
         
         return (class_exprs, guard)
+    
+    def _guard_is_attribute_comparison(
+        self, node: cst.BaseExpression, subject: cst.BaseExpression
+    ) -> bool:
+        """Check if node is an attribute comparison that should be a class pattern.
+        
+        Returns True for: subject.attr == value, subject.attr is value
+        Returns False for: subject.attr (boolean), subject.method(), other.attr == value
+        """
+        # Check if this is a comparison with == or is
+        if m.matches(node, m.Comparison(comparisons=[m.ComparisonTarget(operator=m.Equal() | m.Is())])):
+            comp = node  # type: ignore
+            # Check if the left side is an attribute access on the subject
+            if m.matches(comp.left, m.Attribute()):
+                attr = comp.left  # type: ignore
+                # Check if it's a direct attribute on subject (subject.attr)
+                # but not deeper (subject.attr.nested is ok as guard)
+                if attr.value.deep_equals(subject):
+                    return True
+        
+        # Boolean operations - check both sides
+        if m.matches(node, m.BooleanOperation()):
+            bool_op = node  # type: ignore
+            return (
+                self._guard_is_attribute_comparison(bool_op.left, subject)
+                or self._guard_is_attribute_comparison(bool_op.right, subject)
+            )
+        
+        return False
     
     def _guard_references_subject(
         self, node: cst.BaseExpression, subject: cst.BaseExpression
