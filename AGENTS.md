@@ -86,6 +86,7 @@ match_stmt = cst.Match(
    - `if isinstance(x, Point) and isinstance(x.data, Data) and isinstance(x.data.value, List):` → `case Point(data=Data(value=List())):`
    - **With attribute checks on nested paths**: `if isinstance(x, NameExpr) and isinstance(x.node, Var) and x.node.type is None:` → `case NameExpr(node=Var(type=None)):`
    - Multiple attribute checks: `if isinstance(x, Point) and isinstance(x.data, Data) and x.data.x == 5 and x.data.y == 10:` → `case Point(data=Data(x=5, y=10)):`
+   - **Tuple of classes on nested attributes**: `if isinstance(x, RefExpr) and isinstance(x.node, (Var, FuncDef)):` → `case RefExpr(node=Var() | FuncDef()):`
    - Supports unlimited nesting depth (recursive)
    - Attribute checks on nested paths are merged into the nested pattern structure
    - Only supports literal values or None/True/False for attribute checks
@@ -167,6 +168,7 @@ match_stmt = cst.Match(
 ✅ Nested isinstance with sequence attributes (e.g., `Data(value=[Data(value=[1, 2, 3])])`)
 ✅ Nested isinstance on nested attributes (e.g., `isinstance(x.node, Var)` → `case X(node=Var())`)
 ✅ Nested isinstance with attribute checks (e.g., `isinstance(x.node, Var) and x.node.type is None` → `case X(node=Var(type=None))`)
+✅ Nested isinstance with tuple of classes (e.g., `isinstance(x.node, (Var, FuncDef))` → `case X(node=Var() | FuncDef())`)
 ✅ isinstance tuple inside sequences (e.g., `isinstance(x[0], (Point, Line))` → `case Point() | Line(), ...:` )
 ✅ Star patterns: `if len(x) >= 2 and x[0] == 1 and x[1] == 2:` → `case [1, 2, *_]:`
 ✅ Wildcard patterns: `if len(x) == 3 and x[0] == 1 and x[2] == 3:` → `case [1, _, 3]:`

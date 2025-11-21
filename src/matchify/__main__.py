@@ -745,16 +745,32 @@ class IfToMatchTransformer(cst.CSTTransformer):
                     use_star = False
                 pattern = self._build_sequence_pattern_for_attr(seq_patterns)
             elif isinstance(value, tuple) and value[0] == "isinstance":
-                # Nested isinstance pattern: attr=Class()
+                # Nested isinstance pattern: attr=Class() or attr=(Class1 | Class2)()
                 _, class_expr, nested_attrs = value
-                # Check if there are further nested isinstance checks on this attribute
-                if nested_attrs:
-                    # Build nested class pattern with attributes
-                    nested_kwds = self._build_class_pattern_keywords(nested_attrs)
-                    pattern = cst.MatchClass(cls=class_expr, patterns=[], kwds=nested_kwds)
+                
+                # Check if class_expr is a tuple (multiple classes)
+                if m.matches(class_expr, m.Tuple()):
+                    # Extract individual class expressions from the tuple
+                    tuple_node: cst.Tuple = class_expr  # type: ignore
+                    class_exprs = [elem.value for elem in tuple_node.elements]
+                    
+                    # If there are nested attributes, we can't use OR pattern with attributes
+                    # This is a limitation - isinstance tuple with nested attributes is not supported
+                    if nested_attrs:
+                        # This case should have been filtered out earlier - don't convert
+                        return []
+                    
+                    # Build OR pattern: Class1() | Class2() | ...
+                    pattern = self._build_match_or_from_classes(class_exprs)
                 else:
-                    # Simple isinstance without additional attribute checks
-                    pattern = cst.MatchClass(cls=class_expr, patterns=[], kwds=[])
+                    # Single class
+                    if nested_attrs:
+                        # Build nested class pattern with attributes
+                        nested_kwds = self._build_class_pattern_keywords(nested_attrs)
+                        pattern = cst.MatchClass(cls=class_expr, patterns=[], kwds=nested_kwds)
+                    else:
+                        # Simple isinstance without additional attribute checks
+                        pattern = cst.MatchClass(cls=class_expr, patterns=[], kwds=[])
             else:
                 # Scalar attribute - create literal/singleton pattern
                 pattern = self._build_pattern_from_value(value)
