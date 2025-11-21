@@ -1826,6 +1826,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
             subject = self._extract_subject(current.test)
             if subject is None:
                 # Should never happen because of the earlier check
+                self._current_subject = None
                 return updated_node
 
             # First node in the chain → remember the subject
@@ -1835,6 +1836,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
             # Build the case for the current if/elif
             pattern_result = self._build_case_pattern_from_test(current.test)
             if pattern_result is None:
+                self._current_subject = None
                 return updated_node
             
             case_pattern, guard = pattern_result

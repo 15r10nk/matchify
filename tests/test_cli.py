@@ -416,6 +416,53 @@ class TestIfToMatchTransformer:
         expected = source
         check_code(source, expected)
 
+    def test_convertible_chain_after_non_convertible_chain(self):
+        """Test that a convertible if-chain following a non-convertible one is still converted.
+        
+        This is a regression test: previously, if a non-convertible chain failed to convert,
+        it left _current_subject set, which prevented subsequent independent chains from converting.
+        """
+        source = dedent(
+            """
+            # This chain should NOT be converted (attribute compared to variable, not literal)
+            if isinstance(override, CallableType) and override.min_args == original.min_args:
+                pass
+            elif isinstance(override, Overloaded):
+                pass
+            
+            # This chain SHOULD be converted (independent, valid pattern)
+            for ttype in test_types:
+                if isinstance(ttype, FunctionLike):
+                    pass
+                elif isinstance(ttype, TypeType):
+                    exc_type = ttype.item
+                else:
+                    pass
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            # This chain should NOT be converted (attribute compared to variable, not literal)
+            if isinstance(override, CallableType) and override.min_args == original.min_args:
+                pass
+            elif isinstance(override, Overloaded):
+                pass
+            
+            # This chain SHOULD be converted (independent, valid pattern)
+            for ttype in test_types:
+                match ttype:
+                    case FunctionLike():
+                        pass
+                    case TypeType():
+                        exc_type = ttype.item
+                    case _:
+                        pass
+        """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_isinstance_converted(self):
         """Test that isinstance checks are converted to match with class patterns.
 

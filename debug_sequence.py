@@ -1,15 +1,30 @@
-import libcst as cst
-from matchify.__main__ import IfToMatchTransformer
+class A:
+    def check_except_handler_test(self, n: Expression, is_star: bool) -> Type:
+        """Type check an exception handler test clause."""
+        typ = self.expr_checker.accept(n)
 
-source = """point = (0, 1)
-if len(point) == 2 and point[0] == 0 and point[1] == 1:
-    print("origin offset")
-elif len(point) == 2 and point[0] == 1 and point[1] == 1:
-    print("diagonal")
-else:
-    print("other")"""
+        all_types: list[Type] = []
+        test_types = self.get_types_from_except_handler(typ, n)
 
-module = cst.parse_module(source)
-wrapper = cst.MetadataWrapper(module)
-transformed = wrapper.visit(IfToMatchTransformer())
-print(transformed.code)
+        for ttype in get_proper_types(test_types):
+            if isinstance(ttype, AnyType):
+                all_types.append(ttype)
+                continue
+            match ttype:
+                case FunctionLike():
+                    item = ttype.items[0]
+                    if not item.is_type_obj():
+                        self.fail(message_registry.INVALID_EXCEPTION_TYPE, n)
+                        return self.default_exception_type(is_star)
+                    exc_type = erase_typevars(item.ret_type)
+                case TypeType():
+                    exc_type = ttype.item
+                case _:
+                    self.fail(message_registry.INVALID_EXCEPTION_TYPE, n)
+                    return self.default_exception_type(is_star)
+
+            if not is_subtype(exc_type, self.named_type("builtins.BaseException")):
+                self.fail(message_registry.INVALID_EXCEPTION_TYPE, n)
+                return self.default_exception_type(is_star)
+
+            all_types.append(exc_type)
