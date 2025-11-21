@@ -1737,6 +1737,271 @@ class TestIfToMatchTransformer:
 
         check_code(source, expected)
 
+    def test_capture_pattern_multiple_values(self):
+        """Test multiple capture pattern with consecutive assignments.
+        
+        When first statements are 'a = obj.attr[0]', 'b = obj.attr[1]', etc.,
+        convert to use multiple captures: case Class(attr=[a, b, *_]):
+        """
+        source = dedent(
+            """
+            class Point:
+                def __init__(self, x):
+                    self.x = x
+
+            n = Point([1, 2, 3])
+            if isinstance(n, Point) and len(n.x) >= 2:
+                first = n.x[0]
+                second = n.x[1]
+                print(first, second)
+            elif isinstance(n, Point):
+                print("empty")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Point:
+                def __init__(self, x):
+                    self.x = x
+
+            n = Point([1, 2, 3])
+            match n:
+                case Point(x=[first, second, *_]):
+                    print(first, second)
+                case Point():
+                    print("empty")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_capture_pattern_three_values(self):
+        """Test three capture pattern with consecutive assignments."""
+        source = dedent(
+            """
+            class Data:
+                def __init__(self, values):
+                    self.values = values
+
+            d = Data([10, 20, 30])
+            if isinstance(d, Data) and len(d.values) >= 3:
+                a = d.values[0]
+                b = d.values[1]
+                c = d.values[2]
+                print(a, b, c)
+            elif isinstance(d, Data):
+                print("other")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Data:
+                def __init__(self, values):
+                    self.values = values
+
+            d = Data([10, 20, 30])
+            match d:
+                case Data(values=[a, b, c, *_]):
+                    print(a, b, c)
+                case Data():
+                    print("other")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_capture_pattern_non_consecutive_indices(self):
+        """Test that non-consecutive indices are converted with wildcards.
+        
+        If assignments skip indices (e.g., [0] then [2]), captures are created
+        with wildcards for skipped indices.
+        """
+        source = dedent(
+            """
+            class Point:
+                def __init__(self, x):
+                    self.x = x
+
+            n = Point([1, 2, 3, 4])
+            if isinstance(n, Point) and len(n.x) >= 4:
+                first = n.x[0]
+                third = n.x[2]
+                print(first, third)
+            elif isinstance(n, Point):
+                print("empty")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Point:
+                def __init__(self, x):
+                    self.x = x
+
+            n = Point([1, 2, 3, 4])
+            match n:
+                case Point(x=[first, _, third, *_]):
+                    print(first, third)
+                case Point():
+                    print("empty")
+        """
+        ).strip()
+        
+        check_code(source, expected)
+
+    def test_capture_pattern_multi_attribute(self):
+        """Test capturing from multiple different attributes.
+        
+        Captures from both x and y attributes should work.
+        """
+        source = dedent(
+            """
+            class Point:
+                def __init__(self, x, y):
+                    self.x = x
+                    self.y = y
+
+            n = Point([1, 2], [3, 4])
+            if isinstance(n, Point) and len(n.x) >= 1 and len(n.y) >= 1:
+                x_val = n.x[0]
+                y_val = n.y[0]
+                print(x_val, y_val)
+            elif isinstance(n, Point):
+                print("empty")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Point:
+                def __init__(self, x, y):
+                    self.x = x
+                    self.y = y
+
+            n = Point([1, 2], [3, 4])
+            match n:
+                case Point(x=[x_val, *_], y=[y_val, *_]):
+                    print(x_val, y_val)
+                case Point():
+                    print("empty")
+        """
+        ).strip()
+        
+        check_code(source, expected)
+
+    def test_capture_pattern_multi_attribute_multiple_captures(self):
+        """Test capturing multiple values from multiple attributes."""
+        source = dedent(
+            """
+            class Point:
+                def __init__(self, x, y):
+                    self.x = x
+                    self.y = y
+
+            n = Point([1, 2, 3], [4, 5, 6])
+            if isinstance(n, Point) and len(n.x) >= 2 and len(n.y) >= 2:
+                x1 = n.x[0]
+                x2 = n.x[1]
+                y1 = n.y[0]
+                y2 = n.y[1]
+                print(x1, x2, y1, y2)
+            elif isinstance(n, Point):
+                print("empty")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Point:
+                def __init__(self, x, y):
+                    self.x = x
+                    self.y = y
+
+            n = Point([1, 2, 3], [4, 5, 6])
+            match n:
+                case Point(x=[x1, x2, *_], y=[y1, y2, *_]):
+                    print(x1, x2, y1, y2)
+                case Point():
+                    print("empty")
+        """
+        ).strip()
+        
+        check_code(source, expected)
+
+    def test_capture_pattern_non_consecutive_multi_gap(self):
+        """Test non-consecutive with multiple gaps (0, 1, 3, 5)."""
+        source = dedent(
+            """
+            class Data:
+                def __init__(self, vals):
+                    self.vals = vals
+
+            d = Data([10, 20, 30, 40, 50, 60])
+            if isinstance(d, Data) and len(d.vals) >= 6:
+                a = d.vals[0]
+                b = d.vals[1]
+                d_val = d.vals[3]
+                f = d.vals[5]
+                print(a, b, d_val, f)
+            elif isinstance(d, Data):
+                print("other")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Data:
+                def __init__(self, vals):
+                    self.vals = vals
+
+            d = Data([10, 20, 30, 40, 50, 60])
+            match d:
+                case Data(vals=[a, b, _, d_val, _, f, *_]):
+                    print(a, b, d_val, f)
+                case Data():
+                    print("other")
+        """
+        ).strip()
+        
+        check_code(source, expected)
+
+    def test_capture_pattern_not_starting_from_zero(self):
+        """Test captures starting from non-zero index."""
+        source = dedent(
+            """
+            class Point:
+                def __init__(self, x):
+                    self.x = x
+
+            n = Point([1, 2, 3, 4])
+            if isinstance(n, Point) and len(n.x) >= 4:
+                second = n.x[1]
+                third = n.x[2]
+                print(second, third)
+            elif isinstance(n, Point):
+                print("empty")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Point:
+                def __init__(self, x):
+                    self.x = x
+
+            n = Point([1, 2, 3, 4])
+            match n:
+                case Point(x=[_, second, third, *_]):
+                    print(second, third)
+                case Point():
+                    print("empty")
+        """
+        ).strip()
+        
+        check_code(source, expected)
+
     def test_mixed_pattern_types_in_chain(self):
         """Test that all pattern types can be mixed in a single if/elif chain.
 
@@ -2739,6 +3004,154 @@ class TestEdgeCases:
                     print("0, 0")
                 case 1, 1, 1:
                     print("1, 1, 1")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_guard_pattern_with_independent_condition(self):
+        """Test isinstance with guard clause that doesn't reference the subject."""
+        source = dedent(
+            """
+            import os
+            
+            class FileHandler:
+                pass
+            
+            handler = FileHandler()
+            if isinstance(handler, FileHandler) and os.path.exists("/tmp"):
+                print("handler with file")
+            elif handler == None:
+                print("none")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            import os
+            
+            class FileHandler:
+                pass
+            
+            handler = FileHandler()
+            match handler:
+                case FileHandler() if os.path.exists("/tmp"):
+                    print("handler with file")
+                case None:
+                    print("none")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_guard_pattern_with_global_variable(self):
+        """Test isinstance with guard that uses global variable."""
+        source = dedent(
+            """
+            ENABLED = True
+            
+            class Config:
+                pass
+            
+            cfg = Config()
+            if isinstance(cfg, Config) and ENABLED:
+                print("enabled config")
+            elif cfg == None:
+                print("none")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            ENABLED = True
+            
+            class Config:
+                pass
+            
+            cfg = Config()
+            match cfg:
+                case Config() if ENABLED:
+                    print("enabled config")
+                case None:
+                    print("none")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_guard_pattern_with_multiple_conditions(self):
+        """Test isinstance with multiple independent guard conditions."""
+        source = dedent(
+            """
+            DEBUG = True
+            VERBOSE = False
+            
+            class Logger:
+                pass
+            
+            log = Logger()
+            if isinstance(log, Logger) and DEBUG and not VERBOSE:
+                print("debug logger")
+            elif log == None:
+                print("none")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            DEBUG = True
+            VERBOSE = False
+            
+            class Logger:
+                pass
+            
+            log = Logger()
+            match log:
+                case Logger() if DEBUG and not VERBOSE:
+                    print("debug logger")
+                case None:
+                    print("none")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_guard_pattern_with_multiple_classes(self):
+        """Test isinstance with tuple of classes and independent guard."""
+        source = dedent(
+            """
+            PRODUCTION = True
+            
+            class Handler:
+                pass
+            
+            class Worker:
+                pass
+            
+            obj = Handler()
+            if isinstance(obj, (Handler, Worker)) and PRODUCTION:
+                print("production mode")
+            elif obj == None:
+                print("none")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            PRODUCTION = True
+            
+            class Handler:
+                pass
+            
+            class Worker:
+                pass
+            
+            obj = Handler()
+            match obj:
+                case Handler() | Worker() if PRODUCTION:
+                    print("production mode")
+                case None:
+                    print("none")
         """
         ).strip()
 

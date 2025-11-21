@@ -119,6 +119,27 @@ match_stmt = cst.Match(
    - Supports both `==` and `is` operators (but `is` only with singletons)
    - Can be mixed with other pattern types in a chain
 
+8. **Guard Patterns (if clause)** - Additional conditions after pattern match
+   - `if isinstance(x, Handler) and ENABLED:` → `case Handler() if ENABLED:`
+   - `if isinstance(x, (Handler, Worker)) and PRODUCTION:` → `case Handler() | Worker() if PRODUCTION:`
+   - `if isinstance(x, Config) and DEBUG and not VERBOSE:` → `case Config() if DEBUG and not VERBOSE:`
+   - Guard conditions must NOT reference the match subject (only independent variables/expressions)
+   - Used for conditions that can't be expressed as pattern matching
+   - Works with single classes or OR patterns of multiple classes
+   - Proper whitespace automatically added around `if` keyword
+
+9. **Capture Patterns** - Extract values with variable binding
+   - **Single capture**: `if isinstance(n, Point) and len(n.x) >= 1: value = n.x[0]` → `case Point(x=[value, *_]):`
+   - **Multiple consecutive captures**: `if isinstance(n, Point) and len(n.x) >= 2: first = n.x[0]; second = n.x[1]` → `case Point(x=[first, second, *_]):`
+   - **Non-consecutive indices**: `if isinstance(n, Point) and len(n.x) >= 4: first = n.x[0]; third = n.x[2]` → `case Point(x=[first, _, third, *_]):`
+   - **Indices not starting from 0**: `if isinstance(n, Point) and len(n.x) >= 3: second = n.x[1]; third = n.x[2]` → `case Point(x=[_, second, third, *_]):`
+   - **Multi-attribute captures**: `if isinstance(n, Point) and len(n.x) >= 1 and len(n.y) >= 1: x_val = n.x[0]; y_val = n.y[0]` → `case Point(x=[x_val, *_], y=[y_val, *_]):`
+   - Second-pass transformation that detects assignments in case body
+   - Removes redundant assignment statements
+   - Automatically inserts wildcards for skipped or uncaptured indices
+   - Can capture from multiple different attributes in the same pattern
+   - Works with sequence attributes in class patterns
+
 ### Will Convert
 ✅ If/elif chains comparing the same variable/expression
 ✅ Chains with at least one `elif` (minimum 2 branches)
@@ -137,6 +158,11 @@ match_stmt = cst.Match(
 ✅ Star patterns: `if len(x) >= 2 and x[0] == 1 and x[1] == 2:` → `case [1, 2, *_]:`
 ✅ Wildcard patterns: `if len(x) == 3 and x[0] == 1 and x[2] == 3:` → `case [1, _, 3]:`
 ✅ OR patterns: `if x == 1 or x == 2:` → `case 1 | 2:`
+✅ Guard patterns: `if isinstance(x, Handler) and ENABLED:` → `case Handler() if ENABLED:`
+✅ Capture patterns: Single or multiple assignment extraction with variable binding
+✅ Multiple consecutive captures: Extract 2 or more values from sequence attributes
+✅ Non-consecutive index captures: Automatically insert wildcards for skipped indices
+✅ Multi-attribute captures: Extract values from different attributes in same pattern
 
 ### Will NOT Convert
 ❌ Single `if` without `elif`
@@ -148,6 +174,8 @@ match_stmt = cst.Match(
 ❌ Non-literal values in patterns (variables would create binding patterns)
 ❌ OR patterns with different subjects (e.g., `if x == 1 or y == 2:`)
 ❌ OR patterns with non-literal values (e.g., `if x == 1 or x == variable:`)
+❌ Guard patterns that reference the subject (e.g., `isinstance(x, Class) and x.attr == value` should be class pattern)
+❌ Capture patterns with duplicate indices (e.g., `n.x[0]` twice)
 
 ## Testing Guidelines
 

@@ -823,24 +823,32 @@ class IfToMatchTransformer(cst.CSTTransformer):
 
     def _build_case_pattern_from_test(
         self, test: cst.BaseExpression
-    ) -> cst.MatchPattern | None:
+    ) -> tuple[cst.MatchPattern, cst.BaseExpression | None] | None:
         """Build a match case pattern from an if/elif test expression.
 
         Args:
             test: The test expression from an if/elif statement
 
         Returns:
-            A match pattern node, or None if the pattern cannot be built
+            A tuple of (match pattern, guard expression) or None if the pattern cannot be built.
+            Guard expression is None if there's no guard clause.
         """
         if self._is_isinstance_with_and(test):
             # isinstance(subject, Class) and subject.attr == value -> case Class(attr=value):
             result = self._extract_isinstance_with_attrs(test)
-            if result is None:
+            if result is not None:
+                class_expr, attrs = result
+                kwds = self._build_class_pattern_keywords(attrs)
+                return (cst.MatchClass(cls=class_expr, patterns=[], kwds=kwds), None)
+            
+            # isinstance(subject, Class) and other_expr -> case Class() if other_expr:
+            # Only use guard if we couldn't extract as attribute pattern
+            guard_result = self._extract_isinstance_with_guard(test)
+            if guard_result is None:
                 return None
-            class_expr, attrs = result
-
-            kwds = self._build_class_pattern_keywords(attrs)
-            return cst.MatchClass(cls=class_expr, patterns=[], kwds=kwds)
+            class_exprs, guard = guard_result
+            pattern = self._build_match_or_from_classes(class_exprs)
+            return (pattern, guard)
 
         elif self._is_isinstance_call(test):
             # isinstance(subject, Class) -> case Class():
@@ -848,7 +856,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
             class_exprs = self._extract_isinstance_classes(test)
             if class_exprs is None:
                 return None
-            return self._build_match_or_from_classes(class_exprs)
+            return (self._build_match_or_from_classes(class_exprs), None)
 
         elif self._is_sequence_pattern(test):
             # len(x) == N and x[0] == val0 and x[1] == val1 ... -> case [val0, val1, ...]:
@@ -863,11 +871,11 @@ class IfToMatchTransformer(cst.CSTTransformer):
 
             # Use MatchList WITHOUT brackets for comma-separated patterns
             # This creates: case [1, 2], 3: (not case [[1, 2], 3]:)
-            return cst.MatchList(
+            return (cst.MatchList(
                 patterns=elements,
                 lbracket=None,  # No outer brackets
                 rbracket=None,
-            )
+            ), None)
 
         elif self._is_or_pattern(test):
             # subject == val1 or subject == val2 or ... -> case val1 | val2 | ...:
@@ -875,12 +883,12 @@ class IfToMatchTransformer(cst.CSTTransformer):
             if result is None:
                 return None
             _, values = result
-            return self._build_match_or_from_values(values)
+            return (self._build_match_or_from_values(values), None)
 
         else:
             # subject == value -> case value:
             comparator = test.comparisons[0].comparator  # type: ignore
-            return self._build_pattern_from_value(comparator)
+            return (self._build_pattern_from_value(comparator), None)
 
     def _build_sequence_pattern_for_attr(self, seq_patterns: list[PatternInfo]) -> cst.MatchList:
         """Build a sequence pattern for a class attribute.
@@ -1198,6 +1206,144 @@ class IfToMatchTransformer(cst.CSTTransformer):
             return None
 
         return self._extract_isinstance_with_attrs_from_call(test, isinstance_call)
+
+    def _extract_isinstance_with_guard(
+        self, test: cst.BaseExpression
+    ) -> tuple[list[cst.BaseExpression], cst.BaseExpression] | None:
+        """Extract isinstance check and guard condition from: isinstance(x, Class) and guard_expr.
+        
+        Returns (class_exprs, guard_expr) or None if not a valid guard pattern.
+        This is used when the condition after isinstance is not a simple attribute check.
+        
+        Guard patterns are only used for conditions that don't reference the subject itself,
+        to maintain clarity and avoid confusion with pattern matching.
+        """
+        if not self._is_isinstance_with_and(test):
+            return None
+        
+        isinstance_call = self._find_isinstance_call(test)
+        if isinstance_call is None:
+            return None
+        
+        # Extract class expressions from isinstance call
+        class_exprs = self._extract_isinstance_classes(isinstance_call)
+        if class_exprs is None:
+            return None
+        
+        # Extract the guard condition (everything except the isinstance check)
+        guard = self._extract_guard_condition(test, isinstance_call)
+        if guard is None:
+            return None
+        
+        # Don't use guard patterns if the guard references the subject
+        # This includes attribute access or any other reference to the matched variable
+        subject = isinstance_call.args[0].value
+        if self._guard_references_subject(guard, subject):
+            return None
+        
+        return (class_exprs, guard)
+    
+    def _guard_references_subject(
+        self, node: cst.BaseExpression, subject: cst.BaseExpression
+    ) -> bool:
+        """Check if node references the subject variable in any way.
+        
+        This includes direct references, attribute access, subscripts, etc.
+        """
+        # Direct reference to subject
+        if node.deep_equals(subject):
+            return True
+        
+        # Attribute access on subject
+        if m.matches(node, m.Attribute()):
+            attr = node  # type: ignore
+            return self._guard_references_subject(attr.value, subject)
+        
+        # Subscript on subject
+        if m.matches(node, m.Subscript()):
+            subscript = node  # type: ignore
+            return self._guard_references_subject(subscript.value, subject)
+        
+        # Boolean operations - recurse into both sides
+        if m.matches(node, m.BooleanOperation()):
+            bool_op = node  # type: ignore
+            return (
+                self._guard_references_subject(bool_op.left, subject)
+                or self._guard_references_subject(bool_op.right, subject)
+            )
+        
+        # Comparisons - check left and all comparators
+        if m.matches(node, m.Comparison()):
+            comp = node  # type: ignore
+            if self._guard_references_subject(comp.left, subject):
+                return True
+            for target in comp.comparisons:
+                if self._guard_references_subject(target.comparator, subject):
+                    return True
+            return False
+        
+        # UnaryOperation - recurse into expression
+        if m.matches(node, m.UnaryOperation()):
+            unary = node  # type: ignore
+            return self._guard_references_subject(unary.expression, subject)
+        
+        # Call - check func and args
+        if m.matches(node, m.Call()):
+            call = node  # type: ignore
+            if self._guard_references_subject(call.func, subject):
+                return True
+            for arg in call.args:
+                if self._guard_references_subject(arg.value, subject):
+                    return True
+            return False
+        
+        return False
+    
+    def _extract_guard_condition(
+        self, test: cst.BaseExpression, isinstance_call: cst.Call
+    ) -> cst.BaseExpression | None:
+        """Extract the guard condition from a boolean AND expression, excluding the isinstance check.
+        
+        Given: isinstance(x, Class) and x > 0 and x < 10
+        Returns: x > 0 and x < 10
+        """
+        if not m.matches(test, m.BooleanOperation(operator=m.And())):
+            return None
+        
+        # Recursively collect all non-isinstance conditions
+        def collect_non_isinstance_conditions(node: cst.BaseExpression) -> list[cst.BaseExpression]:
+            if m.matches(node, m.BooleanOperation(operator=m.And())):
+                and_op = node  # type: ignore
+                left_conds = collect_non_isinstance_conditions(and_op.left)
+                right_conds = collect_non_isinstance_conditions(and_op.right)
+                return left_conds + right_conds
+            elif node.deep_equals(isinstance_call):
+                # Skip the isinstance call
+                return []
+            else:
+                # This is a guard condition
+                return [node]
+        
+        conditions = collect_non_isinstance_conditions(test)
+        if not conditions:
+            return None
+        
+        # Rebuild the guard expression from collected conditions
+        if len(conditions) == 1:
+            return conditions[0]
+        else:
+            # Combine multiple conditions with AND
+            guard = conditions[0]
+            for cond in conditions[1:]:
+                guard = cst.BooleanOperation(
+                    left=guard,
+                    operator=cst.And(
+                        whitespace_before=cst.SimpleWhitespace(" "),
+                        whitespace_after=cst.SimpleWhitespace(" "),
+                    ),
+                    right=cond,
+                )
+            return guard
 
     def _is_sequence_pattern(self, test: cst.BaseExpression) -> bool:
         """Check if test matches: len(x) == N and x[0] == val0 ... or len(x) >= N and x[0] == val0 ...
@@ -1682,16 +1828,23 @@ class IfToMatchTransformer(cst.CSTTransformer):
                 self._current_subject = subject
 
             # Build the case for the current if/elif
-            case_pattern = self._build_case_pattern_from_test(current.test)
-            if case_pattern is None:
+            pattern_result = self._build_case_pattern_from_test(current.test)
+            if pattern_result is None:
                 return updated_node
+            
+            case_pattern, guard = pattern_result
 
-            cases.append(
-                cst.MatchCase(
-                    pattern=case_pattern,
-                    body=current.body,
-                )
-            )
+            # Add proper whitespace around guard clause if present
+            match_case_args = {
+                "pattern": case_pattern,
+                "guard": guard,
+                "body": current.body,
+            }
+            if guard is not None:
+                match_case_args["whitespace_before_if"] = cst.SimpleWhitespace(" ")
+                match_case_args["whitespace_after_if"] = cst.SimpleWhitespace(" ")
+            
+            cases.append(cst.MatchCase(**match_case_args))
 
             # Move to the next part of the chain
             orelse = current.orelse
@@ -1746,46 +1899,74 @@ class CapturePatternTransformer(cst.CSTTransformer):
                 new_cases.append(case)
                 continue
             
-            # Check if body starts with an assignment
+            # Check if body starts with assignments
             if not isinstance(case.body, cst.IndentedBlock):
                 new_cases.append(case)
                 continue
             
-            first_stmt = case.body.body[0]
-            if not isinstance(first_stmt, cst.SimpleStatementLine):
+            # Detect multiple capture assignments at the start of the body
+            captures = self._detect_multiple_captures(case.body, updated_node.subject)
+            if not captures:
                 new_cases.append(case)
                 continue
             
-            if len(first_stmt.body) != 1 or not isinstance(first_stmt.body[0], cst.Assign):
-                new_cases.append(case)
-                continue
+            # Group captures by attribute
+            captures_by_attr = {}
+            for var_name, attr_name, index in captures:
+                if attr_name not in captures_by_attr:
+                    captures_by_attr[attr_name] = []
+                captures_by_attr[attr_name].append((var_name, attr_name, index))
             
-            assign = first_stmt.body[0]
+            # Try to add captures for each attribute
+            new_pattern = case.pattern
+            for attr_name, attr_captures in captures_by_attr.items():
+                new_pattern = self._add_multiple_captures_to_pattern(
+                    new_pattern, attr_name, attr_captures
+                )
+                if new_pattern is None:
+                    break
             
-            # Check if assignment is like: var = subject.attr[index]
-            capture_info = self._detect_capture_assignment(assign, updated_node.subject)
-            if capture_info is None:
-                new_cases.append(case)
-                continue
-            
-            var_name, attr_name, index = capture_info
-            
-            # Check if the pattern has this attribute with a sequence pattern
-            new_pattern = self._add_capture_to_pattern(
-                case.pattern, attr_name, var_name, index
-            )
             if new_pattern is None:
                 new_cases.append(case)
                 continue
             
-            # Remove the assignment from the body
-            new_body = self._remove_first_statement(case.body)
+            # Remove the assignment statements from the body
+            new_body = self._remove_statements(case.body, len(captures))
             
             # Create new case with capture pattern and updated body
             new_case = case.with_changes(pattern=new_pattern, body=new_body)
             new_cases.append(new_case)
         
         return updated_node.with_changes(cases=new_cases)
+    
+    def _detect_multiple_captures(
+        self, body: cst.IndentedBlock, subject: cst.BaseExpression
+    ) -> list[tuple[str, str, int]]:
+        """Detect multiple consecutive capture assignments at the start of body.
+        
+        Returns:
+            List of (var_name, attr_name, index) tuples, one for each capture assignment.
+            Empty list if no valid captures found.
+        """
+        captures = []
+        
+        for stmt in body.body:
+            # Must be a simple statement line with a single assignment
+            if not isinstance(stmt, cst.SimpleStatementLine):
+                break
+            
+            if len(stmt.body) != 1 or not isinstance(stmt.body[0], cst.Assign):
+                break
+            
+            assign = stmt.body[0]
+            capture_info = self._detect_capture_assignment(assign, subject)
+            
+            if capture_info is None:
+                break
+            
+            captures.append(capture_info)
+        
+        return captures
     
     def _detect_capture_assignment(
         self, assign: cst.Assign, subject: cst.BaseExpression
@@ -1834,18 +2015,35 @@ class CapturePatternTransformer(cst.CSTTransformer):
         
         return (var_name, attr_name, index)
     
-    def _add_capture_to_pattern(
+    def _add_multiple_captures_to_pattern(
         self,
         pattern: cst.MatchClass,
         attr_name: str,
-        var_name: str,
-        index: int,
+        captures: list[tuple[str, str, int]],
     ) -> cst.MatchClass | None:
-        """Add capture pattern to the specified attribute.
+        """Add multiple capture patterns to the specified attribute.
         
-        Transforms a pattern like Point(x=[1, 2, *_]) to Point(x=[var, 2, *_])
-        when index=0.
+        Transforms a pattern like Point(x=[_]) to Point(x=[first, second, *_])
+        when captures = [('first', 'x', 0), ('second', 'x', 1)].
+        
+        Supports non-consecutive indices by inserting wildcards:
+        captures = [('first', 'x', 0), ('third', 'x', 2)] → Point(x=[first, _, third, *_])
+        
+        Supports indices not starting from 0:
+        captures = [('second', 'x', 1), ('third', 'x', 2)] → Point(x=[_, second, third, *_])
         """
+        # Get indices and sort captures by index
+        indices = [idx for _, _, idx in captures]
+        sorted_captures = sorted(captures, key=lambda c: c[2])
+        
+        # Validate no duplicate indices
+        if len(indices) != len(set(indices)):
+            # Duplicate indices
+            return None
+        
+        # Get max index
+        max_index = max(indices)
+        
         # Find the attribute in the pattern
         new_kwds = []
         found = False
@@ -1864,43 +2062,50 @@ class CapturePatternTransformer(cst.CSTTransformer):
                 new_kwds.append(kwd)
                 continue
             
-            # Found it! Now check if we can add capture at the specified index
+            # Found it! Build new sequence with captures (supporting non-consecutive indices)
             seq_pattern = kwd.pattern
             elements = list(seq_pattern.patterns)
             
-            # Only support index=0 for now
-            if index != 0:
-                return None
+            # Build pattern elements from 0 to max_index
+            # For each position: either a capture or a wildcard
+            capture_map = {idx: var_name for var_name, _, idx in sorted_captures}
             
-            # Check if pattern is just a single wildcard [_]
-            # If so, transform to [var, *_] to capture first element
-            if len(elements) == 1 and isinstance(elements[0].value, cst.MatchAs):
-                if elements[0].value.pattern is None and elements[0].value.name is None:
-                    # It's a wildcard - replace with [var, *_]
-                    capture_element = cst.MatchSequenceElement(
-                        value=cst.MatchAs(pattern=None, name=cst.Name(var_name)),
+            new_elements = []
+            for i in range(max_index + 1):
+                if i in capture_map:
+                    # This index has a capture
+                    capture_elem = cst.MatchSequenceElement(
+                        value=cst.MatchAs(pattern=None, name=cst.Name(capture_map[i])),
                         comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" ")),
                     )
-                    star_element = cst.MatchSequenceElement(
-                        value=cst.MatchStar(name=cst.Name("_"))
+                    new_elements.append(capture_elem)
+                else:
+                    # This index doesn't have a capture, use wildcard
+                    wildcard_elem = cst.MatchSequenceElement(
+                        value=cst.MatchAs(pattern=None, name=None),
+                        comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" ")),
                     )
-                    new_elements = [capture_element, star_element]
-                    new_seq_pattern = seq_pattern.with_changes(patterns=new_elements)
-                    new_kwd = kwd.with_changes(pattern=new_seq_pattern)
-                    new_kwds.append(new_kwd)
-                    found = True
-                    continue
+                    new_elements.append(wildcard_elem)
             
-            # Check if first element is a wildcard or value pattern
-            if len(elements) == 0:
-                return None
-            
-            # Replace first element with capture pattern
-            capture_element = cst.MatchSequenceElement(
-                value=cst.MatchAs(pattern=None, name=cst.Name(var_name))
+            # Check if original pattern has wildcards or if we need to add star
+            all_wildcards = all(
+                isinstance(el.value, cst.MatchAs) 
+                and el.value.pattern is None 
+                and el.value.name is None
+                for el in elements
             )
             
-            new_elements = [capture_element] + elements[1:]
+            # Add star pattern at the end to match remaining elements
+            if all_wildcards or len(elements) > len(new_elements):
+                star_element = cst.MatchSequenceElement(
+                    value=cst.MatchStar(name=cst.Name("_"))
+                )
+                new_elements.append(star_element)
+            else:
+                # Keep any remaining elements from original pattern
+                remaining_elements = elements[len(new_elements):]
+                new_elements.extend(remaining_elements)
+            
             new_seq_pattern = seq_pattern.with_changes(patterns=new_elements)
             new_kwd = kwd.with_changes(pattern=new_seq_pattern)
             new_kwds.append(new_kwd)
@@ -1911,15 +2116,15 @@ class CapturePatternTransformer(cst.CSTTransformer):
         
         return pattern.with_changes(kwds=new_kwds)
     
-    def _remove_first_statement(self, body: cst.IndentedBlock) -> cst.IndentedBlock:
-        """Remove first statement from body, or replace with pass if only statement."""
-        if len(body.body) == 1:
+    def _remove_statements(self, body: cst.IndentedBlock, count: int) -> cst.IndentedBlock:
+        """Remove first N statements from body, or replace with pass if it leaves no statements."""
+        if len(body.body) <= count:
             # Replace with pass statement
             pass_stmt = cst.SimpleStatementLine(body=[cst.Pass()])
             return body.with_changes(body=[pass_stmt])
         else:
-            # Remove first statement
-            return body.with_changes(body=body.body[1:])
+            # Remove first N statements
+            return body.with_changes(body=body.body[count:])
 
 
 def convert_file(path: pathlib.Path) -> tuple[pathlib.Path, bool, str | None]:
