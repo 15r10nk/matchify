@@ -3156,3 +3156,36 @@ class TestEdgeCases:
         ).strip()
 
         check_code(source, expected)
+
+    def test_guard_pattern_with_isinstance_check(self):
+        """Test isinstance guard with another isinstance check on different variable."""
+        source = dedent(
+            """
+            class ParamSpecType:
+                pass
+            
+            tvar = ParamSpecType()
+            mapped_arg = ParamSpecType()
+            if isinstance(tvar, ParamSpecType) and isinstance(mapped_arg, ParamSpecType):
+                print("both are ParamSpecType")
+            elif isinstance(tvar, ParamSpecType):
+                print("only tvar")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class ParamSpecType:
+                pass
+            
+            tvar = ParamSpecType()
+            mapped_arg = ParamSpecType()
+            match tvar:
+                case ParamSpecType() if isinstance(mapped_arg, ParamSpecType):
+                    print("both are ParamSpecType")
+                case ParamSpecType():
+                    print("only tvar")
+        """
+        ).strip()
+
+        check_code(source, expected)

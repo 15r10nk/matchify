@@ -1153,6 +1153,11 @@ class IfToMatchTransformer(cst.CSTTransformer):
         if not extract_attr_checks_recursive(test):
             return None
         
+        # If no attributes were actually extracted, return None
+        # (e.g., test only contains isinstance calls without attribute checks)
+        if not attrs:
+            return None
+        
         return attrs
 
     def _extract_isinstance_with_attrs_from_call(

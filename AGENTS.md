@@ -123,9 +123,11 @@ match_stmt = cst.Match(
    - `if isinstance(x, Handler) and ENABLED:` → `case Handler() if ENABLED:`
    - `if isinstance(x, (Handler, Worker)) and PRODUCTION:` → `case Handler() | Worker() if PRODUCTION:`
    - `if isinstance(x, Config) and DEBUG and not VERBOSE:` → `case Config() if DEBUG and not VERBOSE:`
+   - `if isinstance(tvar, ParamSpecType) and isinstance(mapped_arg, ParamSpecType):` → `case ParamSpecType() if isinstance(mapped_arg, ParamSpecType):`
    - Guard conditions must NOT reference the match subject (only independent variables/expressions)
    - Used for conditions that can't be expressed as pattern matching
    - Works with single classes or OR patterns of multiple classes
+   - Can have isinstance checks on different variables as guards
    - Proper whitespace automatically added around `if` keyword
 
 9. **Capture Patterns** - Extract values with variable binding
