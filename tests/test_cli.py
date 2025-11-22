@@ -3002,6 +3002,36 @@ class TestEdgeCases:
         expected = source
         check_code(source, expected)
 
+    def test_isinstance_with_len_check_on_attribute_not_converted(self):
+        """Test that isinstance with len() check on attribute is not converted.
+        
+        Regression test for bug where len(o.args) == 2 was being silently dropped.
+        The pattern should not be converted because we can't (yet) mix attribute
+        patterns with guard conditions on non-subject attributes.
+        """
+        source = dedent(
+            """
+            class RefExpr:
+                def __init__(self, fullname, args=None):
+                    self.fullname = fullname
+                    self.args = args if args else []
+            
+            class CallExpr:
+                def __init__(self, callee):
+                    self.callee = callee
+            
+            o = CallExpr(RefExpr("builtins.isinstance", [1, 2]))
+            if isinstance(o.callee, RefExpr) and o.callee.fullname == "builtins.isinstance" and len(o.callee.args) == 2:
+                print("isinstance with 2 args")
+            elif isinstance(o.callee, RefExpr):
+                print("other RefExpr")
+        """
+        ).strip()
+
+        # Expected is same as source (no transformation - len() on attribute not supported)
+        expected = source
+        check_code(source, expected)
+
     def test_isinstance_with_type_variable_ignored(self):
         """Test that isinstance with type variables matching --no-types pattern are not converted."""
         source = dedent(
