@@ -1278,12 +1278,25 @@ class IfToMatchTransformer(cst.CSTTransformer):
             if self._is_isinstance_call(node):
                 return True
 
-            # Skip len() calls - these are handled by sequence attribute extraction
+            # Skip len() calls on sequence attributes - these are handled by sequence attribute extraction
+            # Also skip len() calls on other objects - those should become guards (handled elsewhere)
             if m.matches(
                 node, m.Comparison(comparisons=[m.ComparisonTarget(operator=m.Equal() | m.GreaterThanEqual())])
             ):
                 comp = node  # type: ignore
                 if m.matches(comp.left, m.Call(func=m.Name(value="len"))):
+                    len_call = comp.left  # type: ignore
+                    if len(len_call.args) > 0:
+                        len_arg = len_call.args[0].value
+                        # Skip if len() is on subject.attr (a sequence attribute - handled by sequence extraction)
+                        if m.matches(len_arg, m.Attribute()):
+                            attr = len_arg  # type: ignore
+                            if attr.value.deep_equals(subject):
+                                return True
+                        # Skip if len() is on something OTHER than subject or subject.attr
+                        # These should be guards, not attribute checks
+                        if not len_arg.deep_equals(subject) and not (m.matches(len_arg, m.Attribute()) and len_arg.value.deep_equals(subject)):
+                            return True
                     return True
 
             # Skip checks on subscripted attributes (subject.attr[i] or nested like subject.attr[i].nested_attr[j])
