@@ -778,6 +778,18 @@ def test_guarded_generated_program_survives_matchify(tmp_path: Path):
     assert_matchify_preserves_trace(program, tmp_path)
 
 
+def test_false_guarded_generated_program_falls_through(tmp_path: Path):
+    program = GeneratedProgram(
+        classes=("Point",),
+        cases=(
+            GeneratedCase(GuardedPattern(LiteralPattern("1"), "False"), "branch_0"),
+            GeneratedCase(LiteralPattern("1"), "branch_1"),
+        ),
+    )
+
+    assert_matchify_preserves_trace(program, tmp_path)
+
+
 def test_guarded_sequence_generated_program_survives_matchify(tmp_path: Path):
     program = GeneratedProgram(
         classes=("Point",),
