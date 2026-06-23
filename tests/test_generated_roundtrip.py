@@ -85,6 +85,30 @@ class ClassPattern:
 
 
 @dataclass(frozen=True)
+class ClassUnionPattern:
+    class_names: tuple[str, ...]
+    attrs: tuple[tuple[str, "GeneratedPattern"], ...] = ()
+
+    def to_code(self) -> str:
+        return " | ".join(
+            ClassPattern(class_name, self.attrs).to_code()
+            for class_name in self.class_names
+        )
+
+    def to_condition_code(self, subject: str, safe: bool = False) -> str:
+        classes = ", ".join(self.class_names)
+        parts = [f"isinstance({subject}, ({classes}))"]
+        for attr, pattern in sorted(self.attrs, key=class_attr_sort_key):
+            if safe:
+                parts.append(f"hasattr({subject}, {attr!r})")
+            parts.append(pattern.to_condition_code(f"{subject}.{attr}", safe=safe))
+        return " and ".join(parts)
+
+    def to_value_code(self) -> str:
+        return ClassPattern(self.class_names[0], self.attrs).to_value_code()
+
+
+@dataclass(frozen=True)
 class SequencePattern:
     elements: tuple["GeneratedPattern", ...]
     bracketed: bool
@@ -128,6 +152,7 @@ GeneratedPattern = (
     | SingletonPattern
     | OrPattern
     | ClassPattern
+    | ClassUnionPattern
     | SequencePattern
     | WildcardPattern
 )
@@ -240,12 +265,15 @@ def generate_pattern(
 
 def generate_class_pattern(
     rng: random.Random, classes: tuple[str, ...], depth: int
-) -> ClassPattern:
+) -> ClassPattern | ClassUnionPattern:
     class_name = rng.choice(classes)
     attrs = rng.sample(["x", "y", "kind"], rng.randint(0, 2))
     attr_patterns = tuple(
         (attr, generate_attribute_pattern(rng, classes, depth)) for attr in attrs
     )
+    if len(classes) > 1 and rng.choice([True, False]):
+        class_names = tuple(rng.sample(classes, rng.randint(2, len(classes))))
+        return ClassUnionPattern(class_names, attr_patterns)
     return ClassPattern(class_name, attr_patterns)
 
 
@@ -472,39 +500,9 @@ class Token:
 result = 'unmatched'
 value = None
 match value:
-    case Point(kind='ready'):
+    case Point(kind='ready') | Token(kind='ready'):
         result = 'branch_0'
-    case False:
-        result = 'branch_1'
----
-class Point:
-    def __init__(self, **attrs):
-        self.__dict__.update(attrs)
-result = 'unmatched'
-value = None
-match value:
-    case Point(kind='blue', x='red'),:
-        result = 'branch_0'
-    case 1,:
-        result = 'branch_1'
-    case -1:
-        result = 'branch_2'
-    case False:
-        result = 'branch_3'
----
-class Point:
-    def __init__(self, **attrs):
-        self.__dict__.update(attrs)
-
-class Token:
-    def __init__(self, **attrs):
-        self.__dict__.update(attrs)
-result = 'unmatched'
-value = None
-match value:
-    case None, None:
-        result = 'branch_0'
-    case Point():
+    case Point(kind='blue', x='red') | Token(kind='blue', x='red'),:
         result = 'branch_1'
     case _:
         result = 'default'
@@ -515,13 +513,13 @@ class Point:
 result = 'unmatched'
 value = None
 match value:
-    case True,:
+    case 0 | 'blue' | 'red':
         result = 'branch_0'
-    case Point(x=Point()):
+    case None, None, False:
         result = 'branch_1'
-    case Point(kind=-1, y=None), Point(kind=None, y=False):
+    case 0:
         result = 'branch_2'
-    case Point(x='blue'),:
+    case 'red',:
         result = 'branch_3'
     case _:
         result = 'default'
@@ -533,18 +531,56 @@ class Point:
 class Token:
     def __init__(self, **attrs):
         self.__dict__.update(attrs)
+result = 'unmatched'
+value = None
+match value:
+    case Point(x=Token()):
+        result = 'branch_0'
+    case Point(kind=1, y=Point(kind=1, x=Point(kind=None, y=False) | Token(kind=None, y=False))):
+        result = 'branch_1'
+    case [None | 1 | 2],:
+        result = 'branch_2'
+    case Point(kind=True, x=None) | Token(kind=True, x=None), [None, None | 2 | 0, 0], False | 'red' | 2:
+        result = 'branch_3'
+    case Token() | Point():
+        result = 'branch_4'
+    case _:
+        result = 'default'
+---
+class Point:
+    def __init__(self, **attrs):
+        self.__dict__.update(attrs)
 
-class Node:
+class Token:
     def __init__(self, **attrs):
         self.__dict__.update(attrs)
 result = 'unmatched'
 value = None
 match value:
-    case -1, False:
+    case False | None | 'blue':
         result = 'branch_0'
-    case True:
+    case 'blue', None, 1:
         result = 'branch_1'
-    case Token(kind=True, x=None), [[2], Node(kind=False, x=False), 0], 'red':
+    case Point() | Token():
+        result = 'branch_2'
+    case _:
+        result = 'default'
+---
+class Point:
+    def __init__(self, **attrs):
+        self.__dict__.update(attrs)
+
+class Token:
+    def __init__(self, **attrs):
+        self.__dict__.update(attrs)
+result = 'unmatched'
+value = None
+match value:
+    case None:
+        result = 'branch_0'
+    case 2:
+        result = 'branch_1'
+    case False:
         result = 'branch_2'\
 """
     )

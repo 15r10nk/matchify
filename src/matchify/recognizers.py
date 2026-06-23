@@ -237,19 +237,7 @@ class ClassPatternRecognizer(BranchPatternRecognizer):
         if class_exprs is None:
             return None
 
-        pattern = build_class_pattern(class_exprs)
-        if attrs:
-            if not isinstance(pattern, cst.MatchClass):
-                return None
-            pattern = pattern.with_changes(
-                kwds=[
-                    cst.MatchKeywordElement(
-                        key=cst.Name(attr_name),
-                        pattern=pattern,
-                    )
-                    for attr_name, pattern in attrs
-                ]
-            )
+        pattern = build_class_pattern(class_exprs, attrs)
 
         return PatternMatch(pattern, combine_guards(guards))
 
@@ -415,22 +403,21 @@ class NestedClassPatternRecognizer(BranchPatternRecognizer):
 
         if main_classes is None or not nested_classes:
             return None
-        if len(main_classes) > 1 and (
-            nested_classes or scalar_checks or sequence_checks
-        ):
-            return None
 
-        pattern = build_nested_class_pattern(
-            condition,
-            main_classes[0],
-            (),
-            nested_classes,
-            scalar_checks,
-            sequence_checks,
-        )
-        if pattern is None:
-            return None
-        return PatternMatch(pattern, combine_guards(guards))
+        patterns: list[cst.MatchPattern] = []
+        for class_expr in main_classes:
+            pattern = build_nested_class_pattern(
+                condition,
+                class_expr,
+                (),
+                nested_classes,
+                scalar_checks,
+                sequence_checks,
+            )
+            if pattern is None:
+                return None
+            patterns.append(pattern)
+        return PatternMatch(build_or_pattern(patterns), combine_guards(guards))
 
 
 class SequenceAttributePatternRecognizer(BranchPatternRecognizer):
@@ -448,6 +435,7 @@ class SequenceAttributePatternRecognizer(BranchPatternRecognizer):
         scalar_attrs: list[tuple[str, cst.MatchPattern]] = []
         nested_classes: dict[tuple[str, ...], list[cst.BaseExpression]] = {}
         nested_scalar_checks: dict[tuple[str, ...], cst.MatchPattern] = {}
+        nested_sequence_checks: dict[tuple[str, ...], cst.BaseExpression] = {}
         guards: list[cst.BaseExpression] = []
 
         for component in components:
@@ -474,6 +462,14 @@ class SequenceAttributePatternRecognizer(BranchPatternRecognizer):
                 sequence_subjects[sequence_subject.attr.value] = sequence_subject
                 continue
 
+            nested_sequence_check = extract_attribute_path_sequence_len_check(
+                component, subject
+            )
+            if nested_sequence_check is not None:
+                path, sequence_subject = nested_sequence_check
+                nested_sequence_checks[path] = sequence_subject
+                continue
+
             attr_check = extract_attribute_pattern_check(component, subject)
             if attr_check is not None:
                 scalar_attrs.append(attr_check)
@@ -489,7 +485,10 @@ class SequenceAttributePatternRecognizer(BranchPatternRecognizer):
 
             if any(
                 is_component_for_sequence_subject(component, sequence_subject)
-                for sequence_subject in sequence_subjects.values()
+                for sequence_subject in (
+                    list(sequence_subjects.values())
+                    + list(nested_sequence_checks.values())
+                )
             ):
                 continue
 
@@ -498,10 +497,10 @@ class SequenceAttributePatternRecognizer(BranchPatternRecognizer):
 
             return None
 
-        if class_exprs is None or not sequence_subjects or len(class_exprs) > 1:
+        if class_exprs is None or not sequence_subjects:
             return None
 
-        kwds: list[cst.MatchKeywordElement] = []
+        keyword_patterns: list[tuple[str, cst.MatchPattern]] = []
         used_attrs: set[str] = set()
         for attr_name, sequence_subject in sequence_subjects.items():
             sequence_result = extract_sequence_pattern_for_subject(
@@ -510,12 +509,10 @@ class SequenceAttributePatternRecognizer(BranchPatternRecognizer):
             if sequence_result is None:
                 return None
             pattern_infos, use_star = sequence_result
-            kwds.append(
-                cst.MatchKeywordElement(
-                    key=cst.Name(attr_name),
-                    pattern=build_bracketed_sequence_match_list(
-                        pattern_infos, use_star
-                    ),
+            keyword_patterns.append(
+                (
+                    attr_name,
+                    build_bracketed_sequence_match_list(pattern_infos, use_star),
                 )
             )
             used_attrs.add(attr_name)
@@ -523,28 +520,28 @@ class SequenceAttributePatternRecognizer(BranchPatternRecognizer):
         for attr_name, pattern in scalar_attrs:
             if attr_name in sequence_subjects:
                 continue
-            kwds.append(
-                cst.MatchKeywordElement(
-                    key=cst.Name(attr_name),
-                    pattern=pattern,
-                )
-            )
+            keyword_patterns.append((attr_name, pattern))
             used_attrs.add(attr_name)
 
-        if nested_classes or nested_scalar_checks:
+        if nested_classes or nested_scalar_checks or nested_sequence_checks:
             nested_pattern = build_nested_class_pattern(
-                condition, class_exprs[0], (), nested_classes, nested_scalar_checks, {}
+                condition,
+                class_exprs[0],
+                (),
+                nested_classes,
+                nested_scalar_checks,
+                nested_sequence_checks,
             )
             if nested_pattern is None:
                 return None
             for kwd in nested_pattern.kwds:
                 if kwd.key.value in used_attrs:
                     continue
-                kwds.append(kwd)
+                keyword_patterns.append((kwd.key.value, kwd.pattern))
                 used_attrs.add(kwd.key.value)
 
         return PatternMatch(
-            cst.MatchClass(cls=class_exprs[0], patterns=[], kwds=kwds),
+            build_class_pattern(class_exprs, keyword_patterns),
             combine_guards(guards),
         )
 
@@ -579,7 +576,7 @@ class GuardFallbackRecognizer(BranchPatternRecognizer):
                 pattern_parts.append(ClassPatternPart(isinstance_info))
                 continue
 
-            attr_check = extract_attribute_literal_check(component, subject)
+            attr_check = extract_attribute_pattern_check(component, subject)
             if attr_check is not None:
                 attribute_checks.append(attr_check)
                 continue
@@ -812,24 +809,20 @@ def build_nested_class_pattern(
         child_path = path + (name,)
         if child_path in nested_classes:
             child_classes = nested_classes[child_path]
-            if len(child_classes) == 1:
-                child_pattern: cst.MatchPattern = build_nested_class_pattern(
+            child_patterns = []
+            for child_class in child_classes:
+                nested_child_pattern = build_nested_class_pattern(
                     condition,
-                    child_classes[0],
+                    child_class,
                     child_path,
                     nested_classes,
                     scalar_checks,
                     sequence_checks,
                 )
-                if child_pattern is None:
+                if nested_child_pattern is None:
                     return None
-            else:
-                child_pattern = build_or_pattern(
-                    [
-                        cst.MatchClass(cls=child_class, patterns=[])
-                        for child_class in child_classes
-                    ]
-                )
+                child_patterns.append(nested_child_pattern)
+            child_pattern: cst.MatchPattern = build_or_pattern(child_patterns)
         elif child_path in sequence_checks:
             sequence_result = extract_sequence_pattern_for_subject(
                 condition, sequence_checks[child_path]

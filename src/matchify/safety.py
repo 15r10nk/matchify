@@ -13,9 +13,6 @@ def is_safe_condition(
     subject: cst.BaseExpression,
     ignore_types_pattern: str | None,
 ) -> bool:
-    if has_isinstance_tuple_with_subject_attrs(condition, subject):
-        return False
-
     for component in flatten_all_boolean(condition):
         if isinstance(component, cst.Comparison) and len(component.comparisons) == 1:
             target = component.comparisons[0]
@@ -46,28 +43,6 @@ def flatten_all_boolean(node: cst.BaseExpression) -> list[cst.BaseExpression]:
     if isinstance(node, cst.BooleanOperation):
         return flatten_all_boolean(node.left) + flatten_all_boolean(node.right)
     return [node]
-
-
-def has_isinstance_tuple_with_subject_attrs(
-    condition: cst.BaseExpression, subject: cst.BaseExpression
-) -> bool:
-    has_tuple_isinstance = False
-    has_subject_attr_check = False
-
-    for component in flatten_all_boolean(condition):
-        if isinstance(component, cst.Call) and m.matches(
-            component, m.Call(func=m.Name(value="isinstance"))
-        ):
-            if len(component.args) >= 2 and component.args[0].value.deep_equals(
-                subject
-            ):
-                has_tuple_isinstance = isinstance(component.args[1].value, cst.Tuple)
-        elif isinstance(component, cst.Comparison) and isinstance(
-            component.left, cst.Attribute
-        ):
-            has_subject_attr_check = component.left.value.deep_equals(subject)
-
-    return has_tuple_isinstance and has_subject_attr_check
 
 
 def is_len_call_on_nested_subject_attribute(

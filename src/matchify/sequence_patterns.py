@@ -633,7 +633,7 @@ def build_sequence_element_class_pattern(
     class_exprs: list[cst.BaseExpression],
 ) -> cst.MatchPattern | None:
     sequence_subjects: dict[str, cst.Attribute] = {}
-    scalar_attrs: list[tuple[str, cst.BaseExpression]] = []
+    scalar_attrs: list[tuple[str, cst.MatchPattern]] = []
     for component in flatten_boolean(condition, cst.And):
         sequence_subject = extract_len_sequence_attribute(component, element_subject)
         if sequence_subject is not None:
@@ -647,10 +647,8 @@ def build_sequence_element_class_pattern(
 
     if not sequence_subjects and not scalar_attrs:
         return None
-    if len(class_exprs) > 1:
-        return None
 
-    kwds = []
+    keyword_patterns: list[tuple[str, cst.MatchPattern]] = []
     for attr_name, sequence_subject in sequence_subjects.items():
         sequence_result = extract_sequence_pattern_for_subject(
             condition, sequence_subject
@@ -658,27 +656,23 @@ def build_sequence_element_class_pattern(
         if sequence_result is None:
             return None
         pattern_infos, use_star = sequence_result
-        kwds.append(
-            cst.MatchKeywordElement(
-                key=cst.Name(attr_name),
-                pattern=build_bracketed_sequence_match_list(pattern_infos, use_star),
+        keyword_patterns.append(
+            (
+                attr_name,
+                build_bracketed_sequence_match_list(pattern_infos, use_star),
             )
         )
-    for attr_name, value in scalar_attrs:
+    for attr_name, pattern in scalar_attrs:
         if attr_name in sequence_subjects:
             continue
-        kwds.append(
-            cst.MatchKeywordElement(
-                key=cst.Name(attr_name), pattern=build_value_pattern(value)
-            )
-        )
+        keyword_patterns.append((attr_name, pattern))
 
-    return cst.MatchClass(cls=class_exprs[0], patterns=[], kwds=kwds)
+    return build_class_pattern(class_exprs, keyword_patterns)
 
 
 def extract_direct_attribute_check(
     node: cst.BaseExpression, subject: cst.BaseExpression
-) -> tuple[str, cst.BaseExpression] | None:
+) -> tuple[str, cst.MatchPattern] | None:
     if not isinstance(node, cst.Comparison) or len(node.comparisons) != 1:
         return None
     if not isinstance(node.left, cst.Attribute):
@@ -697,7 +691,7 @@ def extract_direct_attribute_check(
     if not SequencePatternCollector(subject)._is_literal_value(target.comparator):
         return None
 
-    return node.left.attr.value, target.comparator
+    return node.left.attr.value, build_value_pattern(target.comparator)
 
 
 def extract_sequence_element_direct_attribute_check(

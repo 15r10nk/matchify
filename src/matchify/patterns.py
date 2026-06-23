@@ -140,7 +140,7 @@ def is_ignored_type_expr(
 
 def build_pattern_from_parts(
     pattern_parts: list[PatternPart],
-    attribute_checks: list[tuple[str, cst.BaseExpression]],
+    attribute_checks: list[tuple[str, cst.MatchPattern]],
 ) -> cst.MatchPattern | None:
     if not pattern_parts:
         return None
@@ -150,16 +150,7 @@ def build_pattern_from_parts(
     ]
     if isinstance_parts:
         classes = isinstance_parts[0]
-        class_pattern = build_class_pattern(classes)
-        if attribute_checks and isinstance(class_pattern, cst.MatchClass):
-            kwds = [
-                cst.MatchKeywordElement(
-                    key=cst.Name(name), pattern=build_value_pattern(value)
-                )
-                for name, value in attribute_checks
-            ]
-            return class_pattern.with_changes(kwds=kwds)
-        return class_pattern
+        return build_class_pattern(classes, attribute_checks)
 
     value_parts = [
         part.pattern for part in pattern_parts if isinstance(part, ValuePatternPart)
@@ -170,6 +161,15 @@ def build_pattern_from_parts(
     return None
 
 
-def build_class_pattern(classes: list[cst.BaseExpression]) -> cst.MatchPattern:
-    patterns = [cst.MatchClass(cls=class_expr, patterns=[]) for class_expr in classes]
+def build_class_pattern(
+    classes: list[cst.BaseExpression],
+    keyword_patterns: list[tuple[str, cst.MatchPattern]] | None = None,
+) -> cst.MatchPattern:
+    kwds = [
+        cst.MatchKeywordElement(key=cst.Name(name), pattern=pattern)
+        for name, pattern in (keyword_patterns or [])
+    ]
+    patterns = [
+        cst.MatchClass(cls=class_expr, patterns=[], kwds=kwds) for class_expr in classes
+    ]
     return build_or_pattern(patterns)

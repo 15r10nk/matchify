@@ -39,11 +39,8 @@ class TestEdgeCases:
         expected = source
         check_code(source, expected)
 
-    def test_isinstance_tuple_with_attributes_not_converted(self):
-        """Test that isinstance with tuple of classes AND attributes is not converted.
-
-        This is not supported because we can't determine which class's attributes to check.
-        """
+    def test_isinstance_tuple_with_attributes_converted(self):
+        """Test tuple class attributes are duplicated across alternatives."""
         source = dedent(
             """
             class Point:
@@ -61,8 +58,23 @@ class TestEdgeCases:
         """
         ).strip()
 
-        # Expected is same as source (no transformation)
-        expected = source
+        expected = dedent(
+            """
+            class Point:
+                def __init__(self, x):
+                    self.x = x
+            class Line:
+                def __init__(self, x):
+                    self.x = x
+
+            obj = Point(5)
+            match obj:
+                case Point(x=5) | Line(x=5):
+                    print("match")
+                case 0:
+                    print("zero")
+        """
+        ).strip()
         check_code(source, expected)
 
     def test_isinstance_with_non_literal_attribute_not_converted(self):
@@ -525,6 +537,96 @@ class TestEdgeCases:
                     print("case 1")
                 case CallExpr(callee=RefExpr(node=Decorator() | FuncDef() | Var())):
                     print("case 2")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_isinstance_tuple_with_attribute_checks(self):
+        """Test attribute checks are duplicated across isinstance tuple alternatives."""
+        source = dedent(
+            """
+            class Point:
+                def __init__(self, x):
+                    self.x = x
+
+            class Node:
+                def __init__(self, x):
+                    self.x = x
+
+            value = Node(1)
+            if isinstance(value, (Point, Node)) and value.x == 1:
+                print("match")
+            elif isinstance(value, int):
+                print("int")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Point:
+                def __init__(self, x):
+                    self.x = x
+
+            class Node:
+                def __init__(self, x):
+                    self.x = x
+
+            value = Node(1)
+            match value:
+                case Point(x=1) | Node(x=1):
+                    print("match")
+                case int():
+                    print("int")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_nested_isinstance_tuple_with_sequence_attribute_checks(self):
+        """Test nested tuple alternatives keep nested sequence attributes."""
+        source = dedent(
+            """
+            class Point:
+                def __init__(self, **attrs):
+                    self.__dict__.update(attrs)
+
+            class Token:
+                def __init__(self, **attrs):
+                    self.__dict__.update(attrs)
+
+            class Node:
+                def __init__(self, **attrs):
+                    self.__dict__.update(attrs)
+
+            value = Point(x=Node(x=[False], kind=True))
+            if isinstance(value, (Point, Token)) and isinstance(value.x, (Node, Point)) and len(value.x.x) == 1 and value.x.x[0] is False and value.x.kind is True:
+                print("match")
+            elif value == 0:
+                print("zero")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Point:
+                def __init__(self, **attrs):
+                    self.__dict__.update(attrs)
+
+            class Token:
+                def __init__(self, **attrs):
+                    self.__dict__.update(attrs)
+
+            class Node:
+                def __init__(self, **attrs):
+                    self.__dict__.update(attrs)
+
+            value = Point(x=Node(x=[False], kind=True))
+            match value:
+                case Point(x=Node(x=[False], kind=True) | Point(x=[False], kind=True)) | Token(x=Node(x=[False], kind=True) | Point(x=[False], kind=True)):
+                    print("match")
+                case 0:
+                    print("zero")
         """
         ).strip()
 

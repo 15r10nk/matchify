@@ -26,9 +26,6 @@ condition is unsupported or ambiguous, the transformer either keeps the original
 
 ## Class Patterns
 
-- `isinstance(x, (Point, Line)) and x.value == 5` is not converted into a class
-  pattern with attributes, because the attribute check would need to be
-  duplicated across alternatives.
 - `isinstance` checks with ignored type placeholders such as `*_TYPES` are not
   converted by default.
 - A walrus expression in the `isinstance` subject position, for example
