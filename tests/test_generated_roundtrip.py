@@ -11,7 +11,7 @@ from matchify.cli import convert_file
 
 @dataclass(frozen=True)
 class LiteralPattern:
-    """A literal value pattern, rendered as `subject == value` in generated if code."""
+    """Generates `subject == value`, which corresponds to `case value:`."""
 
     value: str
 
@@ -24,7 +24,7 @@ class LiteralPattern:
 
 @dataclass(frozen=True)
 class SingletonPattern:
-    """A singleton pattern for None/True/False, rendered with identity checks."""
+    """Generates `subject is None/True/False`, matching `case None/True/False:`."""
 
     value: str
 
@@ -37,7 +37,7 @@ class SingletonPattern:
 
 @dataclass(frozen=True)
 class OrPattern:
-    """Several literal-like alternatives for the same subject."""
+    """Generates `subject == a or subject == b`, matching `case a | b:`."""
 
     alternatives: tuple["GeneratedPattern", ...]
 
@@ -54,7 +54,7 @@ class OrPattern:
 
 @dataclass(frozen=True)
 class ClassPattern:
-    """An isinstance check with optional recursively generated attribute checks."""
+    """Generates `isinstance(subject, C) and ...`, matching `case C(...):`."""
 
     class_name: str
     attrs: tuple[tuple[str, "GeneratedPattern"], ...] = ()
@@ -79,7 +79,7 @@ class ClassPattern:
 
 @dataclass(frozen=True)
 class ClassUnionPattern:
-    """An isinstance tuple whose attribute checks apply to every class alternative."""
+    """Generates `isinstance(subject, (A, B))`, matching `case A(...) | B(...):`."""
 
     class_names: tuple[str, ...]
     attrs: tuple[tuple[str, "GeneratedPattern"], ...] = ()
@@ -99,7 +99,7 @@ class ClassUnionPattern:
 
 @dataclass(frozen=True)
 class SequencePattern:
-    """A fixed-length sequence pattern expressed as len and element checks."""
+    """Generates `len(subject) == n and subject[i] ...`, matching sequence cases."""
 
     elements: tuple["GeneratedPattern", ...]
     bracketed: bool
@@ -120,7 +120,7 @@ class SequencePattern:
 
 @dataclass(frozen=True)
 class WildcardPattern:
-    """A fallback branch that always matches and becomes `else` in if code."""
+    """Generates the final `else` branch, matching wildcard `case _:`."""
 
     def to_condition_code(self, subject: str, safe: bool = False) -> str:
         return "True"
