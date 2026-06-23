@@ -273,7 +273,10 @@ class SequencePatternRecognizer(BranchPatternRecognizer):
             nested_result = extract_nested_sequence_element(condition, subject, index)
             if nested_result is None:
                 return None
-            collector.elements[index] = NestedSequenceElementPattern(nested_result)
+            pattern_infos, use_star = nested_result
+            collector.elements[index] = NestedSequenceElementPattern(
+                pattern_infos, use_star
+            )
 
         if collector.expected_len is not None:
             required_len = collector.expected_len

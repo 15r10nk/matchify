@@ -2355,6 +2355,31 @@ class TestIfToMatchTransformer:
 
         check_code(source, expected)
 
+    def test_sequence_with_nested_star_sequence(self):
+        """Test nested open-ended sequence: [[1, 2, ...], 3]."""
+        source = dedent(
+            """
+            x = [[1, 2, 99], 3]
+            if len(x) == 2 and len(x[0]) >= 2 and x[0][0] == 1 and x[0][1] == 2 and x[1] == 3:
+                print("match")
+            elif x == 0:
+                print("zero")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            x = [[1, 2, 99], 3]
+            match x:
+                case [1, 2, *_], 3:
+                    print("match")
+                case 0:
+                    print("zero")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_sequence_with_nested_sequence_and_isinstance(self):
         """Test nested sequence mixed with isinstance: [Point(), [1, 2]]."""
         source = dedent(

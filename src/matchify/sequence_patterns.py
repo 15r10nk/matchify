@@ -47,6 +47,7 @@ class NestedSequenceElementPattern:
     """Sequence element that is itself a bracketed sequence pattern."""
 
     elements: list[SequenceElementPattern]
+    use_star: bool = False
 
 
 @dataclass(frozen=True)
@@ -293,9 +294,14 @@ class SequencePatternCollector:
             return [class_arg]
 
     def _is_nested_len_check(self, node: cst.BaseExpression) -> bool:
-        """Check if node is len(subject[idx]) == N"""
+        """Check if node is len(subject[idx]) == N or len(subject[idx]) >= N"""
         if not m.matches(
-            node, m.Comparison(comparisons=[m.ComparisonTarget(operator=m.Equal())])
+            node,
+            m.Comparison(
+                comparisons=[
+                    m.ComparisonTarget(operator=m.Equal() | m.GreaterThanEqual())
+                ]
+            ),
         ):
             return False
         comp = node  # type: ignore
@@ -477,7 +483,7 @@ def build_match_pattern_from_info(
         return cst.MatchAs(pattern=None, name=None)
     if isinstance(pattern_info, NestedSequenceElementPattern):
         return build_bracketed_sequence_match_list(
-            pattern_info.elements, use_star=False
+            pattern_info.elements, use_star=pattern_info.use_star
         )
     if isinstance(pattern_info, RawElementPattern):
         return pattern_info.pattern
@@ -555,7 +561,10 @@ def extract_sequence_pattern_for_subject(
         )
         if nested_result is None:
             return None
-        collector.elements[index] = NestedSequenceElementPattern(nested_result)
+        pattern_infos, use_star = nested_result
+        collector.elements[index] = NestedSequenceElementPattern(
+            pattern_infos, use_star
+        )
 
     if collector.expected_len is not None:
         required_len = collector.expected_len
@@ -968,7 +977,7 @@ def extract_sequence_element_direct_attribute_check(
 
 def extract_nested_sequence_element(
     condition: cst.BaseExpression, subject: cst.BaseExpression, index: int
-) -> list[SequenceElementPattern] | None:
+) -> tuple[list[SequenceElementPattern], bool] | None:
     nested_subject = cst.Subscript(
         value=subject,
         slice=[cst.SubscriptElement(slice=cst.Index(value=cst.Integer(str(index))))],
@@ -976,7 +985,4 @@ def extract_nested_sequence_element(
     nested_result = extract_sequence_pattern_for_subject(condition, nested_subject)
     if nested_result is None:
         return None
-    pattern_infos, use_star = nested_result
-    if use_star:
-        return None
-    return pattern_infos
+    return nested_result
