@@ -347,14 +347,14 @@ class TestIfToMatchTransformer:
         check_code(source, expected)
 
     def test_convertible_chain_after_non_convertible_chain(self):
-        """Test that a convertible if-chain following a non-convertible one is still converted.
+        """Test that one conversion does not block a following independent chain.
 
-        This is a regression test: previously, if a non-convertible chain failed to convert,
+        This is a regression test: previously, if a chain failed to convert,
         it left _current_subject set, which prevented subsequent independent chains from converting.
         """
         source = dedent(
             """
-            # This chain should NOT be converted (attribute compared to variable, not literal)
+            # This chain converts with the variable comparison preserved as a guard.
             if isinstance(override, CallableType) and override.min_args == original.min_args:
                 pass
             elif isinstance(override, Overloaded):
@@ -373,11 +373,12 @@ class TestIfToMatchTransformer:
 
         expected = dedent(
             """
-            # This chain should NOT be converted (attribute compared to variable, not literal)
-            if isinstance(override, CallableType) and override.min_args == original.min_args:
-                pass
-            elif isinstance(override, Overloaded):
-                pass
+            # This chain converts with the variable comparison preserved as a guard.
+            match override:
+                case CallableType() if override.min_args == original.min_args:
+                    pass
+                case Overloaded():
+                    pass
 
             # This chain SHOULD be converted (independent, valid pattern)
             for ttype in test_types:

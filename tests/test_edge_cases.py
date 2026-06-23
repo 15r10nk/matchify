@@ -77,8 +77,8 @@ class TestEdgeCases:
         ).strip()
         check_code(source, expected)
 
-    def test_isinstance_with_non_literal_attribute_not_converted(self):
-        """Test that isinstance with variable in attribute check is not converted."""
+    def test_isinstance_with_non_literal_attribute_becomes_guard(self):
+        """Test that subject attribute comparisons against variables stay guards."""
         source = dedent(
             """
             class Point:
@@ -94,8 +94,21 @@ class TestEdgeCases:
         """
         ).strip()
 
-        # Expected is same as source (no transformation - variable not literal)
-        expected = source
+        expected = dedent(
+            """
+            class Point:
+                def __init__(self, x):
+                    self.x = x
+
+            TARGET = 5
+            obj = Point(5)
+            match obj:
+                case Point() if obj.x == TARGET:
+                    print("match")
+                case Point():
+                    print("other")
+        """
+        ).strip()
         check_code(source, expected)
 
     def test_isinstance_with_len_check_on_attribute_not_converted(self):

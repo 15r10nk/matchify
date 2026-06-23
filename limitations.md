@@ -47,6 +47,8 @@ condition is unsupported or ambiguous, the transformer either keeps the original
 - Boolean conditions, non-equality comparisons, walrus-based checks outside the
   match subject, and additional `isinstance` checks on other variables are guard
   candidates.
+- Comparisons against variables can be preserved as guards when a surrounding
+  literal/class/sequence pattern still identifies the match subject.
 - Guards intentionally preserve unsupported fragments instead of dropping them.
   This means the generated `match` statement can be correct but less compact
   than a hand-written pattern.

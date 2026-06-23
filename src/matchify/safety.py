@@ -26,13 +26,6 @@ def is_safe_condition(
                     comparator
                 ):
                     return False
-            elif isinstance(
-                component.left, cst.Attribute
-            ) and component.left.value.deep_equals(subject):
-                if isinstance(
-                    target.operator, (cst.Equal, cst.Is)
-                ) and not is_literal_value(comparator):
-                    return False
             elif is_len_call_on_nested_subject_attribute(component.left, subject):
                 return False
 
