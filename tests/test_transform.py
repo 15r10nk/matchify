@@ -934,6 +934,58 @@ class TestIfToMatchTransformer:
 
         check_code(source, expected)
 
+    def test_sequence_pattern_with_guard_condition(self):
+        """Test sequence patterns with an independent guard condition."""
+        source = dedent(
+            """
+            ENABLED = True
+            point = (1, 2)
+            if len(point) == 2 and point[0] == 1 and ENABLED:
+                print("enabled one")
+            elif len(point) == 2 and point[0] == 0:
+                print("zero")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            ENABLED = True
+            point = (1, 2)
+            match point:
+                case 1, _ if ENABLED:
+                    print("enabled one")
+                case 0, _:
+                    print("zero")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_sequence_pattern_with_subject_guard_condition(self):
+        """Test unsupported sequence-subject checks are preserved as guards."""
+        source = dedent(
+            """
+            point = (1, 2)
+            if len(point) == 2 and point[0] == 1 and point[1] > 0:
+                print("positive second")
+            elif len(point) == 2 and point[0] == 0:
+                print("zero")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            point = (1, 2)
+            match point:
+                case 1, _ if point[1] > 0:
+                    print("positive second")
+                case 0, _:
+                    print("zero")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_sequence_pattern_with_class_element_attributes(self):
         """Test class attributes on an element inside a sequence pattern."""
         source = dedent(

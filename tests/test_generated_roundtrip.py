@@ -397,15 +397,38 @@ def generate_class_pattern(
 def generate_guarded_pattern(
     rng: random.Random, classes: tuple[str, ...], depth: int
 ) -> GuardedPattern:
-    kind = rng.choice(["literal", "singleton", "or_literal", "class"])
+    kind = rng.choice(
+        [
+            "literal",
+            "singleton",
+            "or_literal",
+            "class",
+            "sequence",
+            "gapped_sequence",
+            "star",
+            "gapped_star",
+        ]
+    )
     if kind == "literal":
         pattern: GeneratedPattern = LiteralPattern(generate_literal(rng))
     elif kind == "singleton":
         pattern = SingletonPattern(rng.choice(["None", "True", "False"]))
     elif kind == "or_literal":
         pattern = generate_or_literal_pattern(rng)
-    else:
+    elif kind == "class":
         pattern = generate_class_pattern(rng, classes, depth=depth)
+    elif kind == "gapped_sequence":
+        pattern = generate_gapped_sequence_pattern(
+            rng, classes, depth=depth, bracketed=False
+        )
+    elif kind == "star":
+        pattern = generate_star_sequence_pattern(rng, classes, depth=depth)
+    elif kind == "gapped_star":
+        pattern = generate_gapped_star_sequence_pattern(rng, classes, depth=depth)
+    else:
+        pattern = generate_sequence_pattern(
+            rng, classes, depth=depth, bracketed=False, allow_nested_sequence=True
+        )
 
     return GuardedPattern(
         pattern,
@@ -693,6 +716,24 @@ def test_guarded_generated_program_survives_matchify(tmp_path: Path):
                 "branch_0",
             ),
             GeneratedCase(ClassPattern("Point"), "branch_1"),
+        ),
+    )
+
+    assert_matchify_preserves_trace(program, tmp_path)
+
+
+def test_guarded_sequence_generated_program_survives_matchify(tmp_path: Path):
+    program = GeneratedProgram(
+        classes=("Point",),
+        cases=(
+            GeneratedCase(
+                GuardedPattern(
+                    GappedSequencePattern((LiteralPattern("1"), None), False),
+                    "not False",
+                ),
+                "branch_0",
+            ),
+            GeneratedCase(SingletonPattern("None"), "branch_1"),
         ),
     )
 

@@ -281,11 +281,18 @@ class SequencePatternRecognizer(BranchPatternRecognizer):
 
         collector = SequencePatternCollector(subject)
         components = flatten_boolean(condition, cst.And)
+        guards: list[cst.BaseExpression] = []
         for component in components:
-            if not self._is_simple_sequence_component(component, collector):
-                return None
-            if not collector.collect_from_node(component):
-                return None
+            if self._is_sequence_pattern_component(component, collector):
+                if not collector.collect_from_node(component):
+                    return None
+                continue
+            if is_component_for_sequence_subject(component, subject):
+                if self._is_sequence_guard_component(component, subject):
+                    guards.append(component)
+                continue
+
+            guards.append(component)
 
         for component in components:
             attr_check = extract_sequence_element_direct_attribute_check(
@@ -341,14 +348,18 @@ class SequencePatternRecognizer(BranchPatternRecognizer):
                 if nested_pattern is not None:
                     pattern_info = RawElementPattern(nested_pattern)
             pattern_infos.append(pattern_info)
-        return PatternMatch(build_sequence_match_list(pattern_infos, use_star), None)
+        return PatternMatch(
+            build_sequence_match_list(pattern_infos, use_star),
+            combine_guards(guards),
+        )
 
-    def _is_simple_sequence_component(
+    def _is_sequence_pattern_component(
         self, component: cst.BaseExpression, collector: SequencePatternCollector
     ) -> bool:
         return (
             collector._is_len_check(component)
             or collector._is_subscript_literal_check(component)
+            or collector._extract_subscript_or_pattern(component) is not None
             or collector._is_subscript_isinstance_check(component)
             or collector._is_nested_len_check(component)
             or collector._is_nested_subscript_check(component)
@@ -356,8 +367,18 @@ class SequencePatternRecognizer(BranchPatternRecognizer):
                 component, collector.subject
             )
             is not None
-            or is_component_for_sequence_subject(component, collector.subject)
         )
+
+    def _is_sequence_guard_component(
+        self, component: cst.BaseExpression, subject: cst.BaseExpression
+    ) -> bool:
+        if not isinstance(component, cst.Comparison) or len(component.comparisons) != 1:
+            return False
+        if not is_component_for_sequence_subject(component, subject):
+            return False
+
+        operator = component.comparisons[0].operator
+        return not isinstance(operator, (cst.Equal, cst.Is))
 
 
 class NestedClassPatternRecognizer(BranchPatternRecognizer):
