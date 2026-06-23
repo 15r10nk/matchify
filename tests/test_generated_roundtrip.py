@@ -132,6 +132,45 @@ class AttributeGuardedClassPattern:
 
 
 @dataclass(frozen=True)
+class CaptureClassPattern:
+    """Generates `len(subject.attr) >= n` plus body captures from that attribute."""
+
+    class_name: str
+    attr: str
+    capture_indices: tuple[int, ...]
+
+    def to_condition_code(self, subject: str, safe: bool = False) -> str:
+        parts = [f"isinstance({subject}, {self.class_name})"]
+        if safe:
+            parts.extend(
+                [
+                    f"hasattr({subject}, {self.attr!r})",
+                    f"isinstance({subject}.{self.attr}, (list, tuple))",
+                ]
+            )
+        parts.append(f"len({subject}.{self.attr}) >= {self.required_length()}")
+        return " and ".join(parts)
+
+    def to_value_code(self) -> str:
+        elements = ", ".join(str(index + 1) for index in range(self.required_length()))
+        return f"{self.class_name}({self.attr}=[{elements}, object()])"
+
+    def body_code(self, label: str, subject: str, case_index: int) -> str:
+        lines = []
+        names = []
+        for capture_number, capture_index in enumerate(self.capture_indices):
+            name = f"capture_{case_index}_{capture_number}"
+            names.append(name)
+            lines.append(f"{name} = {subject}.{self.attr}[{capture_index}]")
+        captured_values = ",".join(f"{{{name}!r}}" for name in names)
+        lines.append(f"print(f'{label}:{captured_values}')")
+        return "\n".join(lines)
+
+    def required_length(self) -> int:
+        return max(self.capture_indices) + 1
+
+
+@dataclass(frozen=True)
 class SequencePattern:
     """Generates `len(subject) == n and subject[i] ...`, matching sequence cases."""
 
@@ -251,6 +290,7 @@ GeneratedPattern = (
     | ClassUnionPattern
     | GuardedPattern
     | AttributeGuardedClassPattern
+    | CaptureClassPattern
     | SequencePattern
     | GappedSequencePattern
     | StarSequencePattern
@@ -279,6 +319,11 @@ def class_attr_sort_key(attr_pattern: tuple[str, GeneratedPattern]) -> tuple[int
 class GeneratedCase:
     pattern: GeneratedPattern
     body: str
+
+    def trace_body_code(self, subject: str, case_index: int) -> str:
+        if isinstance(self.pattern, CaptureClassPattern):
+            return self.pattern.body_code(self.body, subject, case_index)
+        return f"print({self.body!r})"
 
 
 @dataclass(frozen=True)
@@ -318,9 +363,8 @@ class GeneratedProgram:
                 continue
             keyword = "if" if index == 0 else "elif"
             condition = case.pattern.to_condition_code("value", safe=True)
-            branch_blocks.append(
-                f"    {keyword} {condition}:\n        print({case.body!r})"
-            )
+            body = indent_code(case.trace_body_code("value", index), "        ")
+            branch_blocks.append(f"    {keyword} {condition}:\n{body}")
         branches = "\n".join(branch_blocks)
         return f"{class_defs}values = [\n{value_lines}\n]\nfor value in values:\n{branches}\n"
 
@@ -342,6 +386,11 @@ def fallthrough_value_code(pattern: GeneratedPattern) -> str | None:
         return (
             f"{pattern.class_name}({pattern.attr}={mismatching_literal(pattern.value)})"
         )
+    if isinstance(pattern, CaptureClassPattern):
+        elements = ", ".join(
+            "object()" for _ in range(max(pattern.required_length() - 1, 0))
+        )
+        return f"{pattern.class_name}({pattern.attr}=[{elements}])"
     return None
 
 
@@ -379,6 +428,7 @@ def generate_pattern(
         "or_literal",
         "class",
         "attribute_guarded_class",
+        "capture_class",
         "guarded",
         "sequence",
         "gapped_sequence",
@@ -399,6 +449,8 @@ def generate_pattern(
         return generate_class_pattern(rng, classes, depth=0)
     if kind == "attribute_guarded_class":
         return generate_attribute_guarded_class_pattern(rng, classes)
+    if kind == "capture_class":
+        return generate_capture_class_pattern(rng, classes)
     if kind == "guarded":
         return generate_guarded_pattern(rng, classes, depth=depth)
     if kind == "nested_class":
@@ -448,6 +500,20 @@ def generate_attribute_guarded_class_pattern(
         ]
     )
     return AttributeGuardedClassPattern(class_name, attr, guard_expr, value)
+
+
+def generate_capture_class_pattern(
+    rng: random.Random, classes: tuple[str, ...]
+) -> CaptureClassPattern:
+    class_name = rng.choice(classes)
+    attr = rng.choice(["x", "y", "items"])
+    length = rng.randint(1, 3)
+    capture_indices = tuple(
+        index for index in range(length) if rng.choice([True, False])
+    )
+    if not capture_indices:
+        capture_indices = (rng.randrange(length),)
+    return CaptureClassPattern(class_name, attr, capture_indices)
 
 
 def generate_guarded_pattern(
@@ -678,6 +744,10 @@ def generate_literal(rng: random.Random) -> str:
     return rng.choice(["-1", "0", "1", "2", "3.5", "'red'", "'blue'", "'ready'"])
 
 
+def indent_code(code: str, prefix: str) -> str:
+    return "\n".join(f"{prefix}{line}" if line else line for line in code.splitlines())
+
+
 def execute_result(source: str) -> tuple[str, str, type[BaseException] | None]:
     stdout = StringIO()
     stderr = StringIO()
@@ -716,25 +786,15 @@ def assert_matchify_preserves_trace(program: GeneratedProgram, tmp_path: Path) -
 
 
 def test_generated_capture_program_survives_matchify(tmp_path: Path):
-    source = """
-class Point:
-    def __init__(self, **attrs):
-        self.__dict__.update(attrs)
-
-values = [
-    Point(x=[1, 2]),
-    Point(x=[]),
-    object(),
-]
-for value in values:
-    if isinstance(value, Point) and len(value.x) >= 1:
-        first = value.x[0]
-        print(f"branch_0:{first}")
-    elif isinstance(value, Point):
-        print("branch_1")
-    else:
-        print("default")
-""".lstrip()
+    program = GeneratedProgram(
+        classes=("Point",),
+        cases=(
+            GeneratedCase(CaptureClassPattern("Point", "x", (0, 2)), "branch_0"),
+            GeneratedCase(ClassPattern("Point"), "branch_1"),
+            GeneratedCase(WildcardPattern(), "default"),
+        ),
+    )
+    source = program.to_trace_if_code()
     path = tmp_path / "generated_capture.py"
     path.write_text(source, encoding="utf-8")
     expected_trace = execute_result(source)
@@ -745,8 +805,9 @@ for value in values:
     assert changed is True
     assert error is None
     transformed = path.read_text(encoding="utf-8")
-    assert "case Point(x=[first, *_]):" in transformed
-    assert "first = value.x[0]" not in transformed
+    assert "case Point(x=[capture_0_0, _, capture_0_1, *_])" in transformed
+    assert "capture_0_0 = value.x[0]" not in transformed
+    assert "capture_0_1 = value.x[2]" not in transformed
     assert execute_result(transformed) == expected_trace, (
         f"Trace mismatch\nGenerated if/else:\n{source}\n"
         f"Matchified code:\n{transformed}"
@@ -920,12 +981,12 @@ class Token:
     def __init__(self, **attrs):
         self.__dict__.update(attrs)
 values = [
-    [False],
+    'blue',
     'ready',
     object(),
 ]
 for value in values:
-    if isinstance(value, (list, tuple)) and len(value) == 1 and value[0] is False:
+    if value == 'blue' and (True or False):
         print('branch_0')
     elif value == 'ready':
         print('branch_1')
@@ -974,37 +1035,21 @@ class Node:
     def __init__(self, **attrs):
         self.__dict__.update(attrs)
 values = [
-    [True, object(), object()],
-    [object(), object(), [object(), [False, True, object()], ['ready', object()], False, object()]],
-    [['blue', object()]],
-    [[False, [True, 0, object(), 'ready', object()], 0], object()],
+    [[Token(kind='ready'), object(), [-1, object()], object(), object(), object()], object()],
+    Token(kind=[[None, 'blue', object()], 'red', ['red', object()], object()]),
+    [[['red', False, 0, object(), 'red'], [None, 'red', 'red', 'blue', object()], object(), [None, 1], object()], None],
+    [[1, object()]],
     object(),
 ]
 for value in values:
-    if isinstance(value, (list, tuple)) and len(value) >= 2 and value[0] is True:
+    if isinstance(value, (list, tuple)) and len(value) >= 1 and isinstance(value[0], (list, tuple)) and len(value[0]) >= 5 and isinstance(value[0][0], Token) and hasattr(value[0][0], 'kind') and value[0][0].kind == 'ready' and isinstance(value[0][2], (list, tuple)) and len(value[0][2]) >= 1 and value[0][2][0] == -1:
         print('branch_0')
-    elif isinstance(value, (list, tuple)) and len(value) == 3 and isinstance(value[2], (list, tuple)) and len(value[2]) >= 4 and isinstance(value[2][1], (list, tuple)) and len(value[2][1]) >= 2 and value[2][1][0] is False and value[2][1][1] is True and isinstance(value[2][2], (list, tuple)) and len(value[2][2]) == 2 and value[2][2][0] == 'ready' and value[2][3] is False:
+    elif isinstance(value, (Token, Point)) and hasattr(value, 'kind') and isinstance(value.kind, (list, tuple)) and len(value.kind) >= 3 and isinstance(value.kind[0], (list, tuple)) and len(value.kind[0]) >= 2 and value.kind[0][0] is None and value.kind[0][1] == 'blue' and (value.kind[1] == 'red' or value.kind[1] == 0 or value.kind[1] == 1) and isinstance(value.kind[2], (list, tuple)) and len(value.kind[2]) >= 1 and value.kind[2][0] == 'red':
         print('branch_1')
-    elif isinstance(value, (list, tuple)) and len(value) == 1 and isinstance(value[0], (list, tuple)) and len(value[0]) >= 1 and (value[0][0] == 'blue' or value[0][0] == 2 or value[0][0] == 0):
+    elif isinstance(value, (list, tuple)) and len(value) == 2 and isinstance(value[0], (list, tuple)) and len(value[0]) >= 4 and isinstance(value[0][0], (list, tuple)) and len(value[0][0]) == 5 and value[0][0][0] == 'red' and value[0][0][1] is False and value[0][0][2] == 0 and value[0][0][4] == 'red' and isinstance(value[0][1], (list, tuple)) and len(value[0][1]) >= 4 and value[0][1][0] is None and value[0][1][1] == 'red' and value[0][1][2] == 'red' and value[0][1][3] == 'blue' and isinstance(value[0][3], (list, tuple)) and len(value[0][3]) == 2 and value[0][3][0] is None and value[0][3][1] == 1 and value[1] is None:
         print('branch_2')
-    elif isinstance(value, (list, tuple)) and len(value) >= 1 and isinstance(value[0], (list, tuple)) and len(value[0]) == 3 and (value[0][0] is False or value[0][0] == 2 or value[0][0] == 'blue') and isinstance(value[0][1], (list, tuple)) and len(value[0][1]) >= 4 and value[0][1][0] is True and value[0][1][1] == 0 and value[0][1][3] == 'ready' and (value[0][2] == 0 or value[0][2] == 2 or value[0][2] is None):
+    elif isinstance(value, (list, tuple)) and len(value) == 1 and isinstance(value[0], (list, tuple)) and len(value[0]) >= 1 and (value[0][0] == 1 or value[0][0] == 0 or value[0][0] is False):
         print('branch_3')
-    else:
-        print('default')
----
-class Point:
-    def __init__(self, **attrs):
-        self.__dict__.update(attrs)
-values = [
-    [[['ready', 1], object(), 'blue'], Point(x=1), Point(x=Point(y=2), y=2), [object(), [2, True], object(), [None, object()], object()], object()],
-    [None, object(), 'blue', object(), object(), object()],
-    object(),
-]
-for value in values:
-    if isinstance(value, (list, tuple)) and len(value) >= 4 and isinstance(value[0], (list, tuple)) and len(value[0]) == 3 and isinstance(value[0][0], (list, tuple)) and len(value[0][0]) == 2 and value[0][0][0] == 'ready' and value[0][0][1] == 1 and (value[0][2] == 'blue' or value[0][2] is None or value[0][2] == 0) and isinstance(value[1], Point) and hasattr(value[1], 'x') and (value[1].x == 1 or value[1].x == 0 or value[1].x is False) and isinstance(value[2], Point) and hasattr(value[2], 'x') and isinstance(value[2].x, Point) and hasattr(value[2].x, 'y') and value[2].x.y == 2 and hasattr(value[2], 'y') and (value[2].y == 2 or value[2].y == 1 or value[2].y == 'blue') and isinstance(value[3], (list, tuple)) and len(value[3]) >= 4 and isinstance(value[3][1], (list, tuple)) and len(value[3][1]) == 2 and value[3][1][0] == 2 and value[3][1][1] is True and isinstance(value[3][3], (list, tuple)) and len(value[3][3]) >= 1 and value[3][3][0] is None and not False:
-        print('branch_0')
-    elif isinstance(value, (list, tuple)) and len(value) >= 5 and value[0] is None and (value[2] == 'blue' or value[2] == 'red' or value[2] == 0):
-        print('branch_1')
     else:
         print('default')
 ---
@@ -1015,25 +1060,51 @@ class Point:
 class Token:
     def __init__(self, **attrs):
         self.__dict__.update(attrs)
+
+class Node:
+    def __init__(self, **attrs):
+        self.__dict__.update(attrs)
 values = [
+    [Node(), [Token(y='red'), object()], object(), [[None, object()], [2, object(), 'ready', object(), object(), object()], object()]],
+    None,
+    Token(y='ready'),
+    Token(y='miss'),
     [object(), object(), -1],
-    -1,
-    Point(),
-    Point(y=None),
-    True,
     object(),
 ]
 for value in values:
-    if isinstance(value, (list, tuple)) and len(value) == 3 and value[2] == -1:
+    if isinstance(value, (list, tuple)) and len(value) == 4 and isinstance(value[0], Node) and isinstance(value[1], (list, tuple)) and len(value[1]) >= 1 and isinstance(value[1][0], (Token, Point, Node)) and hasattr(value[1][0], 'y') and value[1][0].y == 'red' and isinstance(value[3], (list, tuple)) and len(value[3]) >= 2 and isinstance(value[3][0], (list, tuple)) and len(value[3][0]) >= 1 and value[3][0][0] is None and isinstance(value[3][1], (list, tuple)) and len(value[3][1]) >= 5 and value[3][1][0] == 2 and value[3][1][2] == 'ready':
         print('branch_0')
-    elif value == -1:
+    elif value is None:
         print('branch_1')
-    elif isinstance(value, Point):
+    elif isinstance(value, Token) and hasattr(value, 'y') and value.y == str('ready'):
         print('branch_2')
-    elif isinstance(value, (Point, Token)) and hasattr(value, 'y') and value.y is None:
+    elif isinstance(value, (list, tuple)) and len(value) == 3 and value[2] == -1:
         print('branch_3')
-    elif value is True:
-        print('branch_4')
+    else:
+        print('default')
+---
+class Point:
+    def __init__(self, **attrs):
+        self.__dict__.update(attrs)
+
+class Token:
+    def __init__(self, **attrs):
+        self.__dict__.update(attrs)
+
+class Node:
+    def __init__(self, **attrs):
+        self.__dict__.update(attrs)
+values = [
+    Point(),
+    [None, 'blue', 'ready'],
+    object(),
+]
+for value in values:
+    if isinstance(value, (Point, Token, Node)):
+        print('branch_0')
+    elif isinstance(value, (list, tuple)) and len(value) == 3 and value[0] is None and value[1] == 'blue' and value[2] == 'ready':
+        print('branch_1')
     else:
         print('default')\
 """

@@ -252,6 +252,13 @@ class ClassPatternRecognizer(BranchPatternRecognizer):
                 class_exprs = isinstance_info
                 continue
 
+            if (
+                extract_len_sequence_attribute(component, subject) is not None
+                or extract_attribute_path_sequence_len_check(component, subject)
+                is not None
+            ):
+                return None
+
             if is_subject_derived_complex_pattern(component, subject):
                 return None
 
@@ -464,6 +471,9 @@ class NestedClassPatternRecognizer(BranchPatternRecognizer):
 
             guards.append(component)
 
+        if any(path in nested_classes for path in sequence_checks):
+            return None
+
         if main_classes is None or not nested_classes:
             return None
 
@@ -497,6 +507,7 @@ class SequenceAttributePatternRecognizer(BranchPatternRecognizer):
         sequence_subjects: dict[str, cst.Attribute] = {}
         scalar_attrs: list[tuple[str, cst.MatchPattern]] = []
         nested_classes: dict[tuple[str, ...], list[cst.BaseExpression]] = {}
+        nested_class_components: dict[tuple[str, ...], cst.BaseExpression] = {}
         nested_scalar_checks: dict[tuple[str, ...], cst.MatchPattern] = {}
         nested_sequence_checks: dict[tuple[str, ...], cst.BaseExpression] = {}
         guards: list[cst.BaseExpression] = []
@@ -518,6 +529,7 @@ class SequenceAttributePatternRecognizer(BranchPatternRecognizer):
             if nested_isinstance is not None:
                 path, classes = nested_isinstance
                 nested_classes[path] = classes
+                nested_class_components[path] = component
                 continue
 
             sequence_subject = extract_len_sequence_attribute(component, subject)
@@ -544,6 +556,10 @@ class SequenceAttributePatternRecognizer(BranchPatternRecognizer):
             if nested_scalar_check is not None:
                 path, pattern = nested_scalar_check
                 nested_scalar_checks[path] = pattern
+                continue
+
+            if is_hasattr_guard(component, subject):
+                guards.append(component)
                 continue
 
             if any(
@@ -579,6 +595,12 @@ class SequenceAttributePatternRecognizer(BranchPatternRecognizer):
                 )
             )
             used_attrs.add(attr_name)
+
+        sequence_paths = {(attr_name,) for attr_name in sequence_subjects}
+        sequence_paths.update(nested_sequence_checks)
+        for path, component in nested_class_components.items():
+            if path in sequence_paths:
+                guards.append(component)
 
         for attr_name, pattern in scalar_attrs:
             if attr_name in sequence_subjects:
@@ -853,6 +875,18 @@ def extract_attribute_path_sequence_len_check(
     if attr_path is None:
         return None
     return attr_path, sequence_subject
+
+
+def is_hasattr_guard(node: cst.BaseExpression, subject: cst.BaseExpression) -> bool:
+    if not isinstance(node, cst.Call) or not m.matches(
+        node, m.Call(func=m.Name(value="hasattr"))
+    ):
+        return False
+    if len(node.args) != 2:
+        return False
+    checked_subject = node.args[0].value
+    path = SubjectPath.from_expression(checked_subject, subject)
+    return path is not None and (path.is_subject or path.attribute_names is not None)
 
 
 def build_nested_class_pattern(

@@ -2628,6 +2628,40 @@ class TestIfToMatchTransformer:
 
         check_code(source, expected)
 
+    def test_sequence_attribute_type_guard_preserves_len_check(self):
+        """Test that attribute type guards do not hide sequence length checks."""
+        source = dedent(
+            """
+            class Data:
+                def __init__(self, value):
+                    self.value = value
+
+            obj = Data([1, 2, 3])
+            if isinstance(obj, Data) and isinstance(obj.value, (list, tuple)) and len(obj.value) >= 1:
+                first = obj.value[0]
+                print(first)
+            elif isinstance(obj, Data):
+                print("other data")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Data:
+                def __init__(self, value):
+                    self.value = value
+
+            obj = Data([1, 2, 3])
+            match obj:
+                case Data(value=[first, *_]) if isinstance(obj.value, (list, tuple)):
+                    print(first)
+                case Data():
+                    print("other data")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_isinstance_with_sequence_attribute_mixed_types(self):
         """Test class pattern with sequence attribute containing mixed types."""
         source = dedent(
