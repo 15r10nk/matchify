@@ -356,7 +356,6 @@ class SequencePatternCollector:
             | m.Float()
             | m.SimpleString()
             | m.ConcatenatedString()
-            | m.FormattedString()
             | m.Name(value="True")
             | m.Name(value="False")
             | m.Name(value="None"),

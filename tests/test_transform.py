@@ -899,6 +899,77 @@ class TestIfToMatchTransformer:
 
         check_code(source, expected)
 
+    def test_f_string_value_pattern_not_converted(self):
+        """Test f-strings are not emitted as invalid value patterns."""
+        source = dedent(
+            """
+            value = f"ready"
+            if value == f"ready":
+                print("ready")
+            elif value == "other":
+                print("other")
+        """
+        ).strip()
+
+        expected = source
+        check_code(source, expected)
+
+    def test_f_string_attribute_check_becomes_guard(self):
+        """Test f-string attribute comparisons stay guards."""
+        source = dedent(
+            """
+            class Point:
+                def __init__(self, x):
+                    self.x = x
+            value = Point(f"ready")
+            if isinstance(value, Point) and value.x == f"ready":
+                print("ready")
+            elif isinstance(value, Point):
+                print("point")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Point:
+                def __init__(self, x):
+                    self.x = x
+            value = Point(f"ready")
+            match value:
+                case Point() if value.x == f"ready":
+                    print("ready")
+                case Point():
+                    print("point")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_f_string_sequence_element_check_becomes_guard(self):
+        """Test f-string sequence element comparisons stay guards."""
+        source = dedent(
+            """
+            value = [f"ready"]
+            if len(value) == 1 and value[0] == f"ready":
+                print("ready")
+            elif value == 0:
+                print("zero")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            value = [f"ready"]
+            match value:
+                case _, if value[0] == f"ready":
+                    print("ready")
+                case 0:
+                    print("zero")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_sequence_pattern_missing_index_not_converted(self):
         """Test that incomplete sequence patterns are not converted.
 

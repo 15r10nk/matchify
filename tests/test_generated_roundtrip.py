@@ -759,6 +759,7 @@ def generate_attribute_guarded_class_pattern(
             ("len([None])", "1"),
             ("len([None, None])", "2"),
             ("str('ready')", "'ready'"),
+            ("f'ready'", "'ready'"),
         ]
     )
     return AttributeGuardedClassPattern(class_name, attr, guard_expr, value)
@@ -2028,8 +2029,8 @@ values = [
     [Point(x=0), False],
     Point(x=False),
     ('blue', (None, 'red', 0)),
-    [object(), Point(x=Point(items=[1, object()]), y=Point(items=[1, object()])), Point(kind=1), object(), object()],
-    [object(), Point(x=Point(items=[]), y=Point(items=[1, object()])), Point(kind=1), object(), object()],
+    [object(), Point(x=Point(items=[1, object()]), y=Point(items=[1, object()])), Point(kind=2), object(), object()],
+    [object(), Point(x=Point(items=[]), y=Point(items=[1, object()])), Point(kind=2), object(), object()],
     object(),
 ]
 for value in values:
@@ -2039,7 +2040,7 @@ for value in values:
         print('branch_1')
     elif isinstance(value, (list, tuple)) and len(value) == 2 and (value[0] == 'blue' or value[0] == +1 or value[0] == 0 or value[0] == 'ready') and isinstance(value[1], (list, tuple)) and len(value[1]) == 3 and value[1][0] is None and value[1][1] == 'red' and (value[1][2] == 0 or value[1][2] == -1):
         print('branch_2')
-    elif isinstance(value, (list, tuple)) and len(value) >= 4 and isinstance(value[1], Point) and hasattr(value[1], 'x') and isinstance(value[1].x, Point) and hasattr(value[1].x, 'items') and isinstance(value[1].x.items, (list, tuple)) and len(value[1].x.items) >= 1 and hasattr(value[1], 'y') and isinstance(value[1].y, Point) and hasattr(value[1].y, 'items') and isinstance(value[1].y.items, (list, tuple)) and len(value[1].y.items) >= 1 and isinstance(value[2], Point) and hasattr(value[2], 'kind') and value[2].kind == len([None]):
+    elif isinstance(value, (list, tuple)) and len(value) >= 4 and isinstance(value[1], Point) and hasattr(value[1], 'x') and isinstance(value[1].x, Point) and hasattr(value[1].x, 'items') and isinstance(value[1].x.items, (list, tuple)) and len(value[1].x.items) >= 1 and hasattr(value[1], 'y') and isinstance(value[1].y, Point) and hasattr(value[1].y, 'items') and isinstance(value[1].y.items, (list, tuple)) and len(value[1].y.items) >= 1 and isinstance(value[2], Point) and hasattr(value[2], 'kind') and value[2].kind == len([None, None]):
         capture_3_0 = value[1].x.items[0]
         capture_3_1 = value[1].y.items[0]
         print('branch_3')

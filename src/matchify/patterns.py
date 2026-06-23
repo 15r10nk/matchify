@@ -68,7 +68,6 @@ def is_literal_value(node: cst.BaseExpression) -> bool:
         | m.Float()
         | m.SimpleString()
         | m.ConcatenatedString()
-        | m.FormattedString()
         | m.Name(value="True")
         | m.Name(value="False")
         | m.Name(value="None"),

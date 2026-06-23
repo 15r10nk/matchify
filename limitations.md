@@ -21,6 +21,9 @@ condition is unsupported or ambiguous, the transformer either keeps the original
 - Comparisons against variables are not converted into value patterns because a
   bare name in a `case` pattern would bind a new variable instead of comparing
   with the existing value.
+- Comparisons against f-strings are not converted into value patterns because
+  Python does not allow f-strings in `case` value patterns. They can still be
+  preserved as guards around a surrounding class or sequence pattern.
 - OR patterns must compare the same subject in every alternative.
 - OR patterns with non-literal alternatives are not converted.
 
