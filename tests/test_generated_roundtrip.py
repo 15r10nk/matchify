@@ -525,13 +525,21 @@ def fallthrough_value_code(pattern: GeneratedPattern) -> str | None:
     if isinstance(pattern, ClassUnionPattern):
         return class_fallthrough_value_code(pattern.class_names[0], pattern.attrs)
     if isinstance(pattern, SequencePattern):
-        return sequence_fallthrough_value_code(pattern.elements)
+        return sequence_fallthrough_value_code(
+            pattern.elements, tuple_value=pattern.tuple_value
+        )
     if isinstance(pattern, GappedSequencePattern):
-        return sequence_fallthrough_value_code(pattern.elements)
+        return sequence_fallthrough_value_code(
+            pattern.elements, tuple_value=pattern.tuple_value
+        )
     if isinstance(pattern, StarSequencePattern):
-        return sequence_fallthrough_value_code(pattern.elements, append_extra=True)
+        return sequence_fallthrough_value_code(
+            pattern.elements, append_extra=True, tuple_value=pattern.tuple_value
+        )
     if isinstance(pattern, GappedStarSequencePattern):
-        return sequence_fallthrough_value_code(pattern.elements, append_extra=True)
+        return sequence_fallthrough_value_code(
+            pattern.elements, append_extra=True, tuple_value=pattern.tuple_value
+        )
     return None
 
 
@@ -555,7 +563,9 @@ def class_fallthrough_value_code(
 
 
 def sequence_fallthrough_value_code(
-    elements: tuple[GeneratedPattern | None, ...], append_extra: bool = False
+    elements: tuple[GeneratedPattern | None, ...],
+    append_extra: bool = False,
+    tuple_value: bool = False,
 ) -> str | None:
     element_values = []
     found_fallthrough = False
@@ -577,7 +587,11 @@ def sequence_fallthrough_value_code(
     if not found_fallthrough:
         return None
 
-    return f"[{', '.join(element_values)}]"
+    return sequence_value_code(
+        ", ".join(element_values),
+        tuple_value=tuple_value,
+        element_count=len(element_values),
+    )
 
 
 def mismatching_literal(value: str) -> str:
@@ -1453,6 +1467,16 @@ def test_sequence_pattern_ir_can_generate_tuple_values():
     assert pattern.to_value_code() == snapshot("(1,)")
 
 
+def test_sequence_pattern_ir_can_generate_tuple_fallthrough_values():
+    pattern = SequencePattern(
+        (AttributeGuardedClassPattern("Point", "x", "len([None])", "1"),),
+        bracketed=False,
+        tuple_value=True,
+    )
+
+    assert fallthrough_value_code(pattern) == snapshot("(Point(x=0),)")
+
+
 def test_sequence_pattern_ir_keeps_nested_single_tuple_values():
     pattern = SequencePattern(
         (
@@ -1982,7 +2006,7 @@ class Point:
         self.__dict__.update(attrs)
 values = [
     ((Point(y=[1, object()]), object(), object(), Point(items=[1, object()]), object()),),
-    [[Point(y=[]), object(), object(), Point(items=[1, object()]), object()]],
+    ((Point(y=[]), object(), object(), Point(items=[1, object()]), object()),),
     (False, [object(), [False, True, object(), -3.5], False, object()], object(), [-1, 'blue', -1], object(), object()),
     object(),
 ]
