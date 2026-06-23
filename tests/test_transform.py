@@ -2329,6 +2329,31 @@ class TestIfToMatchTransformer:
 
         check_code(source, expected)
 
+    def test_sequence_with_deeply_nested_sequence(self):
+        """Test recursive nested sequences: [[[1, 2]]]."""
+        source = dedent(
+            """
+            x = [[[1, 2]]]
+            if len(x) == 1 and len(x[0]) == 1 and len(x[0][0]) == 2 and x[0][0][0] == 1 and x[0][0][1] == 2:
+                print("match")
+            elif x == 0:
+                print("zero")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            x = [[[1, 2]]]
+            match x:
+                case [[1, 2]],:
+                    print("match")
+                case 0:
+                    print("zero")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_isinstance_with_sequence_attribute_converted(self):
         """Test that isinstance with sequence attributes converts to class patterns.
 
@@ -2434,6 +2459,39 @@ class TestIfToMatchTransformer:
                 case Container(items=[1, 2, 3], count=3):
                     print("match")
                 case Container():
+                    print("other")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_isinstance_with_nested_sequence_in_sequence_attribute(self):
+        """Test raw nested sequences inside a class sequence attribute."""
+        source = dedent(
+            """
+            class Point:
+                def __init__(self, x):
+                    self.x = x
+
+            value = Point([[1, 2]])
+            if isinstance(value, Point) and len(value.x) == 1 and len(value.x[0]) == 2 and value.x[0][0] == 1 and value.x[0][1] == 2:
+                print("match")
+            elif isinstance(value, Point):
+                print("other")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Point:
+                def __init__(self, x):
+                    self.x = x
+
+            value = Point([[1, 2]])
+            match value:
+                case Point(x=[[1, 2]]):
+                    print("match")
+                case Point():
                     print("other")
         """
         ).strip()

@@ -496,12 +496,16 @@ def extract_sequence_pattern_for_subject(
     for component in flatten_boolean(condition, cst.And):
         if not is_component_for_sequence_subject(component, sequence_subject):
             continue
-        if collector._is_nested_len_check(
-            component
-        ) or collector._is_nested_subscript_check(component):
-            return None
         if not collector.collect_from_node(component):
             return None
+
+    for index in collector.nested_sequences:
+        nested_result = extract_nested_sequence_element(
+            condition, sequence_subject, index
+        )
+        if nested_result is None:
+            return None
+        collector.elements[index] = NestedSequenceElementPattern(nested_result)
 
     if collector.expected_len is not None:
         required_len = collector.expected_len
@@ -546,21 +550,25 @@ def is_component_for_sequence_subject(
     if isinstance(component, cst.Comparison):
         if m.matches(component.left, m.Call(func=m.Name(value="len"), args=[m.Arg()])):
             len_call = component.left  # type: ignore[assignment]
-            return len_call.args[0].value.deep_equals(sequence_subject)
+            len_arg = len_call.args[0].value
+            path = SubjectPath.from_expression(len_arg, sequence_subject)
+            return path is not None and (path.is_subject or path.starts_with_subscript)
         if isinstance(component.left, cst.Subscript):
-            return component.left.value.deep_equals(sequence_subject)
+            path = SubjectPath.from_expression(component.left, sequence_subject)
+            return path is not None and path.starts_with_subscript
         if isinstance(component.left, cst.Attribute):
-            return component.left.value.deep_equals(sequence_subject) or (
-                isinstance(component.left.value, cst.Subscript)
-                and component.left.value.value.deep_equals(sequence_subject)
-            )
+            path = SubjectPath.from_expression(component.left.value, sequence_subject)
+            return path is not None and (path.is_subject or path.starts_with_subscript)
     if isinstance(component, cst.Call) and m.matches(
         component, m.Call(func=m.Name(value="isinstance"))
     ):
         if len(component.args) >= 1 and isinstance(
             component.args[0].value, cst.Subscript
         ):
-            return component.args[0].value.value.deep_equals(sequence_subject)
+            path = SubjectPath.from_expression(
+                component.args[0].value, sequence_subject
+            )
+            return path is not None and path.starts_with_subscript
     return False
 
 

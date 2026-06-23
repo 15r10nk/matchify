@@ -265,7 +265,7 @@ def generate_attribute_pattern(
     if kind == "class":
         return generate_class_pattern(rng, classes, depth=depth - 1)
     return generate_sequence_pattern(
-        rng, classes, depth - 1, bracketed=True, allow_nested_sequence=False
+        rng, classes, depth - 1, bracketed=True, allow_nested_sequence=True
     )
 
 
@@ -306,9 +306,9 @@ def generate_sequence_element_pattern(
     return generate_sequence_pattern(
         rng,
         classes,
-        0,
+        depth - 1,
         bracketed=True,
-        allow_nested_sequence=False,
+        allow_nested_sequence=True,
     )
 
 
@@ -508,11 +508,11 @@ value = None
 match value:
     case True,:
         result = 'branch_0'
-    case Point(x=['blue', False]):
+    case Point(x=[True, ['ready', False, None]]):
         result = 'branch_1'
-    case 'ready':
+    case Point():
         result = 'branch_2'
-    case [-1], [False, True]:
+    case Point(kind=[[None, 'blue'], True, 1]):
         result = 'branch_3'
 ---
 class Point:
@@ -521,11 +521,11 @@ class Point:
 result = 'unmatched'
 value = None
 match value:
-    case Point(y=[Point(x='red', y=3.5)], x=1):
+    case -1, False:
         result = 'branch_0'
-    case [-1, None], Point(kind=2, x=False), None:
+    case True:
         result = 'branch_1'
-    case None | 2 | 0:
+    case [-1, [True]], 0, True:
         result = 'branch_2'
     case _:
         result = 'default'\

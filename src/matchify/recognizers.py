@@ -337,6 +337,7 @@ class SequencePatternRecognizer(BranchPatternRecognizer):
                 component, collector.subject
             )
             is not None
+            or is_component_for_sequence_subject(component, collector.subject)
         )
 
 

@@ -34,22 +34,6 @@ condition is unsupported or ambiguous, the transformer either keeps the original
 - A walrus expression in the `isinstance` subject position, for example
   `isinstance((x := make()), Point)`, is not converted because the assignment
   cannot be preserved safely by a pattern.
-- Raw nested sequences inside class sequence attributes are currently normalized
-  to guards instead of fully nested patterns. For example:
-
-  ```python
-  match value:
-      case Point() if len(value.x) == 1 and len(value.x[0]) == 2:
-          ...
-  ```
-
-  rather than:
-
-  ```python
-  match value:
-      case Point(x=[[1, 2]]):
-          ...
-  ```
 
 ## Sequence Patterns
 
