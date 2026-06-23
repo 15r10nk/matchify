@@ -22,8 +22,8 @@ class CapturePatternTransformer(cst.CSTTransformer):
         new_cases = []
 
         for case in updated_node.cases:
-            # Check if this is a MatchClass pattern (like Point(...))
-            if not isinstance(case.pattern, cst.MatchClass):
+            # Check if this is a class pattern or an OR of class patterns.
+            if not isinstance(case.pattern, (cst.MatchClass, cst.MatchOr)):
                 new_cases.append(case)
                 continue
 
@@ -143,10 +143,10 @@ class CapturePatternTransformer(cst.CSTTransformer):
 
     def _add_multiple_captures_to_pattern(
         self,
-        pattern: cst.MatchClass,
+        pattern: cst.MatchClass | cst.MatchOr,
         attr_path: tuple[str, ...],
         captures: list[tuple[str, tuple[str, ...], int]],
-    ) -> cst.MatchClass | None:
+    ) -> cst.MatchClass | cst.MatchOr | None:
         """Add multiple capture patterns to the specified attribute.
 
         Transforms a pattern like Point(x=[_]) to Point(x=[first, second, *_])
@@ -158,6 +158,9 @@ class CapturePatternTransformer(cst.CSTTransformer):
         Supports indices not starting from 0:
         captures = [('second', 'x', 1), ('third', 'x', 2)] → Point(x=[_, second, third, *_])
         """
+        if isinstance(pattern, cst.MatchOr):
+            return self._add_captures_to_or_pattern(pattern, attr_path, captures)
+
         if len(attr_path) > 1:
             return self._add_nested_captures_to_pattern(pattern, attr_path, captures)
 
@@ -246,6 +249,24 @@ class CapturePatternTransformer(cst.CSTTransformer):
             return None
 
         return pattern.with_changes(kwds=new_kwds)
+
+    def _add_captures_to_or_pattern(
+        self,
+        pattern: cst.MatchOr,
+        attr_path: tuple[str, ...],
+        captures: list[tuple[str, tuple[str, ...], int]],
+    ) -> cst.MatchOr | None:
+        elements = []
+        for element in pattern.patterns:
+            if not isinstance(element.pattern, cst.MatchClass):
+                return None
+            new_pattern = self._add_multiple_captures_to_pattern(
+                element.pattern, attr_path, captures
+            )
+            if new_pattern is None or not isinstance(new_pattern, cst.MatchClass):
+                return None
+            elements.append(element.with_changes(pattern=new_pattern))
+        return pattern.with_changes(patterns=elements)
 
     def _add_nested_captures_to_pattern(
         self,

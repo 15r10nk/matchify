@@ -322,7 +322,7 @@ def collect_capture_assignments(
         return pattern.capture_assignments(subject, case_index, names)
     if isinstance(pattern, GuardedPattern):
         return collect_capture_assignments(pattern.pattern, subject, case_index, names)
-    if isinstance(pattern, ClassPattern):
+    if isinstance(pattern, (ClassPattern, ClassUnionPattern)):
         lines = []
         for attr, attr_pattern in sorted(pattern.attrs, key=class_attr_sort_key):
             lines.extend(
@@ -515,11 +515,7 @@ def generate_class_pattern(
     attr_patterns = tuple(
         (attr, generate_attribute_pattern(rng, classes, depth)) for attr in attrs
     )
-    if (
-        len(classes) > 1
-        and not any(contains_capture(pattern) for _, pattern in attr_patterns)
-        and rng.choice([True, False])
-    ):
+    if len(classes) > 1 and rng.choice([True, False]):
         class_names = tuple(rng.sample(classes, rng.randint(2, len(classes))))
         return ClassUnionPattern(class_names, attr_patterns)
     return ClassPattern(class_name, attr_patterns)
@@ -886,6 +882,44 @@ def test_generated_nested_capture_program_survives_matchify(tmp_path: Path):
     )
     assert "capture_0_0 = value.data.items[0]" not in transformed
     assert "capture_0_1 = value.data.items[2]" not in transformed
+    assert execute_result(transformed) == expected_trace, (
+        f"Trace mismatch\nGenerated if/else:\n{source}\n"
+        f"Matchified code:\n{transformed}"
+    )
+
+
+def test_generated_class_union_capture_program_survives_matchify(tmp_path: Path):
+    program = GeneratedProgram(
+        classes=("Point", "Token"),
+        cases=(
+            GeneratedCase(
+                ClassUnionPattern(
+                    ("Point", "Token"),
+                    (("items", CaptureClassPattern("Data", "values", (0, 2))),),
+                ),
+                "branch_0",
+            ),
+            GeneratedCase(ClassPattern("Point"), "branch_1"),
+            GeneratedCase(WildcardPattern(), "default"),
+        ),
+    )
+    source = program.to_trace_if_code()
+    path = tmp_path / "generated_union_capture.py"
+    path.write_text(source, encoding="utf-8")
+    expected_trace = execute_result(source)
+
+    converted_path, changed, error = convert_file(path)
+
+    assert converted_path == path
+    assert changed is True
+    assert error is None
+    transformed = path.read_text(encoding="utf-8")
+    assert (
+        "case Point(items=Data(values=[capture_0_0, _, capture_0_1, *_])) | "
+        "Token(items=Data(values=[capture_0_0, _, capture_0_1, *_]))"
+    ) in transformed
+    assert "capture_0_0 = value.items.values[0]" not in transformed
+    assert "capture_0_1 = value.items.values[2]" not in transformed
     assert execute_result(transformed) == expected_trace, (
         f"Trace mismatch\nGenerated if/else:\n{source}\n"
         f"Matchified code:\n{transformed}"

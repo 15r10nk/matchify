@@ -2266,6 +2266,48 @@ class TestIfToMatchTransformer:
 
         check_code(source, expected)
 
+    def test_capture_pattern_class_union(self):
+        """Test captures are added to every alternative in a class union."""
+        source = dedent(
+            """
+            class Point:
+                def __init__(self, x):
+                    self.x = x
+
+            class Token:
+                def __init__(self, x):
+                    self.x = x
+
+            n = Point([1, 2, 3])
+            if isinstance(n, (Point, Token)) and len(n.x) >= 1:
+                item = n.x[0]
+                print(item)
+            elif isinstance(n, int):
+                print("int")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Point:
+                def __init__(self, x):
+                    self.x = x
+
+            class Token:
+                def __init__(self, x):
+                    self.x = x
+
+            n = Point([1, 2, 3])
+            match n:
+                case Point(x=[item, *_]) | Token(x=[item, *_]):
+                    print(item)
+                case int():
+                    print("int")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_mixed_pattern_types_in_chain(self):
         """Test that all pattern types can be mixed in a single if/elif chain.
 
