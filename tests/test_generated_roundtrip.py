@@ -13,9 +13,6 @@ from matchify.cli import convert_file
 class LiteralPattern:
     value: str
 
-    def to_code(self) -> str:
-        return self.value
-
     def to_condition_code(self, subject: str, safe: bool = False) -> str:
         return f"{subject} == {self.value}"
 
@@ -27,9 +24,6 @@ class LiteralPattern:
 class SingletonPattern:
     value: str
 
-    def to_code(self) -> str:
-        return self.value
-
     def to_condition_code(self, subject: str, safe: bool = False) -> str:
         return f"{subject} is {self.value}"
 
@@ -40,9 +34,6 @@ class SingletonPattern:
 @dataclass(frozen=True)
 class OrPattern:
     alternatives: tuple["GeneratedPattern", ...]
-
-    def to_code(self) -> str:
-        return " | ".join(pattern.to_code() for pattern in self.alternatives)
 
     def to_condition_code(self, subject: str, safe: bool = False) -> str:
         condition = " or ".join(
@@ -59,13 +50,6 @@ class OrPattern:
 class ClassPattern:
     class_name: str
     attrs: tuple[tuple[str, "GeneratedPattern"], ...] = ()
-
-    def to_code(self) -> str:
-        if not self.attrs:
-            return f"{self.class_name}()"
-        attrs = tuple(sorted(self.attrs, key=class_attr_sort_key))
-        attr_code = ", ".join(f"{attr}={pattern.to_code()}" for attr, pattern in attrs)
-        return f"{self.class_name}({attr_code})"
 
     def to_condition_code(self, subject: str, safe: bool = False) -> str:
         parts = [f"isinstance({subject}, {self.class_name})"]
@@ -90,12 +74,6 @@ class ClassUnionPattern:
     class_names: tuple[str, ...]
     attrs: tuple[tuple[str, "GeneratedPattern"], ...] = ()
 
-    def to_code(self) -> str:
-        return " | ".join(
-            ClassPattern(class_name, self.attrs).to_code()
-            for class_name in self.class_names
-        )
-
     def to_condition_code(self, subject: str, safe: bool = False) -> str:
         classes = ", ".join(self.class_names)
         parts = [f"isinstance({subject}, ({classes}))"]
@@ -114,14 +92,6 @@ class SequencePattern:
     elements: tuple["GeneratedPattern", ...]
     bracketed: bool
 
-    def to_code(self) -> str:
-        elements = ", ".join(element.to_code() for element in self.elements)
-        if self.bracketed:
-            return f"[{elements}]"
-        if len(self.elements) == 1:
-            return f"{elements},"
-        return elements
-
     def to_condition_code(self, subject: str, safe: bool = False) -> str:
         parts = []
         if safe:
@@ -138,9 +108,6 @@ class SequencePattern:
 
 @dataclass(frozen=True)
 class WildcardPattern:
-    def to_code(self) -> str:
-        return "_"
-
     def to_condition_code(self, subject: str, safe: bool = False) -> str:
         return "True"
 
@@ -181,17 +148,6 @@ class GeneratedProgram:
             "    def __init__(self, **attrs):\n"
             "        self.__dict__.update(attrs)\n"
             for class_name in self.classes
-        )
-
-    def to_match_code(self, value_code: str = "None") -> str:
-        class_defs = self.class_defs_code()
-        case_blocks = "\n".join(
-            f"    case {case.pattern.to_code()}:\n        result = {case.body!r}"
-            for case in self.cases
-        )
-        return (
-            f"{class_defs}result = 'unmatched'\n"
-            f"value = {value_code}\nmatch value:\n{case_blocks}\n"
         )
 
     def to_if_code(self, value_code: str = "None", safe: bool = False) -> str:
