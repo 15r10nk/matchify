@@ -119,6 +119,28 @@ class SequencePattern:
 
 
 @dataclass(frozen=True)
+class StarSequencePattern:
+    """Generates `len(subject) >= n and subject[i] ...`, matching `case [..., *_]:`."""
+
+    elements: tuple["GeneratedPattern", ...]
+
+    def to_condition_code(self, subject: str, safe: bool = False) -> str:
+        parts = []
+        if safe:
+            parts.append(f"isinstance({subject}, (list, tuple))")
+        parts.append(f"len({subject}) >= {len(self.elements)}")
+        for index, element in enumerate(self.elements):
+            parts.append(element.to_condition_code(f"{subject}[{index}]", safe=safe))
+        return " and ".join(parts)
+
+    def to_value_code(self) -> str:
+        elements = ", ".join(
+            [*(element.to_value_code() for element in self.elements), "object()"]
+        )
+        return f"[{elements}]"
+
+
+@dataclass(frozen=True)
 class WildcardPattern:
     """Generates the final `else` branch, matching wildcard `case _:`."""
 
@@ -136,13 +158,15 @@ GeneratedPattern = (
     | ClassPattern
     | ClassUnionPattern
     | SequencePattern
+    | StarSequencePattern
     | WildcardPattern
 )
 
 
 def class_attr_sort_key(attr_pattern: tuple[str, GeneratedPattern]) -> tuple[int, str]:
     attr, pattern = attr_pattern
-    return (0 if isinstance(pattern, SequencePattern) else 1, attr)
+    is_sequence = isinstance(pattern, (SequencePattern, StarSequencePattern))
+    return (0 if is_sequence else 1, attr)
 
 
 @dataclass(frozen=True)
@@ -226,7 +250,7 @@ def generate_program(rng: random.Random) -> GeneratedProgram:
 def generate_pattern(
     rng: random.Random, classes: tuple[str, ...], depth: int
 ) -> GeneratedPattern:
-    choices = ["literal", "singleton", "or_literal", "class", "sequence"]
+    choices = ["literal", "singleton", "or_literal", "class", "sequence", "star"]
     if depth > 0:
         choices.extend(["nested_class", "nested_sequence"])
     kind = rng.choice(choices)
@@ -245,6 +269,8 @@ def generate_pattern(
         return generate_sequence_pattern(
             rng, classes, depth=depth, bracketed=False, allow_nested_sequence=True
         )
+    if kind == "star":
+        return generate_star_sequence_pattern(rng, classes, depth=depth)
 
     return generate_sequence_pattern(
         rng, classes, depth=0, bracketed=False, allow_nested_sequence=False
@@ -270,7 +296,7 @@ def generate_attribute_pattern(
 ) -> GeneratedPattern:
     if depth <= 0:
         return generate_literal_or_singleton(rng)
-    choices = ["literal", "singleton", "or_literal", "class", "sequence"]
+    choices = ["literal", "singleton", "or_literal", "class", "sequence", "star"]
     kind = rng.choice(choices)
     if kind == "literal":
         return LiteralPattern(generate_literal(rng))
@@ -280,6 +306,8 @@ def generate_attribute_pattern(
         return generate_or_literal_pattern(rng)
     if kind == "class":
         return generate_class_pattern(rng, classes, depth=depth - 1)
+    if kind == "star":
+        return generate_star_sequence_pattern(rng, classes, depth=depth - 1)
     return generate_sequence_pattern(
         rng, classes, depth - 1, bracketed=True, allow_nested_sequence=True
     )
@@ -297,6 +325,18 @@ def generate_sequence_pattern(
         for _ in range(rng.randint(1, 3))
     )
     return SequencePattern(elements, bracketed=bracketed)
+
+
+def generate_star_sequence_pattern(
+    rng: random.Random, classes: tuple[str, ...], depth: int
+) -> StarSequencePattern:
+    elements = tuple(
+        generate_sequence_element_pattern(
+            rng, classes, depth, allow_nested_sequence=True
+        )
+        for _ in range(rng.randint(1, 3))
+    )
+    return StarSequencePattern(elements)
 
 
 def generate_sequence_element_pattern(
@@ -497,64 +537,50 @@ class Token:
         self.__dict__.update(attrs)
 values = [
     Point(kind='ready'),
-    [Point(kind=True, x=True)],
+    Token(),
     object(),
 ]
 for value in values:
     if isinstance(value, (Point, Token)) and hasattr(value, 'kind') and value.kind == 'ready':
         print('branch_0')
-    elif isinstance(value, (list, tuple)) and len(value) == 1 and isinstance(value[0], (Point, Token)) and hasattr(value[0], 'kind') and value[0].kind is True and hasattr(value[0], 'x') and value[0].x is True:
+    elif isinstance(value, (Token, Point)):
         print('branch_1')
-    else:
-        print('default')
 ---
 class Point:
     def __init__(self, **attrs):
         self.__dict__.update(attrs)
 values = [
     0,
-    [None, None, False],
-    0,
-    ['red'],
+    ['ready', None],
     object(),
 ]
 for value in values:
-    if (value == 0 or value == 'blue' or value == 'red'):
+    if (value == 0 or value is False or value == 1):
         print('branch_0')
-    elif isinstance(value, (list, tuple)) and len(value) == 3 and value[0] is None and value[1] is None and value[2] is False:
+    elif isinstance(value, (list, tuple)) and len(value) == 2 and value[0] == 'ready' and value[1] is None:
         print('branch_1')
-    elif value == 0:
-        print('branch_2')
-    elif isinstance(value, (list, tuple)) and len(value) == 1 and value[0] == 'red':
-        print('branch_3')
-    else:
-        print('default')
 ---
 class Point:
     def __init__(self, **attrs):
         self.__dict__.update(attrs)
-
-class Token:
-    def __init__(self, **attrs):
-        self.__dict__.update(attrs)
 values = [
-    Point(x=Token()),
-    Point(kind=1, y=Point(kind=1, x=Point(kind=None, y=False))),
-    [[None]],
-    [Token(kind=0, x=Token(kind='ready', y=0)), None, 0],
-    [2, None],
+    0,
+    None,
+    ['ready', Point(x=Point()), Point(y=['blue', object()], x=None), object()],
+    Point(y=[2, Point(x='blue'), object()], kind=1),
+    [[None], object()],
     object(),
 ]
 for value in values:
-    if isinstance(value, Point) and hasattr(value, 'x') and isinstance(value.x, Token):
+    if value == 0:
         print('branch_0')
-    elif isinstance(value, Point) and hasattr(value, 'kind') and value.kind == 1 and hasattr(value, 'y') and isinstance(value.y, Point) and hasattr(value.y, 'kind') and value.y.kind == 1 and hasattr(value.y, 'x') and isinstance(value.y.x, (Point, Token)) and hasattr(value.y.x, 'kind') and value.y.x.kind is None and hasattr(value.y.x, 'y') and value.y.x.y is False:
+    elif value is None:
         print('branch_1')
-    elif isinstance(value, (list, tuple)) and len(value) == 1 and isinstance(value[0], (list, tuple)) and len(value[0]) == 1 and (value[0][0] is None or value[0][0] == 1 or value[0][0] == 2):
+    elif isinstance(value, (list, tuple)) and len(value) >= 3 and value[0] == 'ready' and isinstance(value[1], Point) and hasattr(value[1], 'x') and isinstance(value[1].x, Point) and isinstance(value[2], Point) and hasattr(value[2], 'y') and isinstance(value[2].y, (list, tuple)) and len(value[2].y) >= 1 and value[2].y[0] == 'blue' and hasattr(value[2], 'x') and (value[2].x is None or value[2].x == 'red' or value[2].x == 1):
         print('branch_2')
-    elif isinstance(value, (list, tuple)) and len(value) == 3 and isinstance(value[0], (Token, Point)) and hasattr(value[0], 'kind') and value[0].kind == 0 and hasattr(value[0], 'x') and isinstance(value[0].x, (Token, Point)) and hasattr(value[0].x, 'kind') and value[0].x.kind == 'ready' and hasattr(value[0].x, 'y') and value[0].x.y == 0 and value[1] is None and value[2] == 0:
+    elif isinstance(value, Point) and hasattr(value, 'y') and isinstance(value.y, (list, tuple)) and len(value.y) >= 2 and value.y[0] == 2 and isinstance(value.y[1], Point) and hasattr(value.y[1], 'x') and value.y[1].x == 'blue' and hasattr(value, 'kind') and value.kind == 1:
         print('branch_3')
-    elif isinstance(value, (list, tuple)) and len(value) == 2 and value[0] == 2 and value[1] is None:
+    elif isinstance(value, (list, tuple)) and len(value) >= 1 and isinstance(value[0], (list, tuple)) and len(value[0]) == 1 and (value[0][0] is None or value[0][0] == 1 or value[0][0] == 2):
         print('branch_4')
 ---
 class Point:
@@ -564,22 +590,16 @@ class Point:
 class Token:
     def __init__(self, **attrs):
         self.__dict__.update(attrs)
-
-class Node:
-    def __init__(self, **attrs):
-        self.__dict__.update(attrs)
 values = [
-    Node(),
-    None,
+    'ready',
+    False,
     object(),
 ]
 for value in values:
-    if isinstance(value, (Node, Token)):
+    if value == 'ready':
         print('branch_0')
-    elif value is None:
+    elif value is False:
         print('branch_1')
-    else:
-        print('default')
 ---
 class Point:
     def __init__(self, **attrs):
@@ -588,19 +608,15 @@ class Point:
 class Token:
     def __init__(self, **attrs):
         self.__dict__.update(attrs)
-
-class Node:
-    def __init__(self, **attrs):
-        self.__dict__.update(attrs)
 values = [
-    None,
-    Point(),
+    False,
+    Point(kind='red', x=False),
     object(),
 ]
 for value in values:
-    if value is None:
+    if value is False:
         print('branch_0')
-    elif isinstance(value, (Point, Node)):
+    elif isinstance(value, (Point, Token)) and hasattr(value, 'kind') and value.kind == 'red' and hasattr(value, 'x') and value.x is False:
         print('branch_1')\
 """
     )
