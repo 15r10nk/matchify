@@ -322,10 +322,12 @@ class SequencePatternRecognizer(BranchPatternRecognizer):
         else:
             return None
 
-        if not collector.elements:
+        if not collector.elements and not guards:
+            return None
+        if not collector.elements and use_star:
             return None
         if not use_star:
-            if max(collector.elements) >= required_len:
+            if collector.elements and max(collector.elements) >= required_len:
                 return None
             if not validate_wildcard_constraint(collector.elements, required_len):
                 return None
@@ -372,10 +374,19 @@ class SequencePatternRecognizer(BranchPatternRecognizer):
     def _is_sequence_guard_component(
         self, component: cst.BaseExpression, subject: cst.BaseExpression
     ) -> bool:
+        if isinstance(component, cst.BooleanOperation) and isinstance(
+            component.operator, cst.Or
+        ):
+            return is_component_for_sequence_subject(component, subject)
+
         if not isinstance(component, cst.Comparison) or len(component.comparisons) != 1:
             return False
         if not is_component_for_sequence_subject(component, subject):
             return False
+
+        path = SubjectPath.from_expression(component.left, subject)
+        if path is not None and len(path.parts) == 1 and path.starts_with_subscript:
+            return True
 
         operator = component.comparisons[0].operator
         return not isinstance(operator, (cst.Equal, cst.Is))

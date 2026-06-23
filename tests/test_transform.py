@@ -986,6 +986,33 @@ class TestIfToMatchTransformer:
 
         check_code(source, expected)
 
+    def test_sequence_pattern_with_variable_element_guard(self):
+        """Test subscript comparisons against variables stay guards."""
+        source = dedent(
+            """
+            expected = 1
+            point = (1, 2)
+            if len(point) == 2 and point[0] == expected:
+                print("expected first")
+            elif len(point) == 2 and point[0] == 0:
+                print("zero")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            expected = 1
+            point = (1, 2)
+            match point:
+                case _, _ if point[0] == expected:
+                    print("expected first")
+                case 0, _:
+                    print("zero")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_sequence_pattern_with_class_element_attributes(self):
         """Test class attributes on an element inside a sequence pattern."""
         source = dedent(
