@@ -320,7 +320,7 @@ def generate_sequence_element_pattern(
     if kind == "or_literal":
         return generate_or_literal_pattern(rng)
     if kind == "class":
-        return generate_class_pattern(rng, classes, depth=0)
+        return generate_class_pattern(rng, classes, depth=depth - 1)
     return generate_sequence_pattern(
         rng,
         classes,
@@ -497,13 +497,13 @@ class Token:
         self.__dict__.update(attrs)
 values = [
     Point(kind='ready'),
-    [Point(kind='blue', x='red')],
+    [Point(kind=True, x=True)],
     object(),
 ]
 for value in values:
     if isinstance(value, (Point, Token)) and hasattr(value, 'kind') and value.kind == 'ready':
         print('branch_0')
-    elif isinstance(value, (list, tuple)) and len(value) == 1 and isinstance(value[0], (Point, Token)) and hasattr(value[0], 'kind') and value[0].kind == 'blue' and hasattr(value[0], 'x') and value[0].x == 'red':
+    elif isinstance(value, (list, tuple)) and len(value) == 1 and isinstance(value[0], (Point, Token)) and hasattr(value[0], 'kind') and value[0].kind is True and hasattr(value[0], 'x') and value[0].x is True:
         print('branch_1')
     else:
         print('default')
@@ -541,8 +541,8 @@ values = [
     Point(x=Token()),
     Point(kind=1, y=Point(kind=1, x=Point(kind=None, y=False))),
     [[None]],
-    [Point(kind=True, x=None), [None, None, 0], False],
-    Token(),
+    [Token(kind=0, x=Token(kind='ready', y=0)), None, 0],
+    [2, None],
     object(),
 ]
 for value in values:
@@ -552,33 +552,32 @@ for value in values:
         print('branch_1')
     elif isinstance(value, (list, tuple)) and len(value) == 1 and isinstance(value[0], (list, tuple)) and len(value[0]) == 1 and (value[0][0] is None or value[0][0] == 1 or value[0][0] == 2):
         print('branch_2')
-    elif isinstance(value, (list, tuple)) and len(value) == 3 and isinstance(value[0], (Point, Token)) and hasattr(value[0], 'kind') and value[0].kind is True and hasattr(value[0], 'x') and value[0].x is None and isinstance(value[1], (list, tuple)) and len(value[1]) == 3 and value[1][0] is None and (value[1][1] is None or value[1][1] == 2 or value[1][1] == 0) and value[1][2] == 0 and (value[2] is False or value[2] == 'red' or value[2] == 2):
+    elif isinstance(value, (list, tuple)) and len(value) == 3 and isinstance(value[0], (Token, Point)) and hasattr(value[0], 'kind') and value[0].kind == 0 and hasattr(value[0], 'x') and isinstance(value[0].x, (Token, Point)) and hasattr(value[0].x, 'kind') and value[0].x.kind == 'ready' and hasattr(value[0].x, 'y') and value[0].x.y == 0 and value[1] is None and value[2] == 0:
         print('branch_3')
-    elif isinstance(value, (Token, Point)):
+    elif isinstance(value, (list, tuple)) and len(value) == 2 and value[0] == 2 and value[1] is None:
         print('branch_4')
-    else:
-        print('default')
 ---
 class Point:
     def __init__(self, **attrs):
         self.__dict__.update(attrs)
 
 class Token:
+    def __init__(self, **attrs):
+        self.__dict__.update(attrs)
+
+class Node:
     def __init__(self, **attrs):
         self.__dict__.update(attrs)
 values = [
-    False,
-    ['blue', None, 1],
-    Point(),
+    Node(),
+    None,
     object(),
 ]
 for value in values:
-    if (value is False or value is None or value == 'blue'):
+    if isinstance(value, (Node, Token)):
         print('branch_0')
-    elif isinstance(value, (list, tuple)) and len(value) == 3 and value[0] == 'blue' and value[1] is None and value[2] == 1:
+    elif value is None:
         print('branch_1')
-    elif isinstance(value, (Point, Token)):
-        print('branch_2')
     else:
         print('default')
 ---
@@ -587,21 +586,22 @@ class Point:
         self.__dict__.update(attrs)
 
 class Token:
+    def __init__(self, **attrs):
+        self.__dict__.update(attrs)
+
+class Node:
     def __init__(self, **attrs):
         self.__dict__.update(attrs)
 values = [
     None,
-    2,
-    False,
+    Point(),
     object(),
 ]
 for value in values:
     if value is None:
         print('branch_0')
-    elif value == 2:
-        print('branch_1')
-    elif value is False:
-        print('branch_2')\
+    elif isinstance(value, (Point, Node)):
+        print('branch_1')\
 """
     )
 

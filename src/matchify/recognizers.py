@@ -135,8 +135,8 @@ class SubjectRecognizer:
                     )
                     is not None
                 ):
-                    if not include_subscripts and isinstance(
-                        component.args[0].value, cst.Subscript
+                    if not include_subscripts and contains_subscript(
+                        component.args[0].value
                     ):
                         continue
                     return component.args[0].value
@@ -645,6 +645,12 @@ def extract_attribute_literal_check(
         return None
 
     return attr_name, target.comparator
+
+
+def contains_subscript(node: cst.CSTNode) -> bool:
+    if isinstance(node, cst.Subscript):
+        return True
+    return any(contains_subscript(child) for child in node.children)
 
 
 def extract_attribute_pattern_check(

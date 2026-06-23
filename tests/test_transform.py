@@ -967,6 +967,47 @@ class TestIfToMatchTransformer:
 
         check_code(source, expected)
 
+    def test_sequence_pattern_with_nested_class_element_attributes(self):
+        """Test nested class attributes on an element inside a sequence pattern."""
+        source = dedent(
+            """
+            class Point:
+                def __init__(self, x):
+                    self.x = x
+
+            class Node:
+                def __init__(self, kind):
+                    self.kind = kind
+
+            value = [Point(Node("ready"))]
+            if len(value) == 1 and isinstance(value[0], Point) and isinstance(value[0].x, Node) and value[0].x.kind == "ready":
+                print("match")
+            elif value == 1:
+                print("other")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Point:
+                def __init__(self, x):
+                    self.x = x
+
+            class Node:
+                def __init__(self, kind):
+                    self.kind = kind
+
+            value = [Point(Node("ready"))]
+            match value:
+                case Point(x=Node(kind="ready")),:
+                    print("match")
+                case 1:
+                    print("other")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_sequence_pattern_with_mixed_isinstance_and_literals(self):
         """Test sequence pattern mixing isinstance and literal checks.
 

@@ -11,7 +11,10 @@ from .patterns import (
     build_class_pattern,
     build_or_pattern,
     build_value_pattern,
+    extract_isinstance_classes,
     flatten_boolean,
+    is_literal_value,
+    is_singleton_name,
 )
 from .subject_path import (
     SubjectPath,
@@ -617,9 +620,7 @@ def is_component_for_sequence_subject(
     if isinstance(component, cst.Call) and m.matches(
         component, m.Call(func=m.Name(value="isinstance"))
     ):
-        if len(component.args) >= 1 and isinstance(
-            component.args[0].value, cst.Subscript
-        ):
+        if len(component.args) >= 1:
             path = SubjectPath.from_expression(
                 component.args[0].value, sequence_subject
             )
@@ -634,10 +635,37 @@ def build_sequence_element_class_pattern(
 ) -> cst.MatchPattern | None:
     sequence_subjects: dict[str, cst.Attribute] = {}
     scalar_attrs: list[tuple[str, cst.MatchPattern]] = []
+    nested_classes: dict[tuple[str, ...], list[cst.BaseExpression]] = {}
+    nested_scalar_checks: dict[tuple[str, ...], cst.MatchPattern] = {}
+    nested_sequence_checks: dict[tuple[str, ...], cst.BaseExpression] = {}
     for component in flatten_boolean(condition, cst.And):
         sequence_subject = extract_len_sequence_attribute(component, element_subject)
         if sequence_subject is not None:
             sequence_subjects[sequence_subject.attr.value] = sequence_subject
+            continue
+
+        nested_sequence_check = extract_attribute_path_sequence_len_check(
+            component, element_subject
+        )
+        if nested_sequence_check is not None:
+            path, sequence_subject = nested_sequence_check
+            nested_sequence_checks[path] = sequence_subject
+            continue
+
+        nested_isinstance = extract_attribute_path_isinstance_check(
+            component, element_subject
+        )
+        if nested_isinstance is not None:
+            path, classes = nested_isinstance
+            nested_classes[path] = classes
+            continue
+
+        nested_scalar_check = extract_attribute_path_pattern_check(
+            component, element_subject
+        )
+        if nested_scalar_check is not None:
+            path, pattern = nested_scalar_check
+            nested_scalar_checks[path] = pattern
             continue
 
         attr_check = extract_direct_attribute_check(component, element_subject)
@@ -645,10 +673,17 @@ def build_sequence_element_class_pattern(
             attr_name, value = attr_check
             scalar_attrs.append((attr_name, value))
 
-    if not sequence_subjects and not scalar_attrs:
+    if (
+        not sequence_subjects
+        and not scalar_attrs
+        and not nested_classes
+        and not nested_scalar_checks
+        and not nested_sequence_checks
+    ):
         return None
 
     keyword_patterns: list[tuple[str, cst.MatchPattern]] = []
+    used_attrs: set[str] = set()
     for attr_name, sequence_subject in sequence_subjects.items():
         sequence_result = extract_sequence_pattern_for_subject(
             condition, sequence_subject
@@ -662,12 +697,118 @@ def build_sequence_element_class_pattern(
                 build_bracketed_sequence_match_list(pattern_infos, use_star),
             )
         )
+        used_attrs.add(attr_name)
     for attr_name, pattern in scalar_attrs:
         if attr_name in sequence_subjects:
             continue
         keyword_patterns.append((attr_name, pattern))
+        used_attrs.add(attr_name)
+
+    if nested_classes or nested_scalar_checks or nested_sequence_checks:
+        nested_patterns = build_nested_sequence_element_keyword_patterns(
+            condition,
+            nested_classes,
+            nested_scalar_checks,
+            nested_sequence_checks,
+        )
+        if nested_patterns is None:
+            return None
+        for attr_name, pattern in nested_patterns:
+            if attr_name in used_attrs:
+                continue
+            keyword_patterns.append((attr_name, pattern))
+            used_attrs.add(attr_name)
 
     return build_class_pattern(class_exprs, keyword_patterns)
+
+
+def build_nested_sequence_element_keyword_patterns(
+    condition: cst.BaseExpression,
+    nested_classes: dict[tuple[str, ...], list[cst.BaseExpression]],
+    scalar_checks: dict[tuple[str, ...], cst.MatchPattern],
+    sequence_checks: dict[tuple[str, ...], cst.BaseExpression],
+) -> list[tuple[str, cst.MatchPattern]] | None:
+    names = {
+        path[0]
+        for path in set(nested_classes) | set(scalar_checks) | set(sequence_checks)
+        if path
+    }
+    keyword_patterns: list[tuple[str, cst.MatchPattern]] = []
+    for name in sorted(names):
+        path = (name,)
+        pattern = build_nested_sequence_element_pattern(
+            condition, path, nested_classes, scalar_checks, sequence_checks
+        )
+        if pattern is None:
+            return None
+        keyword_patterns.append((name, pattern))
+    return keyword_patterns
+
+
+def build_nested_sequence_element_pattern(
+    condition: cst.BaseExpression,
+    path: tuple[str, ...],
+    nested_classes: dict[tuple[str, ...], list[cst.BaseExpression]],
+    scalar_checks: dict[tuple[str, ...], cst.MatchPattern],
+    sequence_checks: dict[tuple[str, ...], cst.BaseExpression],
+) -> cst.MatchPattern | None:
+    if path in nested_classes:
+        class_patterns = []
+        for class_expr in nested_classes[path]:
+            class_pattern = build_nested_sequence_element_class_pattern(
+                condition,
+                class_expr,
+                path,
+                nested_classes,
+                scalar_checks,
+                sequence_checks,
+            )
+            if class_pattern is None:
+                return None
+            class_patterns.append(class_pattern)
+        return build_or_pattern(class_patterns)
+
+    if path in sequence_checks:
+        sequence_result = extract_sequence_pattern_for_subject(
+            condition, sequence_checks[path]
+        )
+        if sequence_result is None:
+            return None
+        pattern_infos, use_star = sequence_result
+        return build_bracketed_sequence_match_list(pattern_infos, use_star)
+
+    return scalar_checks.get(path)
+
+
+def build_nested_sequence_element_class_pattern(
+    condition: cst.BaseExpression,
+    class_expr: cst.BaseExpression,
+    path: tuple[str, ...],
+    nested_classes: dict[tuple[str, ...], list[cst.BaseExpression]],
+    scalar_checks: dict[tuple[str, ...], cst.MatchPattern],
+    sequence_checks: dict[tuple[str, ...], cst.BaseExpression],
+) -> cst.MatchClass | None:
+    child_names = {
+        child_path[len(path)]
+        for child_path in set(nested_classes)
+        | set(scalar_checks)
+        | set(sequence_checks)
+        if len(child_path) > len(path) and child_path[: len(path)] == path
+    }
+    kwds: list[cst.MatchKeywordElement] = []
+    for name in sorted(child_names):
+        child_path = path + (name,)
+        child_pattern = build_nested_sequence_element_pattern(
+            condition,
+            child_path,
+            nested_classes,
+            scalar_checks,
+            sequence_checks,
+        )
+        if child_pattern is None:
+            return None
+        kwds.append(cst.MatchKeywordElement(key=cst.Name(name), pattern=child_pattern))
+    return cst.MatchClass(cls=class_expr, patterns=[], kwds=kwds)
 
 
 def extract_direct_attribute_check(
@@ -692,6 +833,104 @@ def extract_direct_attribute_check(
         return None
 
     return node.left.attr.value, build_value_pattern(target.comparator)
+
+
+def extract_attribute_path_pattern_check(
+    node: cst.BaseExpression, subject: cst.BaseExpression
+) -> tuple[tuple[str, ...], cst.MatchPattern] | None:
+    literal_check = extract_attribute_path_literal_check(node, subject)
+    if literal_check is not None:
+        path, value = literal_check
+        return path, build_value_pattern(value)
+
+    parts = flatten_boolean(node, cst.Or)
+    if len(parts) <= 1:
+        return None
+
+    attr_path: tuple[str, ...] | None = None
+    patterns: list[cst.MatchPattern] = []
+    for part in parts:
+        literal_part = extract_attribute_path_literal_check(part, subject)
+        if literal_part is None:
+            return None
+        part_path, value = literal_part
+        if attr_path is None:
+            attr_path = part_path
+        elif part_path != attr_path:
+            return None
+        patterns.append(build_value_pattern(value))
+
+    if attr_path is None:
+        return None
+    return attr_path, build_or_pattern(patterns)
+
+
+def extract_attribute_path_literal_check(
+    node: cst.BaseExpression, subject: cst.BaseExpression
+) -> tuple[tuple[str, ...], cst.BaseExpression] | None:
+    if not isinstance(node, cst.Comparison) or len(node.comparisons) != 1:
+        return None
+    path = SubjectPath.from_expression(node.left, subject)
+    if path is None:
+        return None
+    attr_path = path.attribute_names
+    if attr_path is None:
+        return None
+
+    target = node.comparisons[0]
+    if isinstance(target.operator, cst.Is) and not is_singleton_name(target.comparator):
+        return None
+    if not isinstance(target.operator, (cst.Equal, cst.Is)):
+        return None
+    if not is_literal_value(target.comparator):
+        return None
+    return attr_path, target.comparator
+
+
+def extract_attribute_path_isinstance_check(
+    node: cst.BaseExpression, subject: cst.BaseExpression
+) -> tuple[tuple[str, ...], list[cst.BaseExpression]] | None:
+    if not isinstance(node, cst.Call) or not m.matches(
+        node, m.Call(func=m.Name(value="isinstance"))
+    ):
+        return None
+    if len(node.args) < 2:
+        return None
+
+    path = SubjectPath.from_expression(node.args[0].value, subject)
+    if path is None:
+        return None
+    attr_path = path.attribute_names
+    if attr_path is None:
+        return None
+
+    class_exprs = extract_isinstance_classes(node.args[1].value, r".*_TYPES$")
+    if class_exprs is None:
+        return None
+    return attr_path, class_exprs
+
+
+def extract_attribute_path_sequence_len_check(
+    node: cst.BaseExpression, subject: cst.BaseExpression
+) -> tuple[tuple[str, ...], cst.BaseExpression] | None:
+    if not isinstance(node, cst.Comparison) or len(node.comparisons) != 1:
+        return None
+    if not isinstance(node.comparisons[0].operator, (cst.Equal, cst.GreaterThanEqual)):
+        return None
+    if not isinstance(node.comparisons[0].comparator, cst.Integer):
+        return None
+    if not m.matches(node.left, m.Call(func=m.Name(value="len"), args=[m.Arg()])):
+        return None
+
+    len_call = node.left
+    sequence_subject = len_call.args[0].value
+    path = SubjectPath.from_expression(sequence_subject, subject)
+    if path is None:
+        return None
+    attr_path = path.attribute_names
+    if attr_path is None:
+        return None
+    return attr_path, sequence_subject
 
 
 def extract_sequence_element_direct_attribute_check(
