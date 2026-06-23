@@ -394,11 +394,18 @@ class SequencePatternRecognizer(BranchPatternRecognizer):
         if m.matches(component.left, m.Call(func=m.Name(value="len"), args=[m.Arg()])):
             return False
 
+        target = component.comparisons[0]
+        if isinstance(target.operator, cst.Equal) and not is_literal_value(
+            target.comparator
+        ):
+            path = SubjectPath.from_expression(component.left, subject)
+            return path is not None and path.starts_with_subscript
+
         path = SubjectPath.from_expression(component.left, subject)
         if path is not None and len(path.parts) == 1 and path.starts_with_subscript:
             return True
 
-        operator = component.comparisons[0].operator
+        operator = target.operator
         return not isinstance(operator, (cst.Equal, cst.Is))
 
 
