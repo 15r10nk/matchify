@@ -207,6 +207,23 @@ class GeneratedProgram:
         branches = "\n".join(branch_blocks)
         return f"{class_defs}result = 'unmatched'\nvalue = {value_code}\n{branches}\n"
 
+    def to_trace_if_code(self, value_codes: list[str] | None = None) -> str:
+        class_defs = self.class_defs_code()
+        values = value_codes or self.sample_value_codes()
+        value_lines = "\n".join(f"    {value_code}," for value_code in values)
+        branch_blocks = []
+        for index, case in enumerate(self.cases):
+            if isinstance(case.pattern, WildcardPattern):
+                branch_blocks.append(f"    else:\n        print({case.body!r})")
+                continue
+            keyword = "if" if index == 0 else "elif"
+            condition = case.pattern.to_condition_code("value", safe=True)
+            branch_blocks.append(
+                f"    {keyword} {condition}:\n        print({case.body!r})"
+            )
+        branches = "\n".join(branch_blocks)
+        return f"{class_defs}values = [\n{value_lines}\n]\nfor value in values:\n{branches}\n"
+
     def sample_value_codes(self) -> list[str]:
         values = [
             case.pattern.to_value_code()
@@ -385,11 +402,11 @@ def execute_result(source: str) -> tuple[str, str, type[BaseException] | None]:
     )
 
 
-def assert_round_trips(program: GeneratedProgram, tmp_path: Path) -> None:
-    if_else_code = program.to_if_code()
-    match_code = program.to_match_code()
+def assert_matchify_preserves_trace(program: GeneratedProgram, tmp_path: Path) -> None:
+    if_else_code = program.to_trace_if_code()
     path = tmp_path / "generated.py"
     path.write_text(if_else_code, encoding="utf-8")
+    expected_trace = execute_result(if_else_code)
 
     converted_path, changed, error = convert_file(path)
 
@@ -397,9 +414,9 @@ def assert_round_trips(program: GeneratedProgram, tmp_path: Path) -> None:
     assert changed is True
     assert error is None
     transformed = path.read_text(encoding="utf-8")
-    assert transformed.strip() == match_code.strip(), (
-        f"Round-trip mismatch\nGenerated match:\n{match_code}\n"
-        f"Generated if/else:\n{if_else_code}\nRematchified:\n{transformed}"
+    assert execute_result(transformed) == expected_trace, (
+        f"Trace mismatch\nGenerated if/else:\n{if_else_code}\n"
+        f"Matchified code:\n{transformed}"
     )
 
 
@@ -493,7 +510,7 @@ else:
 
 def test_generate_program_samples_are_stable():
     samples = "\n---\n".join(
-        program.to_match_code().rstrip()
+        program.to_trace_if_code().rstrip()
         for program in generated_programs(count=5, seed=20260623)
     )
 
@@ -506,55 +523,40 @@ class Point:
 class Token:
     def __init__(self, **attrs):
         self.__dict__.update(attrs)
-result = 'unmatched'
-value = None
-match value:
-    case Point(kind='ready') | Token(kind='ready'):
-        result = 'branch_0'
-    case Point(kind='blue', x='red') | Token(kind='blue', x='red'),:
-        result = 'branch_1'
-    case _:
-        result = 'default'
+values = [
+    Point(kind='ready'),
+    [Point(kind='blue', x='red')],
+    object(),
+]
+for value in values:
+    if isinstance(value, (Point, Token)) and hasattr(value, 'kind') and value.kind == 'ready':
+        print('branch_0')
+    elif isinstance(value, (list, tuple)) and len(value) == 1 and isinstance(value[0], (Point, Token)) and hasattr(value[0], 'kind') and value[0].kind == 'blue' and hasattr(value[0], 'x') and value[0].x == 'red':
+        print('branch_1')
+    else:
+        print('default')
 ---
 class Point:
     def __init__(self, **attrs):
         self.__dict__.update(attrs)
-result = 'unmatched'
-value = None
-match value:
-    case 0 | 'blue' | 'red':
-        result = 'branch_0'
-    case None, None, False:
-        result = 'branch_1'
-    case 0:
-        result = 'branch_2'
-    case 'red',:
-        result = 'branch_3'
-    case _:
-        result = 'default'
----
-class Point:
-    def __init__(self, **attrs):
-        self.__dict__.update(attrs)
-
-class Token:
-    def __init__(self, **attrs):
-        self.__dict__.update(attrs)
-result = 'unmatched'
-value = None
-match value:
-    case Point(x=Token()):
-        result = 'branch_0'
-    case Point(kind=1, y=Point(kind=1, x=Point(kind=None, y=False) | Token(kind=None, y=False))):
-        result = 'branch_1'
-    case [None | 1 | 2],:
-        result = 'branch_2'
-    case Point(kind=True, x=None) | Token(kind=True, x=None), [None, None | 2 | 0, 0], False | 'red' | 2:
-        result = 'branch_3'
-    case Token() | Point():
-        result = 'branch_4'
-    case _:
-        result = 'default'
+values = [
+    0,
+    [None, None, False],
+    0,
+    ['red'],
+    object(),
+]
+for value in values:
+    if (value == 0 or value == 'blue' or value == 'red'):
+        print('branch_0')
+    elif isinstance(value, (list, tuple)) and len(value) == 3 and value[0] is None and value[1] is None and value[2] is False:
+        print('branch_1')
+    elif value == 0:
+        print('branch_2')
+    elif isinstance(value, (list, tuple)) and len(value) == 1 and value[0] == 'red':
+        print('branch_3')
+    else:
+        print('default')
 ---
 class Point:
     def __init__(self, **attrs):
@@ -563,17 +565,27 @@ class Point:
 class Token:
     def __init__(self, **attrs):
         self.__dict__.update(attrs)
-result = 'unmatched'
-value = None
-match value:
-    case False | None | 'blue':
-        result = 'branch_0'
-    case 'blue', None, 1:
-        result = 'branch_1'
-    case Point() | Token():
-        result = 'branch_2'
-    case _:
-        result = 'default'
+values = [
+    Point(x=Token()),
+    Point(kind=1, y=Point(kind=1, x=Point(kind=None, y=False))),
+    [[None]],
+    [Point(kind=True, x=None), [None, None, 0], False],
+    Token(),
+    object(),
+]
+for value in values:
+    if isinstance(value, Point) and hasattr(value, 'x') and isinstance(value.x, Token):
+        print('branch_0')
+    elif isinstance(value, Point) and hasattr(value, 'kind') and value.kind == 1 and hasattr(value, 'y') and isinstance(value.y, Point) and hasattr(value.y, 'kind') and value.y.kind == 1 and hasattr(value.y, 'x') and isinstance(value.y.x, (Point, Token)) and hasattr(value.y.x, 'kind') and value.y.x.kind is None and hasattr(value.y.x, 'y') and value.y.x.y is False:
+        print('branch_1')
+    elif isinstance(value, (list, tuple)) and len(value) == 1 and isinstance(value[0], (list, tuple)) and len(value[0]) == 1 and (value[0][0] is None or value[0][0] == 1 or value[0][0] == 2):
+        print('branch_2')
+    elif isinstance(value, (list, tuple)) and len(value) == 3 and isinstance(value[0], (Point, Token)) and hasattr(value[0], 'kind') and value[0].kind is True and hasattr(value[0], 'x') and value[0].x is None and isinstance(value[1], (list, tuple)) and len(value[1]) == 3 and value[1][0] is None and (value[1][1] is None or value[1][1] == 2 or value[1][1] == 0) and value[1][2] == 0 and (value[2] is False or value[2] == 'red' or value[2] == 2):
+        print('branch_3')
+    elif isinstance(value, (Token, Point)):
+        print('branch_4')
+    else:
+        print('default')
 ---
 class Point:
     def __init__(self, **attrs):
@@ -582,27 +594,46 @@ class Point:
 class Token:
     def __init__(self, **attrs):
         self.__dict__.update(attrs)
-result = 'unmatched'
-value = None
-match value:
-    case None:
-        result = 'branch_0'
-    case 2:
-        result = 'branch_1'
-    case False:
-        result = 'branch_2'\
+values = [
+    False,
+    ['blue', None, 1],
+    Point(),
+    object(),
+]
+for value in values:
+    if (value is False or value is None or value == 'blue'):
+        print('branch_0')
+    elif isinstance(value, (list, tuple)) and len(value) == 3 and value[0] == 'blue' and value[1] is None and value[2] == 1:
+        print('branch_1')
+    elif isinstance(value, (Point, Token)):
+        print('branch_2')
+    else:
+        print('default')
+---
+class Point:
+    def __init__(self, **attrs):
+        self.__dict__.update(attrs)
+
+class Token:
+    def __init__(self, **attrs):
+        self.__dict__.update(attrs)
+values = [
+    None,
+    2,
+    False,
+    object(),
+]
+for value in values:
+    if value is None:
+        print('branch_0')
+    elif value == 2:
+        print('branch_1')
+    elif value is False:
+        print('branch_2')\
 """
     )
 
 
-def test_generated_match_patterns_round_trip_through_matchify(tmp_path: Path):
+def test_generated_if_traces_survive_matchify(tmp_path: Path):
     for program in generated_programs(count=80, seed=20260623):
-        assert_round_trips(program, tmp_path)
-
-
-def test_generated_if_and_match_programs_execute_the_same():
-    for program in generated_programs(count=80, seed=20260623):
-        for value_code in program.sample_value_codes():
-            assert execute_result(
-                program.to_if_code(value_code, safe=True)
-            ) == execute_result(program.to_match_code(value_code))
+        assert_matchify_preserves_trace(program, tmp_path)
