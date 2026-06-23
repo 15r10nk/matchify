@@ -126,9 +126,21 @@ match x:
 **Nested sequences:**
 ```python
 # Before
-if len(data) == 2 and len(data[0]) == 2 and data[0][0] == 1 and data[0][1] == 2 and data[1] == 3:
+if (
+    len(data) == 2
+    and len(data[0]) == 2
+    and data[0][0] == 1
+    and data[0][1] == 2
+    and data[1] == 3
+):
     print("nested list")
-elif len(data) == 2 and isinstance(data[0], Point) and len(data[1]) == 2 and data[1][0] == 0 and data[1][1] == 0:
+elif (
+    len(data) == 2
+    and isinstance(data[0], Point)
+    and len(data[1]) == 2
+    and data[1][0] == 0
+    and data[1][1] == 0
+):
     print("point with coordinates")
 
 # After
@@ -146,16 +158,25 @@ class Data:
     def __init__(self, value):
         self.value = value
 
+
 obj = Data([1, 2, 3])
-if isinstance(obj, Data) and len(obj.value) == 3 and obj.value[0] == 1 and obj.value[1] == 2 and obj.value[2] == 3:
+if (
+    isinstance(obj, Data)
+    and len(obj.value) == 3
+    and obj.value[0] == 1
+    and obj.value[1] == 2
+    and obj.value[2] == 3
+):
     print("data with list")
 elif isinstance(obj, Data):
     print("other data")
+
 
 # After
 class Data:
     def __init__(self, value):
         self.value = value
+
 
 obj = Data([1, 2, 3])
 match obj:

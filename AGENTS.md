@@ -54,7 +54,7 @@ match_stmt = cst.Match(
             pattern=cst.MatchAs(pattern=None, name=None),
             body=indented_block,
         ),
-    ]
+    ],
 )
 ```
 
@@ -237,6 +237,7 @@ Tests are organized into classes:
 ```python
 # Print the full CST structure
 import libcst as cst
+
 tree = cst.parse_module(code)
 print(tree)
 

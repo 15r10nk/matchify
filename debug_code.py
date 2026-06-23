@@ -2,18 +2,23 @@ class RefExpr:
     def __init__(self, node=None):
         self.node = node
 
+
 class Var:
     pass
 
+
 class FuncDef:
     pass
+
 
 class CallExpr:
     def __init__(self, callee=None):
         self.callee = callee
 
+
 class Decorator:
     pass
+
 
 dec = RefExpr(Var())
 

@@ -1,0 +1,643 @@
+"""Recognizers that turn branch conditions into match patterns and guards."""
+
+from __future__ import annotations
+
+import libcst as cst
+from libcst import matchers as m
+
+from .patterns import (
+    ClassPatternPart,
+    PatternMatch,
+    PatternPart,
+    ValuePatternPart,
+    build_class_pattern,
+    build_or_pattern,
+    build_pattern_from_parts,
+    build_value_pattern,
+    combine_guards,
+    extract_isinstance_call,
+    extract_isinstance_classes,
+    flatten_boolean,
+    is_literal_value,
+    is_singleton_name,
+)
+from .safety import is_safe_condition
+from .sequence_patterns import (
+    NestedSequenceElementPattern,
+    SequencePatternCollector,
+    WildcardElementPattern,
+    build_bracketed_sequence_match_list,
+    build_sequence_match_list,
+    extract_len_sequence_attribute,
+    extract_nested_sequence_element,
+    extract_sequence_pattern_for_subject,
+    find_sequence_subject,
+    is_sequence_attribute_component,
+    validate_wildcard_constraint,
+)
+from .subject_path import SubjectPath
+
+
+class SubjectRecognizer:
+    """Extracts the expression that should become the `match` subject."""
+
+    def __init__(self, ignore_types_pattern: str | None = r".*_TYPES$") -> None:
+        self.ignore_types_pattern = ignore_types_pattern
+
+    def recognize(self, test: cst.BaseExpression) -> cst.BaseExpression | None:
+        or_subject = self._recognize_or_subject(test)
+        if or_subject is not None:
+            return or_subject
+
+        if isinstance(test, cst.Call) and m.matches(
+            test, m.Call(func=m.Name(value="isinstance"))
+        ):
+            if (
+                len(test.args) >= 2
+                and extract_isinstance_classes(
+                    test.args[1].value, self.ignore_types_pattern
+                )
+                is not None
+            ):
+                return test.args[0].value
+
+        if isinstance(test, cst.BooleanOperation) and isinstance(
+            test.operator, cst.And
+        ):
+            isinstance_subject = self._find_isinstance_subject(
+                test, include_subscripts=False
+            )
+            if isinstance_subject is not None:
+                return isinstance_subject
+            sequence_subject = find_sequence_subject(test)
+            if sequence_subject is not None:
+                return sequence_subject
+            isinstance_subject = self._find_isinstance_subject(
+                test, include_subscripts=True
+            )
+            if isinstance_subject is not None:
+                return isinstance_subject
+
+        sequence_subject = find_sequence_subject(test)
+        if sequence_subject is not None:
+            return sequence_subject
+
+        if isinstance(test, cst.Comparison) and len(test.comparisons) == 1:
+            operator = test.comparisons[0].operator
+            if isinstance(operator, (cst.Equal, cst.Is)):
+                return test.left
+
+        return None
+
+    def _recognize_or_subject(
+        self, test: cst.BaseExpression
+    ) -> cst.BaseExpression | None:
+        parts = flatten_boolean(test, cst.Or)
+        if len(parts) <= 1:
+            return None
+
+        subject: cst.BaseExpression | None = None
+        for part in parts:
+            if not isinstance(part, cst.Comparison) or len(part.comparisons) != 1:
+                return None
+            target = part.comparisons[0]
+            if not isinstance(target.operator, (cst.Equal, cst.Is)):
+                return None
+            if isinstance(target.operator, cst.Is) and not is_singleton_name(
+                target.comparator
+            ):
+                return None
+            if not is_literal_value(target.comparator):
+                return None
+            if subject is None:
+                subject = part.left
+            elif not part.left.deep_equals(subject):
+                return None
+
+        return subject
+
+    def _find_isinstance_subject(
+        self, test: cst.BaseExpression, include_subscripts: bool
+    ) -> cst.BaseExpression | None:
+        for component in flatten_boolean(test, cst.And):
+            if isinstance(component, cst.Call) and m.matches(
+                component, m.Call(func=m.Name(value="isinstance"))
+            ):
+                if (
+                    len(component.args) >= 2
+                    and extract_isinstance_classes(
+                        component.args[1].value, self.ignore_types_pattern
+                    )
+                    is not None
+                ):
+                    if not include_subscripts and isinstance(
+                        component.args[0].value, cst.Subscript
+                    ):
+                        continue
+                    return component.args[0].value
+        return None
+
+
+class BranchPatternRecognizer:
+    """Base class for branch condition recognizers."""
+
+    def recognize(
+        self, condition: cst.BaseExpression, subject: cst.BaseExpression
+    ) -> PatternMatch | None:
+        raise NotImplementedError
+
+
+class EqualityPatternRecognizer(BranchPatternRecognizer):
+    """Recognizes `subject == literal` and `subject is singleton` branches."""
+
+    def recognize(
+        self, condition: cst.BaseExpression, subject: cst.BaseExpression
+    ) -> PatternMatch | None:
+        if not m.matches(condition, m.Comparison(comparisons=[m.ComparisonTarget()])):
+            return None
+
+        comparison = condition  # type: ignore[assignment]
+        if len(comparison.comparisons) != 1 or not comparison.left.deep_equals(subject):
+            return None
+
+        target = comparison.comparisons[0]
+        if isinstance(target.operator, cst.Is):
+            if not is_singleton_name(target.comparator):
+                return None
+            return PatternMatch(build_value_pattern(target.comparator), None)
+
+        if isinstance(target.operator, cst.Equal) and is_literal_value(
+            target.comparator
+        ):
+            return PatternMatch(build_value_pattern(target.comparator), None)
+
+        return None
+
+
+class OrPatternRecognizer(BranchPatternRecognizer):
+    """Recognizes `subject == a or subject == b` style OR patterns."""
+
+    def recognize(
+        self, condition: cst.BaseExpression, subject: cst.BaseExpression
+    ) -> PatternMatch | None:
+        parts = flatten_boolean(condition, cst.Or)
+        if len(parts) <= 1:
+            return None
+
+        patterns = []
+        for part in parts:
+            result = EqualityPatternRecognizer().recognize(part, subject)
+            if result is None or result.guard is not None or result.pattern is None:
+                return None
+            patterns.append(result.pattern)
+
+        return PatternMatch(build_or_pattern(patterns), None)
+
+
+class ClassPatternRecognizer(BranchPatternRecognizer):
+    """Recognizes simple isinstance/class-attribute branches."""
+
+    def __init__(self, ignore_types_pattern: str | None = r".*_TYPES$") -> None:
+        self.ignore_types_pattern = ignore_types_pattern
+
+    def recognize(
+        self, condition: cst.BaseExpression, subject: cst.BaseExpression
+    ) -> PatternMatch | None:
+        components = flatten_boolean(condition, cst.And)
+        class_exprs: list[cst.BaseExpression] | None = None
+        attrs: list[tuple[str, cst.BaseExpression]] = []
+        guards: list[cst.BaseExpression] = []
+
+        for component in components:
+            isinstance_info = extract_isinstance_call(
+                component, subject, self.ignore_types_pattern
+            )
+            if isinstance_info is not None:
+                if class_exprs is not None:
+                    guards.append(component)
+                    continue
+                class_exprs = isinstance_info
+                continue
+
+            if is_subject_derived_complex_pattern(component, subject):
+                return None
+
+            attr_check = extract_attribute_literal_check(component, subject)
+            if attr_check is not None:
+                attrs.append(attr_check)
+                continue
+
+            guards.append(component)
+
+        if class_exprs is None:
+            return None
+
+        pattern = build_class_pattern(class_exprs)
+        if attrs:
+            if not isinstance(pattern, cst.MatchClass):
+                return None
+            pattern = pattern.with_changes(
+                kwds=[
+                    cst.MatchKeywordElement(
+                        key=cst.Name(attr_name),
+                        pattern=build_value_pattern(value),
+                    )
+                    for attr_name, value in attrs
+                ]
+            )
+
+        return PatternMatch(pattern, combine_guards(guards))
+
+
+class SequencePatternRecognizer(BranchPatternRecognizer):
+    """Recognizes top-level sequence patterns from len/index checks."""
+
+    def recognize(
+        self, condition: cst.BaseExpression, subject: cst.BaseExpression
+    ) -> PatternMatch | None:
+        if find_sequence_subject(condition) is None:
+            return None
+
+        collector = SequencePatternCollector(subject)
+        components = flatten_boolean(condition, cst.And)
+        for component in components:
+            if not self._is_simple_sequence_component(component, collector):
+                return None
+            if not collector.collect_from_node(component):
+                return None
+
+        for index in collector.nested_sequences:
+            nested_result = extract_nested_sequence_element(condition, subject, index)
+            if nested_result is None:
+                return None
+            collector.elements[index] = NestedSequenceElementPattern(nested_result)
+
+        if collector.expected_len is not None:
+            required_len = collector.expected_len
+            use_star = False
+        elif collector.min_len is not None:
+            required_len = collector.min_len
+            use_star = collector.use_star_pattern
+        else:
+            return None
+
+        if not collector.elements:
+            return None
+        if not use_star:
+            if max(collector.elements) >= required_len:
+                return None
+            if not validate_wildcard_constraint(collector.elements, required_len):
+                return None
+
+        pattern_infos = [
+            collector.elements.get(index, WildcardElementPattern())
+            for index in range(required_len)
+        ]
+        return PatternMatch(build_sequence_match_list(pattern_infos, use_star), None)
+
+    def _is_simple_sequence_component(
+        self, component: cst.BaseExpression, collector: SequencePatternCollector
+    ) -> bool:
+        return (
+            collector._is_len_check(component)
+            or collector._is_subscript_literal_check(component)
+            or collector._is_subscript_isinstance_check(component)
+            or collector._is_nested_len_check(component)
+            or collector._is_nested_subscript_check(component)
+        )
+
+
+class NestedClassPatternRecognizer(BranchPatternRecognizer):
+    """Recognizes nested isinstance checks on attribute paths."""
+
+    def __init__(self, ignore_types_pattern: str | None = r".*_TYPES$") -> None:
+        self.ignore_types_pattern = ignore_types_pattern
+
+    def recognize(
+        self, condition: cst.BaseExpression, subject: cst.BaseExpression
+    ) -> PatternMatch | None:
+        components = flatten_boolean(condition, cst.And)
+        main_classes: list[cst.BaseExpression] | None = None
+        nested_classes: dict[tuple[str, ...], list[cst.BaseExpression]] = {}
+        scalar_checks: dict[tuple[str, ...], cst.BaseExpression] = {}
+        guards: list[cst.BaseExpression] = []
+
+        for component in components:
+            if isinstance(component, cst.Call) and m.matches(
+                component, m.Call(func=m.Name(value="isinstance"))
+            ):
+                if len(component.args) < 2:
+                    return None
+                class_exprs = extract_isinstance_classes(
+                    component.args[1].value, self.ignore_types_pattern
+                )
+                if class_exprs is None:
+                    return None
+                arg = component.args[0].value
+                if arg.deep_equals(subject):
+                    if main_classes is None:
+                        main_classes = class_exprs
+                    else:
+                        guards.append(component)
+                    continue
+                path = SubjectPath.from_expression(arg, subject)
+                attr_path = path.attribute_names if path is not None else None
+                if attr_path is None:
+                    guards.append(component)
+                    continue
+                nested_classes[attr_path] = class_exprs
+                continue
+
+            attr_check = extract_attribute_path_literal_check(component, subject)
+            if attr_check is not None:
+                path, value = attr_check
+                scalar_checks[path] = value
+                continue
+
+            if is_subject_derived_complex_pattern(component, subject):
+                return None
+
+            guards.append(component)
+
+        if main_classes is None or not nested_classes:
+            return None
+        if len(main_classes) > 1 and (nested_classes or scalar_checks):
+            return None
+
+        pattern = build_nested_class_pattern(
+            main_classes[0], (), nested_classes, scalar_checks
+        )
+        return PatternMatch(pattern, combine_guards(guards))
+
+
+class SequenceAttributePatternRecognizer(BranchPatternRecognizer):
+    """Recognizes class patterns with sequence-valued attributes."""
+
+    def __init__(self, ignore_types_pattern: str | None = r".*_TYPES$") -> None:
+        self.ignore_types_pattern = ignore_types_pattern
+
+    def recognize(
+        self, condition: cst.BaseExpression, subject: cst.BaseExpression
+    ) -> PatternMatch | None:
+        components = flatten_boolean(condition, cst.And)
+        class_exprs: list[cst.BaseExpression] | None = None
+        sequence_subjects: dict[str, cst.Attribute] = {}
+        scalar_attrs: list[tuple[str, cst.BaseExpression]] = []
+        guards: list[cst.BaseExpression] = []
+
+        for component in components:
+            isinstance_info = extract_isinstance_call(
+                component, subject, self.ignore_types_pattern
+            )
+            if isinstance_info is not None:
+                if class_exprs is None:
+                    class_exprs = isinstance_info
+                else:
+                    guards.append(component)
+                continue
+
+            sequence_subject = extract_len_sequence_attribute(component, subject)
+            if sequence_subject is not None:
+                sequence_subjects[sequence_subject.attr.value] = sequence_subject
+                continue
+
+            attr_check = extract_attribute_literal_check(component, subject)
+            if attr_check is not None:
+                scalar_attrs.append(attr_check)
+                continue
+
+            if is_sequence_attribute_component(component, subject):
+                continue
+
+            return None
+
+        if class_exprs is None or not sequence_subjects or len(class_exprs) > 1:
+            return None
+
+        kwds: list[cst.MatchKeywordElement] = []
+        for attr_name, sequence_subject in sequence_subjects.items():
+            sequence_result = extract_sequence_pattern_for_subject(
+                condition, sequence_subject
+            )
+            if sequence_result is None:
+                return None
+            pattern_infos, use_star = sequence_result
+            kwds.append(
+                cst.MatchKeywordElement(
+                    key=cst.Name(attr_name),
+                    pattern=build_bracketed_sequence_match_list(
+                        pattern_infos, use_star
+                    ),
+                )
+            )
+
+        for attr_name, value in scalar_attrs:
+            if attr_name in sequence_subjects:
+                continue
+            kwds.append(
+                cst.MatchKeywordElement(
+                    key=cst.Name(attr_name),
+                    pattern=build_value_pattern(value),
+                )
+            )
+
+        return PatternMatch(
+            cst.MatchClass(cls=class_exprs[0], patterns=[], kwds=kwds),
+            combine_guards(guards),
+        )
+
+
+class GuardFallbackRecognizer(BranchPatternRecognizer):
+    """Recognizes class/equality fragments in AND chains and preserves the rest."""
+
+    def __init__(self, ignore_types_pattern: str | None = r".*_TYPES$") -> None:
+        self.ignore_types_pattern = ignore_types_pattern
+
+    def recognize(
+        self, condition: cst.BaseExpression, subject: cst.BaseExpression
+    ) -> PatternMatch | None:
+        if not is_safe_condition(condition, subject, self.ignore_types_pattern):
+            return PatternMatch(None, condition)
+
+        components = flatten_boolean(condition, cst.And)
+        pattern_parts: list[PatternPart] = []
+        attribute_checks = []
+        guard_parts = []
+
+        for component in components:
+            equality = EqualityPatternRecognizer().recognize(component, subject)
+            if equality is not None and equality.pattern is not None:
+                pattern_parts.append(ValuePatternPart(equality.pattern))
+                continue
+
+            isinstance_info = extract_isinstance_call(
+                component, subject, self.ignore_types_pattern
+            )
+            if isinstance_info is not None:
+                pattern_parts.append(ClassPatternPart(isinstance_info))
+                continue
+
+            attr_check = extract_attribute_literal_check(component, subject)
+            if attr_check is not None:
+                attribute_checks.append(attr_check)
+                continue
+
+            guard_parts.append(component)
+
+        pattern = build_pattern_from_parts(pattern_parts, attribute_checks)
+        guard = combine_guards(guard_parts)
+        return PatternMatch(pattern, guard)
+
+
+class PatternRecognitionEngine:
+    """Runs branch recognizers in order, from specific to conservative."""
+
+    def __init__(self, ignore_types_pattern: str | None = r".*_TYPES$") -> None:
+        self.ignore_types_pattern = ignore_types_pattern
+        self.subject_recognizer = SubjectRecognizer(ignore_types_pattern)
+        # Order matters: exact recognizers run before broader recognizers so the
+        # fallback only preserves genuinely unsupported fragments as guards.
+        self.branch_recognizers: list[BranchPatternRecognizer] = [
+            OrPatternRecognizer(),
+            EqualityPatternRecognizer(),
+            ClassPatternRecognizer(ignore_types_pattern),
+            SequencePatternRecognizer(),
+            NestedClassPatternRecognizer(ignore_types_pattern),
+            SequenceAttributePatternRecognizer(ignore_types_pattern),
+            GuardFallbackRecognizer(ignore_types_pattern),
+        ]
+
+    def recognize_subject(self, test: cst.BaseExpression) -> cst.BaseExpression | None:
+        return self.subject_recognizer.recognize(test)
+
+    def recognize_branch(
+        self, condition: cst.BaseExpression, subject: cst.BaseExpression
+    ) -> PatternMatch:
+        for recognizer in self.branch_recognizers:
+            result = recognizer.recognize(condition, subject)
+            if result is not None:
+                return result
+        return PatternMatch(None, condition)
+
+
+def extract_attribute_literal_check(
+    node: cst.BaseExpression, subject: cst.BaseExpression
+) -> tuple[str, cst.BaseExpression] | None:
+    if not m.matches(node, m.Comparison(comparisons=[m.ComparisonTarget()])):
+        return None
+    comparison = node  # type: ignore[assignment]
+    if len(comparison.comparisons) != 1 or not isinstance(
+        comparison.left, cst.Attribute
+    ):
+        return None
+    path = SubjectPath.from_expression(comparison.left, subject)
+    if path is None:
+        return None
+    attr_name = path.direct_attribute_name
+    if attr_name is None:
+        return None
+
+    target = comparison.comparisons[0]
+    if isinstance(target.operator, cst.Is) and not is_singleton_name(target.comparator):
+        return None
+    if not isinstance(target.operator, (cst.Equal, cst.Is)):
+        return None
+    if not is_literal_value(target.comparator):
+        return None
+
+    return attr_name, target.comparator
+
+
+def extract_attribute_path_literal_check(
+    node: cst.BaseExpression, subject: cst.BaseExpression
+) -> tuple[tuple[str, ...], cst.BaseExpression] | None:
+    if not isinstance(node, cst.Comparison) or len(node.comparisons) != 1:
+        return None
+    path = SubjectPath.from_expression(node.left, subject)
+    if path is None:
+        return None
+    attr_path = path.attribute_names
+    if attr_path is None:
+        return None
+
+    target = node.comparisons[0]
+    if isinstance(target.operator, cst.Is) and not is_singleton_name(target.comparator):
+        return None
+    if not isinstance(target.operator, (cst.Equal, cst.Is)):
+        return None
+    if not is_literal_value(target.comparator):
+        return None
+    return attr_path, target.comparator
+
+
+def build_nested_class_pattern(
+    class_expr: cst.BaseExpression,
+    path: tuple[str, ...],
+    nested_classes: dict[tuple[str, ...], list[cst.BaseExpression]],
+    scalar_checks: dict[tuple[str, ...], cst.BaseExpression],
+) -> cst.MatchClass:
+    child_names = {
+        child_path[len(path)]
+        for child_path in nested_classes
+        if len(child_path) > len(path) and child_path[: len(path)] == path
+    }
+    scalar_names = {
+        scalar_path[len(path)]
+        for scalar_path in scalar_checks
+        if len(scalar_path) == len(path) + 1 and scalar_path[: len(path)] == path
+    }
+
+    kwds: list[cst.MatchKeywordElement] = []
+    for name in sorted(child_names | scalar_names):
+        child_path = path + (name,)
+        if child_path in nested_classes:
+            child_classes = nested_classes[child_path]
+            if len(child_classes) == 1:
+                child_pattern: cst.MatchPattern = build_nested_class_pattern(
+                    child_classes[0], child_path, nested_classes, scalar_checks
+                )
+            else:
+                child_pattern = build_or_pattern(
+                    [
+                        cst.MatchClass(cls=child_class, patterns=[])
+                        for child_class in child_classes
+                    ]
+                )
+        else:
+            child_pattern = build_value_pattern(scalar_checks[child_path])
+
+        kwds.append(cst.MatchKeywordElement(key=cst.Name(name), pattern=child_pattern))
+
+    return cst.MatchClass(cls=class_expr, patterns=[], kwds=kwds)
+
+
+def is_subject_derived_complex_pattern(
+    node: cst.BaseExpression, subject: cst.BaseExpression
+) -> bool:
+    if isinstance(node, cst.Call) and m.matches(
+        node, m.Call(func=m.Name(value="isinstance"))
+    ):
+        if len(node.args) >= 1:
+            path = SubjectPath.from_expression(node.args[0].value, subject)
+            return path is not None and not path.is_subject
+
+    if isinstance(node, cst.Comparison):
+        left = node.left
+        if isinstance(left, cst.Call) and m.matches(
+            left, m.Call(func=m.Name(value="len"))
+        ):
+            if (
+                left.args
+                and SubjectPath.from_expression(left.args[0].value, subject) is not None
+            ):
+                return True
+        if (
+            isinstance(left, cst.Subscript)
+            and SubjectPath.from_expression(left, subject) is not None
+        ):
+            return True
+        if isinstance(left, cst.Attribute):
+            value_path = SubjectPath.from_expression(left.value, subject)
+            return value_path is not None and not value_path.is_subject
+
+    return False

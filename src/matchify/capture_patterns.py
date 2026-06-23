@@ -1,0 +1,255 @@
+"""Second-pass capture-pattern rewrite."""
+
+from __future__ import annotations
+
+import libcst as cst
+
+
+class CapturePatternTransformer(cst.CSTTransformer):
+    """Second-pass transformer that adds capture patterns to match statements.
+
+    This transformer looks for match statements where the case body starts with
+    an assignment like `var = subject.attr[index]` and converts it to a capture
+    pattern like `case Point(attr=[var, *_]):`.
+    """
+
+    def leave_Match(
+        self, original_node: cst.Match, updated_node: cst.Match
+    ) -> cst.Match:
+        """Process match statements to add capture patterns."""
+        new_cases = []
+
+        for case in updated_node.cases:
+            # Check if this is a MatchClass pattern (like Point(...))
+            if not isinstance(case.pattern, cst.MatchClass):
+                new_cases.append(case)
+                continue
+
+            # Check if body starts with assignments
+            if not isinstance(case.body, cst.IndentedBlock):
+                new_cases.append(case)
+                continue
+
+            # Detect multiple capture assignments at the start of the body
+            captures = self._detect_multiple_captures(case.body, updated_node.subject)
+            if not captures:
+                new_cases.append(case)
+                continue
+
+            # Group captures by attribute
+            captures_by_attr = {}
+            for var_name, attr_name, index in captures:
+                if attr_name not in captures_by_attr:
+                    captures_by_attr[attr_name] = []
+                captures_by_attr[attr_name].append((var_name, attr_name, index))
+
+            # Try to add captures for each attribute
+            new_pattern = case.pattern
+            for attr_name, attr_captures in captures_by_attr.items():
+                new_pattern = self._add_multiple_captures_to_pattern(
+                    new_pattern, attr_name, attr_captures
+                )
+                if new_pattern is None:
+                    break
+
+            if new_pattern is None:
+                new_cases.append(case)
+                continue
+
+            # Remove the assignment statements from the body
+            new_body = self._remove_statements(case.body, len(captures))
+
+            # Create new case with capture pattern and updated body
+            new_case = case.with_changes(pattern=new_pattern, body=new_body)
+            new_cases.append(new_case)
+
+        return updated_node.with_changes(cases=new_cases)
+
+    def _detect_multiple_captures(
+        self, body: cst.IndentedBlock, subject: cst.BaseExpression
+    ) -> list[tuple[str, str, int]]:
+        """Detect multiple consecutive capture assignments at the start of body.
+
+        Returns:
+            List of (var_name, attr_name, index) tuples, one for each capture assignment.
+            Empty list if no valid captures found.
+        """
+        captures = []
+
+        for stmt in body.body:
+            # Must be a simple statement line with a single assignment
+            if not isinstance(stmt, cst.SimpleStatementLine):
+                break
+
+            if len(stmt.body) != 1 or not isinstance(stmt.body[0], cst.Assign):
+                break
+
+            assign = stmt.body[0]
+            capture_info = self._detect_capture_assignment(assign, subject)
+
+            if capture_info is None:
+                break
+
+            captures.append(capture_info)
+
+        return captures
+
+    def _detect_capture_assignment(
+        self, assign: cst.Assign, subject: cst.BaseExpression
+    ) -> tuple[str, str, int] | None:
+        """Detect if assignment is like: var = subject.attr[index]
+
+        Returns:
+            Tuple of (var_name, attr_name, index) or None if not matching pattern
+        """
+        # Check target is a simple name
+        if len(assign.targets) != 1:
+            return None
+
+        target = assign.targets[0].target
+        if not isinstance(target, cst.Name):
+            return None
+
+        var_name = target.value
+
+        # Check value is a subscript
+        if not isinstance(assign.value, cst.Subscript):
+            return None
+
+        subscript = assign.value
+
+        # Check subscript is on an attribute of the subject
+        if not isinstance(subscript.value, cst.Attribute):
+            return None
+
+        attr = subscript.value
+        attr_name = attr.attr.value
+
+        # Check the base is the match subject
+        if not attr.value.deep_equals(subject):
+            return None
+
+        # Check index is an integer literal
+        if not isinstance(subscript.slice[0].slice, cst.Index):
+            return None
+
+        index_node = subscript.slice[0].slice.value
+        if not isinstance(index_node, cst.Integer):
+            return None
+
+        index = int(index_node.value)
+
+        return (var_name, attr_name, index)
+
+    def _add_multiple_captures_to_pattern(
+        self,
+        pattern: cst.MatchClass,
+        attr_name: str,
+        captures: list[tuple[str, str, int]],
+    ) -> cst.MatchClass | None:
+        """Add multiple capture patterns to the specified attribute.
+
+        Transforms a pattern like Point(x=[_]) to Point(x=[first, second, *_])
+        when captures = [('first', 'x', 0), ('second', 'x', 1)].
+
+        Supports non-consecutive indices by inserting wildcards:
+        captures = [('first', 'x', 0), ('third', 'x', 2)] → Point(x=[first, _, third, *_])
+
+        Supports indices not starting from 0:
+        captures = [('second', 'x', 1), ('third', 'x', 2)] → Point(x=[_, second, third, *_])
+        """
+        # Get indices and sort captures by index
+        indices = [idx for _, _, idx in captures]
+        sorted_captures = sorted(captures, key=lambda c: c[2])
+
+        # Validate no duplicate indices
+        if len(indices) != len(set(indices)):
+            # Duplicate indices
+            return None
+
+        # Get max index
+        max_index = max(indices)
+
+        # Find the attribute in the pattern
+        new_kwds = []
+        found = False
+
+        for kwd in pattern.kwds:
+            if not isinstance(kwd, cst.MatchKeywordElement):
+                new_kwds.append(kwd)
+                continue
+
+            # Check if this is the attribute we're looking for
+            if not isinstance(kwd.pattern, cst.MatchSequence):
+                new_kwds.append(kwd)
+                continue
+
+            if kwd.key.value != attr_name:
+                new_kwds.append(kwd)
+                continue
+
+            # Found it! Build new sequence with captures (supporting non-consecutive indices)
+            seq_pattern = kwd.pattern
+            elements = list(seq_pattern.patterns)
+
+            # Build pattern elements from 0 to max_index
+            # For each position: either a capture or a wildcard
+            capture_map = {idx: var_name for var_name, _, idx in sorted_captures}
+
+            new_elements = []
+            for i in range(max_index + 1):
+                if i in capture_map:
+                    # This index has a capture
+                    capture_elem = cst.MatchSequenceElement(
+                        value=cst.MatchAs(pattern=None, name=cst.Name(capture_map[i])),
+                        comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" ")),
+                    )
+                    new_elements.append(capture_elem)
+                else:
+                    # This index doesn't have a capture, use wildcard
+                    wildcard_elem = cst.MatchSequenceElement(
+                        value=cst.MatchAs(pattern=None, name=None),
+                        comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" ")),
+                    )
+                    new_elements.append(wildcard_elem)
+
+            # Check if original pattern has wildcards or if we need to add star
+            all_wildcards = all(
+                isinstance(el.value, cst.MatchAs)
+                and el.value.pattern is None
+                and el.value.name is None
+                for el in elements
+            )
+
+            # Add star pattern at the end to match remaining elements
+            if all_wildcards or len(elements) > len(new_elements):
+                star_element = cst.MatchSequenceElement(
+                    value=cst.MatchStar(name=cst.Name("_"))
+                )
+                new_elements.append(star_element)
+            else:
+                # Keep any remaining elements from original pattern
+                remaining_elements = elements[len(new_elements) :]
+                new_elements.extend(remaining_elements)
+
+            new_seq_pattern = seq_pattern.with_changes(patterns=new_elements)
+            new_kwd = kwd.with_changes(pattern=new_seq_pattern)
+            new_kwds.append(new_kwd)
+            found = True
+
+        if not found:
+            return None
+
+        return pattern.with_changes(kwds=new_kwds)
+
+    def _remove_statements(
+        self, body: cst.IndentedBlock, count: int
+    ) -> cst.IndentedBlock:
+        """Remove first N statements from body, or replace with pass if it leaves no statements."""
+        if len(body.body) <= count:
+            # Replace with pass statement
+            pass_stmt = cst.SimpleStatementLine(body=[cst.Pass()])
+            return body.with_changes(body=[pass_stmt])
+        else:
+            # Remove first N statements
+            return body.with_changes(body=body.body[count:])

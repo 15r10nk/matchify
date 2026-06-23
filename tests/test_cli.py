@@ -6,40 +6,34 @@ from textwrap import dedent
 import libcst as cst
 import pytest
 
-from matchify.__main__ import (
-    IfToMatchTransformer,
-    CapturePatternTransformer,
-    convert_file,
-    main,
-)
+from matchify.cli import convert_file, main
+from matchify.sequence_patterns import build_match_pattern_from_info
+from matchify.subject_path import AttributePathPart, SubjectPath, SubscriptPathPart
+from matchify.transform import IfToMatchTransformer, transform_code
 
 
-def check_code(source: str, expected: str, ignore_types_pattern: str | None = r".*_TYPES$") -> None:
+def check_code(
+    source: str, expected: str, ignore_types_pattern: str | None = r".*_TYPES$"
+) -> None:
     """
     Test helper that:
-    1. Transforms source code using IfToMatchTransformer
-    2. Applies CapturePatternTransformer (second pass)
-    3. Verifies the transformed code matches expected output
-    4. Executes both source and expected code and verifies identical output
+    1. Transforms source code using transform_code
+    2. Verifies the transformed code matches expected output
+    3. Executes both source and expected code and verifies identical output
     """
     # Transform the source code
-    module = cst.parse_module(source)
-    wrapper = cst.MetadataWrapper(module)
-    transformed = wrapper.visit(IfToMatchTransformer(ignore_types_pattern=ignore_types_pattern))
-    
-    # Second pass: add capture patterns
-    transformed = transformed.visit(CapturePatternTransformer())
+    transformed_code = transform_code(source, ignore_types_pattern=ignore_types_pattern)
 
     # Check transformation matches expected
-    assert transformed.code.strip() == expected.strip(), (
+    assert transformed_code.strip() == expected.strip(), (
         f"Transformation mismatch:\n"
         f"Expected:\n{expected}\n\n"
-        f"Got:\n{transformed.code}"
+        f"Got:\n{transformed_code}"
     )
 
     # Execute both code snippets in the same process and capture output
     import io
-    from contextlib import redirect_stdout, redirect_stderr
+    from contextlib import redirect_stderr, redirect_stdout
 
     # Execute original source
     stdout_source = io.StringIO()
@@ -256,7 +250,7 @@ class TestIfToMatchTransformer:
 
     def test_nested_if_not_affected(self):
         """Test that nested if statements are converted recursively.
-        
+
         Previously, nested if-statements inside match case bodies were not converted.
         Now they are recursively transformed.
         """
@@ -427,7 +421,7 @@ class TestIfToMatchTransformer:
 
     def test_convertible_chain_after_non_convertible_chain(self):
         """Test that a convertible if-chain following a non-convertible one is still converted.
-        
+
         This is a regression test: previously, if a non-convertible chain failed to convert,
         it left _current_subject set, which prevented subsequent independent chains from converting.
         """
@@ -438,7 +432,7 @@ class TestIfToMatchTransformer:
                 pass
             elif isinstance(override, Overloaded):
                 pass
-            
+
             # This chain SHOULD be converted (independent, valid pattern)
             for ttype in test_types:
                 if isinstance(ttype, FunctionLike):
@@ -457,7 +451,7 @@ class TestIfToMatchTransformer:
                 pass
             elif isinstance(override, Overloaded):
                 pass
-            
+
             # This chain SHOULD be converted (independent, valid pattern)
             for ttype in test_types:
                 match ttype:
@@ -1247,7 +1241,7 @@ class TestIfToMatchTransformer:
 
     def test_sequence_pattern_with_star(self):
         """Test that star patterns work with >= operator.
-        
+
         Patterns like 'len(x) >= 2 and x[0] == 1 and x[1] == 2' become 'case [1, 2, *_]:'.
         """
         source = dedent(
@@ -1308,7 +1302,7 @@ class TestIfToMatchTransformer:
 
     def test_wildcard_pattern_simple(self):
         """Test basic wildcard pattern with single gap.
-        
+
         Patterns like 'len(x) == 3 and x[0] == 1 and x[2] == 3' become 'case [1, _, 3]:'.
         """
         source = dedent(
@@ -1589,24 +1583,24 @@ class TestIfToMatchTransformer:
     def test_or_pattern_with_strings(self):
         """Test OR pattern with string literals."""
         source = dedent(
-            '''
+            """
             status = "ready"
             if status == "ready" or status == "running":
                 print("active")
             elif status == "stopped" or status == "error":
                 print("inactive")
-        '''
+        """
         ).strip()
 
         expected = dedent(
-            '''
+            """
             status = "ready"
             match status:
                 case "ready" | "running":
                     print("active")
                 case "stopped" | "error":
                     print("inactive")
-        '''
+        """
         ).strip()
 
         check_code(source, expected)
@@ -1757,7 +1751,7 @@ class TestIfToMatchTransformer:
 
     def test_capture_pattern_from_assignment(self):
         """Test capture pattern with assignment-based variable binding.
-        
+
         When first statement is 'var = obj.attr[0]' and pattern has len(obj.attr) >= N,
         convert to use capture: case Class(attr=[var, *_]):
         """
@@ -1795,7 +1789,7 @@ class TestIfToMatchTransformer:
 
     def test_capture_pattern_multiple_values(self):
         """Test multiple capture pattern with consecutive assignments.
-        
+
         When first statements are 'a = obj.attr[0]', 'b = obj.attr[1]', etc.,
         convert to use multiple captures: case Class(attr=[a, b, *_]):
         """
@@ -1870,7 +1864,7 @@ class TestIfToMatchTransformer:
 
     def test_capture_pattern_non_consecutive_indices(self):
         """Test that non-consecutive indices are converted with wildcards.
-        
+
         If assignments skip indices (e.g., [0] then [2]), captures are created
         with wildcards for skipped indices.
         """
@@ -1904,12 +1898,12 @@ class TestIfToMatchTransformer:
                     print("empty")
         """
         ).strip()
-        
+
         check_code(source, expected)
 
     def test_capture_pattern_multi_attribute(self):
         """Test capturing from multiple different attributes.
-        
+
         Captures from both x and y attributes should work.
         """
         source = dedent(
@@ -1944,7 +1938,7 @@ class TestIfToMatchTransformer:
                     print("empty")
         """
         ).strip()
-        
+
         check_code(source, expected)
 
     def test_capture_pattern_multi_attribute_multiple_captures(self):
@@ -1983,7 +1977,7 @@ class TestIfToMatchTransformer:
                     print("empty")
         """
         ).strip()
-        
+
         check_code(source, expected)
 
     def test_capture_pattern_non_consecutive_multi_gap(self):
@@ -2020,7 +2014,7 @@ class TestIfToMatchTransformer:
                     print("other")
         """
         ).strip()
-        
+
         check_code(source, expected)
 
     def test_capture_pattern_not_starting_from_zero(self):
@@ -2055,7 +2049,7 @@ class TestIfToMatchTransformer:
                     print("empty")
         """
         ).strip()
-        
+
         check_code(source, expected)
 
     def test_mixed_pattern_types_in_chain(self):
@@ -2228,7 +2222,7 @@ class TestIfToMatchTransformer:
                 pass
             class Error:
                 pass
-            
+
             message = [Request(), 200, "OK"]
             if len(message) == 3 and isinstance(message[0], Request) and message[1] == 200 and message[2] == "OK":
                 print("success request")
@@ -2251,7 +2245,7 @@ class TestIfToMatchTransformer:
                 pass
             class Error:
                 pass
-            
+
             message = [Request(), 200, "OK"]
             match message:
                 case Request(), 200, "OK":
@@ -2300,7 +2294,7 @@ class TestIfToMatchTransformer:
             """
             class Point:
                 pass
-            
+
             z = [Point(), [1, 2]]
             if len(z) == 2 and isinstance(z[0], Point) and len(z[1]) == 2 and z[1][0] == 1 and z[1][1] == 2:
                 print("match")
@@ -2313,7 +2307,7 @@ class TestIfToMatchTransformer:
             """
             class Point:
                 pass
-            
+
             z = [Point(), [1, 2]]
             match z:
                 case Point(), [1, 2]:
@@ -2386,7 +2380,7 @@ class TestIfToMatchTransformer:
             class Data:
                 def __init__(self, value):
                     self.value = value
-            
+
             obj = Data([1, 2, 3])
             if isinstance(obj, Data) and len(obj.value) == 3 and obj.value[0] == 1 and obj.value[1] == 2 and obj.value[2] == 3:
                 print("match")
@@ -2400,7 +2394,7 @@ class TestIfToMatchTransformer:
             class Data:
                 def __init__(self, value):
                     self.value = value
-            
+
             obj = Data([1, 2, 3])
             match obj:
                 case Data(value=[1, 2, 3]):
@@ -2418,11 +2412,11 @@ class TestIfToMatchTransformer:
             """
             class Point:
                 pass
-            
+
             class Data:
                 def __init__(self, value):
                     self.value = value
-            
+
             obj = Data([Point(), 1, 2])
             if isinstance(obj, Data) and len(obj.value) == 3 and isinstance(obj.value[0], Point) and obj.value[1] == 1 and obj.value[2] == 2:
                 print("match")
@@ -2435,11 +2429,11 @@ class TestIfToMatchTransformer:
             """
             class Point:
                 pass
-            
+
             class Data:
                 def __init__(self, value):
                     self.value = value
-            
+
             obj = Data([Point(), 1, 2])
             match obj:
                 case Data(value=[Point(), 1, 2]):
@@ -2459,7 +2453,7 @@ class TestIfToMatchTransformer:
                 def __init__(self, items, count):
                     self.items = items
                     self.count = count
-            
+
             obj = Container([1, 2, 3], 3)
             if isinstance(obj, Container) and len(obj.items) == 3 and obj.items[0] == 1 and obj.items[1] == 2 and obj.items[2] == 3 and obj.count == 3:
                 print("match")
@@ -2474,7 +2468,7 @@ class TestIfToMatchTransformer:
                 def __init__(self, items, count):
                     self.items = items
                     self.count = count
-            
+
             obj = Container([1, 2, 3], 3)
             match obj:
                 case Container(items=[1, 2, 3], count=3):
@@ -2496,7 +2490,7 @@ class TestIfToMatchTransformer:
             class Data:
                 def __init__(self, value):
                     self.value = value
-            
+
             inner = Data([1, 2, 3])
             outer = Data([inner])
             if isinstance(outer, Data) and len(outer.value) == 1 and isinstance(outer.value[0], Data) and len(outer.value[0].value) == 3 and outer.value[0].value[0] == 1 and outer.value[0].value[1] == 2 and outer.value[0].value[2] == 3:
@@ -2511,7 +2505,7 @@ class TestIfToMatchTransformer:
             class Data:
                 def __init__(self, value):
                     self.value = value
-            
+
             inner = Data([1, 2, 3])
             outer = Data([inner])
             match outer:
@@ -2806,6 +2800,53 @@ class TestExtractSubject:
         assert subject.deep_equals(cst.parse_expression("obj.attr"))
 
 
+class TestSubjectPath:
+    """Test the shared subject-derived expression helper."""
+
+    def test_subject_itself_has_empty_path(self):
+        subject = cst.parse_expression("node")
+        path = SubjectPath.from_expression(subject, subject)
+
+        assert path is not None
+        assert path.is_subject
+        assert path.parts == ()
+
+    def test_attribute_path_extracts_names(self):
+        subject = cst.parse_expression("node")
+        expr = cst.parse_expression("node.child.value")
+
+        path = SubjectPath.from_expression(expr, subject)
+
+        assert path is not None
+        assert path.attribute_names == ("child", "value")
+        assert path.direct_attribute_name is None
+
+    def test_direct_attribute_name(self):
+        subject = cst.parse_expression("node")
+        expr = cst.parse_expression("node.kind")
+
+        path = SubjectPath.from_expression(expr, subject)
+
+        assert path is not None
+        assert path.direct_attribute_name == "kind"
+
+    def test_subscript_path_extracts_indices(self):
+        subject = cst.parse_expression("node")
+        expr = cst.parse_expression("node.args[0]")
+
+        path = SubjectPath.from_expression(expr, subject)
+
+        assert path is not None
+        assert path.parts == (AttributePathPart("args"), SubscriptPathPart(0))
+        assert path.attribute_names is None
+
+    def test_unrelated_expression_returns_none(self):
+        subject = cst.parse_expression("node")
+        expr = cst.parse_expression("other.value")
+
+        assert SubjectPath.from_expression(expr, subject) is None
+
+
 class TestEdgeCases:
     """Test edge cases and error handling."""
 
@@ -2842,12 +2883,10 @@ class TestEdgeCases:
         expected = source
         check_code(source, expected)
 
-    def test_unknown_pattern_type_raises_error(self):
-        """Test that unknown pattern type raises ValueError."""
-        transformer = IfToMatchTransformer()
-        
-        with pytest.raises(ValueError, match="Unknown pattern type"):
-            transformer._build_pattern_from_info(("unknown_type", None))
+    def test_unknown_sequence_element_pattern_raises_error(self):
+        """Test that unsupported sequence element objects fail loudly."""
+        with pytest.raises(TypeError, match="Unsupported sequence element pattern"):
+            build_match_pattern_from_info(object())  # type: ignore[arg-type]
 
     def test_verbose_flag_with_unchanged_file(self, capsys):
         """Test --verbose flag shows unchanged files."""
@@ -2897,7 +2936,7 @@ class TestEdgeCases:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             test_dir = pathlib.Path(tmpdir)
-            
+
             # Create multiple files
             for i in range(3):
                 test_file = test_dir / f"test{i}.py"
@@ -2957,7 +2996,7 @@ class TestEdgeCases:
 
     def test_isinstance_tuple_with_attributes_not_converted(self):
         """Test that isinstance with tuple of classes AND attributes is not converted.
-        
+
         This is not supported because we can't determine which class's attributes to check.
         """
         source = dedent(
@@ -2968,7 +3007,7 @@ class TestEdgeCases:
             class Line:
                 def __init__(self, x):
                     self.x = x
-            
+
             obj = Point(5)
             if isinstance(obj, (Point, Line)) and obj.x == 5:
                 print("match")
@@ -2988,7 +3027,7 @@ class TestEdgeCases:
             class Point:
                 def __init__(self, x):
                     self.x = x
-            
+
             TARGET = 5
             obj = Point(5)
             if isinstance(obj, Point) and obj.x == TARGET:
@@ -3004,7 +3043,7 @@ class TestEdgeCases:
 
     def test_isinstance_with_len_check_on_attribute_not_converted(self):
         """Test that isinstance with len() check on attribute is not converted.
-        
+
         Regression test for bug where len(o.args) == 2 was being silently dropped.
         The pattern should not be converted because we can't (yet) mix attribute
         patterns with guard conditions on non-subject attributes.
@@ -3015,11 +3054,11 @@ class TestEdgeCases:
                 def __init__(self, fullname, args=None):
                     self.fullname = fullname
                     self.args = args if args else []
-            
+
             class CallExpr:
                 def __init__(self, callee):
                     self.callee = callee
-            
+
             o = CallExpr(RefExpr("builtins.isinstance", [1, 2]))
             if isinstance(o.callee, RefExpr) and o.callee.fullname == "builtins.isinstance" and len(o.callee.args) == 2:
                 print("isinstance with 2 args")
@@ -3037,7 +3076,7 @@ class TestEdgeCases:
         source = dedent(
             """
             SYMBOL_TYPES = (FuncDef, OverloadedFuncDef)
-            
+
             n = None
             if isinstance(n, SYMBOL_TYPES):
                 print("match")
@@ -3049,12 +3088,12 @@ class TestEdgeCases:
         # With default --no-types pattern (.*_TYPES$), this should NOT be converted
         expected = source
         check_code(source, expected)
-        
+
         # Without the pattern, it should convert
         expected_converted = dedent(
             """
             SYMBOL_TYPES = (FuncDef, OverloadedFuncDef)
-            
+
             n = None
             match n:
                 case SYMBOL_TYPES():
@@ -3071,7 +3110,7 @@ class TestEdgeCases:
             """
             class TupleType:
                 pass
-            
+
             item = TupleType()
             if isinstance(item, TupleType) and item.is_valid:
                 print("valid tuple")
@@ -3084,7 +3123,7 @@ class TestEdgeCases:
             """
             class TupleType:
                 pass
-            
+
             item = TupleType()
             match item:
                 case TupleType() if item.is_valid:
@@ -3102,7 +3141,7 @@ class TestEdgeCases:
             """
             class TupleType:
                 pass
-            
+
             item = TupleType()
             if isinstance(item, TupleType) and item.partial_fallback.type.is_named_tuple:
                 print("named tuple")
@@ -3115,7 +3154,7 @@ class TestEdgeCases:
             """
             class TupleType:
                 pass
-            
+
             item = TupleType()
             match item:
                 case TupleType() if item.partial_fallback.type.is_named_tuple:
@@ -3129,7 +3168,7 @@ class TestEdgeCases:
 
     def test_isinstance_with_nested_isinstance_on_attributes(self):
         """Test isinstance with nested isinstance checks on attributes.
-        
+
         Pattern: isinstance(x, Class1) and isinstance(x.attr, Class2)
         Should become: case Class1(attr=Class2()):
         """
@@ -3138,10 +3177,10 @@ class TestEdgeCases:
             class NameExpr:
                 def __init__(self, node=None):
                     self.node = node
-            
+
             class Var:
                 pass
-            
+
             lvalue = NameExpr(Var())
             if isinstance(lvalue, NameExpr) and isinstance(lvalue.node, Var):
                 print("match")
@@ -3155,10 +3194,10 @@ class TestEdgeCases:
             class NameExpr:
                 def __init__(self, node=None):
                     self.node = node
-            
+
             class Var:
                 pass
-            
+
             lvalue = NameExpr(Var())
             match lvalue:
                 case NameExpr(node=Var()):
@@ -3172,7 +3211,7 @@ class TestEdgeCases:
 
     def test_isinstance_with_deeply_nested_isinstance_on_attributes(self):
         """Test isinstance with deeply nested isinstance checks.
-        
+
         Pattern: isinstance(x, A) and isinstance(x.b, B) and isinstance(x.b.c, C)
         Should become: case A(b=B(c=C())):
         """
@@ -3181,14 +3220,14 @@ class TestEdgeCases:
             class NameExpr:
                 def __init__(self, node=None):
                     self.node = node
-            
+
             class Var:
                 def __init__(self, type=None):
                     self.type = type
-            
+
             class PartialType:
                 pass
-            
+
             lvalue = NameExpr(Var(PartialType()))
             if isinstance(lvalue, NameExpr) and isinstance(lvalue.node, Var) and isinstance(lvalue.node.type, PartialType):
                 print("match")
@@ -3202,14 +3241,14 @@ class TestEdgeCases:
             class NameExpr:
                 def __init__(self, node=None):
                     self.node = node
-            
+
             class Var:
                 def __init__(self, type=None):
                     self.type = type
-            
+
             class PartialType:
                 pass
-            
+
             lvalue = NameExpr(Var(PartialType()))
             match lvalue:
                 case NameExpr(node=Var(type=PartialType())):
@@ -3228,11 +3267,11 @@ class TestEdgeCases:
             class NameExpr:
                 def __init__(self, node=None):
                     self.node = node
-            
+
             class Var:
                 def __init__(self, type=None):
                     self.type = type
-            
+
             lv = NameExpr(Var(None))
             if isinstance(lv, NameExpr) and isinstance(lv.node, Var) and lv.node.type is None:
                 print("match")
@@ -3246,11 +3285,11 @@ class TestEdgeCases:
             class NameExpr:
                 def __init__(self, node=None):
                     self.node = node
-            
+
             class Var:
                 def __init__(self, type=None):
                     self.type = type
-            
+
             lv = NameExpr(Var(None))
             match lv:
                 case NameExpr(node=Var(type=None)):
@@ -3269,12 +3308,12 @@ class TestEdgeCases:
             class Point:
                 def __init__(self, data=None):
                     self.data = data
-            
+
             class Data:
                 def __init__(self, x=0, y=0):
                     self.x = x
                     self.y = y
-            
+
             obj = Point(Data(5, 10))
             if isinstance(obj, Point) and isinstance(obj.data, Data) and obj.data.x == 5 and obj.data.y == 10:
                 print("match")
@@ -3288,12 +3327,12 @@ class TestEdgeCases:
             class Point:
                 def __init__(self, data=None):
                     self.data = data
-            
+
             class Data:
                 def __init__(self, x=0, y=0):
                     self.x = x
                     self.y = y
-            
+
             obj = Point(Data(5, 10))
             match obj:
                 case Point(data=Data(x=5, y=10)):
@@ -3312,20 +3351,20 @@ class TestEdgeCases:
             class RefExpr:
                 def __init__(self, node=None):
                     self.node = node
-            
+
             class Var:
                 pass
-            
+
             class FuncDef:
                 pass
-            
+
             class CallExpr:
                 def __init__(self, callee=None):
                     self.callee = callee
-            
+
             class Decorator:
                 pass
-            
+
             dec = RefExpr(Var())
             if isinstance(dec, RefExpr) and isinstance(dec.node, (Var, FuncDef)):
                 print("case 1")
@@ -3339,20 +3378,20 @@ class TestEdgeCases:
             class RefExpr:
                 def __init__(self, node=None):
                     self.node = node
-            
+
             class Var:
                 pass
-            
+
             class FuncDef:
                 pass
-            
+
             class CallExpr:
                 def __init__(self, callee=None):
                     self.callee = callee
-            
+
             class Decorator:
                 pass
-            
+
             dec = RefExpr(Var())
             match dec:
                 case RefExpr(node=Var() | FuncDef()):
@@ -3369,10 +3408,10 @@ class TestEdgeCases:
         source = dedent(
             """
             SYMBOL_FUNCBASE_TYPES = (FuncDef, OverloadedFuncDef)
-            
+
             class Var:
                 pass
-            
+
             node = Var()
             if isinstance(node, (Var, SYMBOL_FUNCBASE_TYPES)):
                 print("match")
@@ -3385,15 +3424,15 @@ class TestEdgeCases:
         # because SYMBOL_FUNCBASE_TYPES is in the tuple
         expected = source
         check_code(source, expected)
-        
+
         # Without the pattern, it should convert
         expected_converted = dedent(
             """
             SYMBOL_FUNCBASE_TYPES = (FuncDef, OverloadedFuncDef)
-            
+
             class Var:
                 pass
-            
+
             node = Var()
             match node:
                 case Var() | SYMBOL_FUNCBASE_TYPES():
@@ -3438,19 +3477,66 @@ class TestEdgeCases:
         expected = source
         check_code(source, expected)
 
+    def test_is_not_operator_not_converted(self):
+        """Test that 'is not' chains are not converted to singleton patterns."""
+        source = dedent(
+            """
+            x = None
+            if x is not None:
+                print("value")
+            elif x is None:
+                print("none")
+        """
+        ).strip()
+
+        expected = source
+        check_code(source, expected)
+
+    def test_chained_comparison_not_converted(self):
+        """Test that chained comparisons are left alone even with a convertible elif."""
+        source = dedent(
+            """
+            x = 1
+            if 0 < x < 10:
+                print("range")
+            elif x == 20:
+                print("twenty")
+        """
+        ).strip()
+
+        expected = source
+        check_code(source, expected)
+
+    def test_walrus_operator_in_isinstance_subject_not_converted(self):
+        """Test that walrus assignment in the match subject position is preserved."""
+        source = dedent(
+            """
+            class Node:
+                pass
+
+            if isinstance((node := Node()), Node):
+                print("node")
+            elif isinstance(node, int):
+                print("int")
+        """
+        ).strip()
+
+        expected = source
+        check_code(source, expected)
+
     def test_walrus_operator_in_isinstance_converted_to_guard(self):
         """Test that isinstance with walrus operator is converted to guard clause."""
         source = dedent(
             """
             class CallExpr:
                 pass
-            
+
             class CallableType:
                 pass
-            
+
             def get_type(x):
                 return CallableType()
-            
+
             obj = CallExpr()
             if isinstance(obj, CallExpr) and isinstance((call_tp := get_type(obj)), CallableType):
                 print("matched")
@@ -3463,13 +3549,13 @@ class TestEdgeCases:
             """
             class CallExpr:
                 pass
-            
+
             class CallableType:
                 pass
-            
+
             def get_type(x):
                 return CallableType()
-            
+
             obj = CallExpr()
             match obj:
                 case CallExpr() if isinstance((call_tp := get_type(obj)), CallableType):
@@ -3478,6 +3564,74 @@ class TestEdgeCases:
                     print("none")
         """
         ).strip()
+        check_code(source, expected)
+
+    def test_non_equality_condition_after_pattern_becomes_guard(self):
+        """Test that unsupported comparisons after a class pattern stay as guards."""
+        source = dedent(
+            """
+            class Node:
+                pass
+
+            node = Node()
+            if isinstance(node, Node) and node != None:
+                print("not none")
+            elif node is None:
+                print("none")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Node:
+                pass
+
+            node = Node()
+            match node:
+                case Node() if node != None:
+                    print("not none")
+                case None:
+                    print("none")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_parenthesized_or_condition_after_pattern_becomes_guard(self):
+        """Test that parenthesized OR conditions are preserved as guard expressions."""
+        source = dedent(
+            """
+            ready = False
+            forced = True
+
+            class Handler:
+                pass
+
+            handler = Handler()
+            if isinstance(handler, Handler) and (ready or forced):
+                print("go")
+            elif handler is None:
+                print("none")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            ready = False
+            forced = True
+
+            class Handler:
+                pass
+
+            handler = Handler()
+            match handler:
+                case Handler() if (ready or forced):
+                    print("go")
+                case None:
+                    print("none")
+        """
+        ).strip()
+
         check_code(source, expected)
 
     def test_mixed_sequence_patterns_in_chain(self):
@@ -3514,10 +3668,10 @@ class TestEdgeCases:
         source = dedent(
             """
             import os
-            
+
             class FileHandler:
                 pass
-            
+
             handler = FileHandler()
             if isinstance(handler, FileHandler) and os.path.exists("/tmp"):
                 print("handler with file")
@@ -3529,10 +3683,10 @@ class TestEdgeCases:
         expected = dedent(
             """
             import os
-            
+
             class FileHandler:
                 pass
-            
+
             handler = FileHandler()
             match handler:
                 case FileHandler() if os.path.exists("/tmp"):
@@ -3549,10 +3703,10 @@ class TestEdgeCases:
         source = dedent(
             """
             ENABLED = True
-            
+
             class Config:
                 pass
-            
+
             cfg = Config()
             if isinstance(cfg, Config) and ENABLED:
                 print("enabled config")
@@ -3564,10 +3718,10 @@ class TestEdgeCases:
         expected = dedent(
             """
             ENABLED = True
-            
+
             class Config:
                 pass
-            
+
             cfg = Config()
             match cfg:
                 case Config() if ENABLED:
@@ -3585,10 +3739,10 @@ class TestEdgeCases:
             """
             DEBUG = True
             VERBOSE = False
-            
+
             class Logger:
                 pass
-            
+
             log = Logger()
             if isinstance(log, Logger) and DEBUG and not VERBOSE:
                 print("debug logger")
@@ -3601,10 +3755,10 @@ class TestEdgeCases:
             """
             DEBUG = True
             VERBOSE = False
-            
+
             class Logger:
                 pass
-            
+
             log = Logger()
             match log:
                 case Logger() if DEBUG and not VERBOSE:
@@ -3621,13 +3775,13 @@ class TestEdgeCases:
         source = dedent(
             """
             PRODUCTION = True
-            
+
             class Handler:
                 pass
-            
+
             class Worker:
                 pass
-            
+
             obj = Handler()
             if isinstance(obj, (Handler, Worker)) and PRODUCTION:
                 print("production mode")
@@ -3639,13 +3793,13 @@ class TestEdgeCases:
         expected = dedent(
             """
             PRODUCTION = True
-            
+
             class Handler:
                 pass
-            
+
             class Worker:
                 pass
-            
+
             obj = Handler()
             match obj:
                 case Handler() | Worker() if PRODUCTION:
@@ -3663,7 +3817,7 @@ class TestEdgeCases:
             """
             class ParamSpecType:
                 pass
-            
+
             tvar = ParamSpecType()
             mapped_arg = ParamSpecType()
             if isinstance(tvar, ParamSpecType) and isinstance(mapped_arg, ParamSpecType):
@@ -3677,7 +3831,7 @@ class TestEdgeCases:
             """
             class ParamSpecType:
                 pass
-            
+
             tvar = ParamSpecType()
             mapped_arg = ParamSpecType()
             match tvar:
@@ -3690,15 +3844,52 @@ class TestEdgeCases:
 
         check_code(source, expected)
 
+    def test_guard_pattern_with_ignored_type_check_on_other_subject(self):
+        """Type variables on guard-only subjects stay guards instead of blocking conversion."""
+        source = dedent(
+            """
+            OTHER_TYPES = (int,)
+
+            class Handler:
+                pass
+
+            handler = Handler()
+            value = 1
+            if isinstance(handler, Handler) and isinstance(value, OTHER_TYPES):
+                print("typed handler")
+            elif handler is None:
+                print("none")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            OTHER_TYPES = (int,)
+
+            class Handler:
+                pass
+
+            handler = Handler()
+            value = 1
+            match handler:
+                case Handler() if isinstance(value, OTHER_TYPES):
+                    print("typed handler")
+                case None:
+                    print("none")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_comment_preservation_before_if(self):
         """Test that comments before if statements are preserved."""
         source = dedent(
             """
             class Decorator:
                 pass
-            
+
             item = Decorator()
-            
+
             # TODO: support decorated overloaded functions properly
             if isinstance(item, Decorator):
                 print("decorator")
@@ -3711,9 +3902,9 @@ class TestEdgeCases:
             """
             class Decorator:
                 pass
-            
+
             item = Decorator()
-            
+
             # TODO: support decorated overloaded functions properly
             match item:
                 case Decorator():
@@ -3731,12 +3922,12 @@ class TestEdgeCases:
             """
             class Decorator:
                 pass
-            
+
             class Handler:
                 pass
-            
+
             item = Decorator()
-            
+
             # Comment before if
             if isinstance(item, Decorator):
                 print("decorator")
@@ -3753,12 +3944,12 @@ class TestEdgeCases:
             """
             class Decorator:
                 pass
-            
+
             class Handler:
                 pass
-            
+
             item = Decorator()
-            
+
             # Comment before if
             match item:
                 case Decorator():
@@ -3781,29 +3972,29 @@ class TestEdgeCases:
             class CallExpr:
                 def __init__(self, callee=None):
                     self.callee = callee
-            
+
             class RefExpr:
                 def __init__(self, node=None):
                     self.node = node
-            
+
             class Decorator:
                 def __init__(self):
                     self.type = None
-            
+
             class FuncDef:
                 def __init__(self):
                     self.type = None
-            
+
             class Var:
                 def __init__(self):
                     self.type = None
-            
+
             class CallableType:
                 pass
-            
+
             def get_proper_type(x):
                 return CallableType()
-            
+
             dec = CallExpr(RefExpr(Var()))
             if isinstance(dec, CallExpr) and isinstance(dec.callee, RefExpr) and isinstance(dec.callee.node, (Decorator, FuncDef, Var)) and isinstance((call_tp := get_proper_type(dec.callee.node.type)), CallableType):
                 print("matched")
@@ -3817,35 +4008,216 @@ class TestEdgeCases:
             class CallExpr:
                 def __init__(self, callee=None):
                     self.callee = callee
-            
+
             class RefExpr:
                 def __init__(self, node=None):
                     self.node = node
-            
+
             class Decorator:
                 def __init__(self):
                     self.type = None
-            
+
             class FuncDef:
                 def __init__(self):
                     self.type = None
-            
+
             class Var:
                 def __init__(self):
                     self.type = None
-            
+
             class CallableType:
                 pass
-            
+
             def get_proper_type(x):
                 return CallableType()
-            
+
             dec = CallExpr(RefExpr(Var()))
             match dec:
                 case CallExpr(callee=RefExpr(node=Decorator() | FuncDef() | Var())) if isinstance((call_tp := get_proper_type(dec.callee.node.type)), CallableType):
                     print("matched")
                 case RefExpr():
                     print("refexpr")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_isinstance_proper_type_with_second_isinstance_becomes_guard(self):
+        """Test that isinstance(x, ProperType) and isinstance(x, (AnyType, UninhabitedType)) becomes a guard."""
+        source = dedent(
+            """
+            class TypeVarTupleType:
+                pass
+
+            class ProperType:
+                pass
+
+            class AnyType(ProperType):
+                pass
+
+            class UninhabitedType(ProperType):
+                pass
+
+            t = TypeVarTupleType()
+            repl = t
+            if isinstance(repl, TypeVarTupleType):
+                result = repl
+            elif isinstance(repl, ProperType) and isinstance(repl, (AnyType, UninhabitedType)):
+                result = "any or uninhabited"
+            else:
+                result = "other"
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class TypeVarTupleType:
+                pass
+
+            class ProperType:
+                pass
+
+            class AnyType(ProperType):
+                pass
+
+            class UninhabitedType(ProperType):
+                pass
+
+            t = TypeVarTupleType()
+            repl = t
+            match repl:
+                case TypeVarTupleType():
+                    result = repl
+                case ProperType() if isinstance(repl, (AnyType, UninhabitedType)):
+                    result = "any or uninhabited"
+                case _:
+                    result = "other"
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_isinstance_with_attribute_guard_converted(self):
+        """Test that isinstance(x, Class) and x.attr converts to case Class() if x.attr:"""
+        source = dedent(
+            """
+            class Instance:
+                def __init__(self):
+                    self.args = []
+
+            class TupleType:
+                pass
+
+            class ParamSpecType:
+                pass
+
+            def get_proper_type(x):
+                return x
+
+            actual_type = Instance()
+            if isinstance(actual_type, Instance) and actual_type.args:
+                result = "instance with args"
+            elif isinstance(actual_type, TupleType):
+                result = "tuple"
+            elif isinstance(actual_type, ParamSpecType):
+                result = "paramspec"
+            else:
+                result = "other"
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Instance:
+                def __init__(self):
+                    self.args = []
+
+            class TupleType:
+                pass
+
+            class ParamSpecType:
+                pass
+
+            def get_proper_type(x):
+                return x
+
+            actual_type = Instance()
+            match actual_type:
+                case Instance() if actual_type.args:
+                    result = "instance with args"
+                case TupleType():
+                    result = "tuple"
+                case ParamSpecType():
+                    result = "paramspec"
+                case _:
+                    result = "other"
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_isinstance_with_boolean_attribute_guard_real_world(self):
+        """Test real-world pattern from mypy: isinstance + boolean attribute."""
+        source = dedent(
+            """
+            class Instance:
+                def __init__(self):
+                    self.args = []
+
+            class TupleType:
+                pass
+
+            class ParamSpecType:
+                pass
+
+            class AnyType:
+                pass
+
+            def get_proper_type(x):
+                return x
+
+            actual_type = get_proper_type(Instance())
+            if isinstance(actual_type, Instance) and actual_type.args:
+                from mypy.subtypes import is_subtype
+                result = "instance"
+            elif isinstance(actual_type, TupleType):
+                result = "tuple"
+            elif isinstance(actual_type, ParamSpecType):
+                result = "paramspec"
+            else:
+                result = AnyType()
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Instance:
+                def __init__(self):
+                    self.args = []
+
+            class TupleType:
+                pass
+
+            class ParamSpecType:
+                pass
+
+            class AnyType:
+                pass
+
+            def get_proper_type(x):
+                return x
+
+            actual_type = get_proper_type(Instance())
+            match actual_type:
+                case Instance() if actual_type.args:
+                    from mypy.subtypes import is_subtype
+                    result = "instance"
+                case TupleType():
+                    result = "tuple"
+                case ParamSpecType():
+                    result = "paramspec"
+                case _:
+                    result = AnyType()
         """
         ).strip()
 
