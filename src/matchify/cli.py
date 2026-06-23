@@ -6,7 +6,6 @@ import argparse
 import multiprocessing
 import pathlib
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from typing import List
 
 from .transform import transform_code
 

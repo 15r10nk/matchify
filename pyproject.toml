@@ -41,6 +41,9 @@ Source = "https://github.com/15r10nk/matchify"
 [tool.black]
 target-version = ["py310"]
 
+[tool.isort]
+profile = "black"
+
 [tool.commitizen]
 changelog_incremental = true
 major_version_zero = true
