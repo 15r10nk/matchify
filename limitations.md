@@ -52,6 +52,9 @@ condition is unsupported or ambiguous, the transformer either keeps the original
 - Non-literal comparisons on nested subject attributes, including attributes of
   class patterns inside sequence elements, stay as guards instead of being moved
   into patterns.
+- Unsupported checks that originate inside nested attributes or sequence
+  elements are emitted as case-level guards; Python patterns do not support a
+  separate guard attached to only that nested subpattern.
 - Guards intentionally preserve unsupported fragments instead of dropping them.
   This means the generated `match` statement can be correct but less compact
   than a hand-written pattern.
