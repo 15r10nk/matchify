@@ -1003,6 +1003,31 @@ class TestIfToMatchTransformer:
 
         check_code(source, expected)
 
+    def test_sequence_pattern_with_or_element(self):
+        """Test OR patterns inside a sequence element."""
+        source = dedent(
+            """
+            value = [2, 3]
+            if len(value) == 2 and (value[0] == 1 or value[0] == 2) and value[1] == 3:
+                print("match")
+            elif value == 0:
+                print("zero")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            value = [2, 3]
+            match value:
+                case 1 | 2, 3:
+                    print("match")
+                case 0:
+                    print("zero")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_sequence_pattern_with_isinstance_and_is_none(self):
         """Test sequence pattern with isinstance and 'is None' checks.
 
@@ -2459,6 +2484,39 @@ class TestIfToMatchTransformer:
                 case Container(items=[1, 2, 3], count=3):
                     print("match")
                 case Container():
+                    print("other")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_isinstance_with_or_attribute(self):
+        """Test OR patterns inside a class attribute."""
+        source = dedent(
+            """
+            class Point:
+                def __init__(self, x):
+                    self.x = x
+
+            value = Point(2)
+            if isinstance(value, Point) and (value.x == 1 or value.x == 2):
+                print("match")
+            elif isinstance(value, Point):
+                print("other")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Point:
+                def __init__(self, x):
+                    self.x = x
+
+            value = Point(2)
+            match value:
+                case Point(x=1 | 2):
+                    print("match")
+                case Point():
                     print("other")
         """
         ).strip()

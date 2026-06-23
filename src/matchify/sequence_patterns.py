@@ -7,7 +7,12 @@ from dataclasses import dataclass
 import libcst as cst
 from libcst import matchers as m
 
-from .patterns import build_class_pattern, build_value_pattern, flatten_boolean
+from .patterns import (
+    build_class_pattern,
+    build_or_pattern,
+    build_value_pattern,
+    flatten_boolean,
+)
 from .subject_path import (
     SubjectPath,
     SubscriptPathPart,
@@ -97,6 +102,14 @@ class SequencePatternCollector:
             self.elements[idx] = LiteralElementPattern(value)
             return True
 
+        or_check = self._extract_subscript_or_pattern(node)
+        if or_check is not None:
+            idx, pattern = or_check
+            if idx in self.elements:
+                return False
+            self.elements[idx] = RawElementPattern(pattern)
+            return True
+
         # Check for isinstance(subject[idx], Class)
         if self._is_subscript_isinstance_check(node):
             idx = self._extract_subscript_index(node)
@@ -165,6 +178,32 @@ class SequencePatternCollector:
             else:
                 return length  # exact length
         return None
+
+    def _extract_subscript_or_pattern(
+        self, node: cst.BaseExpression
+    ) -> tuple[int, cst.MatchPattern] | None:
+        parts = flatten_boolean(node, cst.Or)
+        if len(parts) <= 1:
+            return None
+
+        index: int | None = None
+        patterns: list[cst.MatchPattern] = []
+        for part in parts:
+            if not self._is_subscript_literal_check(part):
+                return None
+            part_index = self._extract_subscript_index(part)
+            value = self._extract_comparison_value(part)
+            if part_index is None or value is None:
+                return None
+            if index is None:
+                index = part_index
+            elif part_index != index:
+                return None
+            patterns.append(build_value_pattern(value))
+
+        if index is None:
+            return None
+        return index, build_or_pattern(patterns)
 
     def _is_subscript_literal_check(self, node: cst.BaseExpression) -> bool:
         """Check if node is subject[idx] == value or subject[idx] is value"""
@@ -346,6 +385,14 @@ def has_direct_sequence_element_check(
     test: cst.BaseExpression, subject: cst.BaseExpression
 ) -> bool:
     for component in flatten_boolean(test, cst.And):
+        if isinstance(component, cst.BooleanOperation) and isinstance(
+            component.operator, cst.Or
+        ):
+            if all(
+                has_direct_sequence_element_check(part, subject)
+                for part in flatten_boolean(component, cst.Or)
+            ):
+                return True
         if isinstance(component, cst.Comparison):
             path = SubjectPath.from_expression(component.left, subject)
             if path is not None and path.starts_with_subscript:
@@ -547,6 +594,14 @@ def extract_sequence_pattern_for_subject(
 def is_component_for_sequence_subject(
     component: cst.BaseExpression, sequence_subject: cst.BaseExpression
 ) -> bool:
+    if isinstance(component, cst.BooleanOperation) and isinstance(
+        component.operator, cst.Or
+    ):
+        return all(
+            is_component_for_sequence_subject(part, sequence_subject)
+            for part in flatten_boolean(component, cst.Or)
+        )
+
     if isinstance(component, cst.Comparison):
         if m.matches(component.left, m.Call(func=m.Name(value="len"), args=[m.Arg()])):
             len_call = component.left  # type: ignore[assignment]

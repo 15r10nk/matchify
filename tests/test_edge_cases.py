@@ -389,6 +389,47 @@ class TestEdgeCases:
 
         check_code(source, expected)
 
+    def test_isinstance_with_nested_or_attribute_check(self):
+        """Test OR patterns inside nested class attributes."""
+        source = dedent(
+            """
+            class Point:
+                def __init__(self, data=None):
+                    self.data = data
+
+            class Data:
+                def __init__(self, kind=None):
+                    self.kind = kind
+
+            obj = Point(Data(2))
+            if isinstance(obj, Point) and isinstance(obj.data, Data) and (obj.data.kind == 1 or obj.data.kind == 2):
+                print("match")
+            elif isinstance(obj, int):
+                print("int")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Point:
+                def __init__(self, data=None):
+                    self.data = data
+
+            class Data:
+                def __init__(self, kind=None):
+                    self.kind = kind
+
+            obj = Point(Data(2))
+            match obj:
+                case Point(data=Data(kind=1 | 2)):
+                    print("match")
+                case int():
+                    print("int")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_isinstance_with_nested_class_sequence_attribute(self):
         """Test sequence attributes inside a nested class attribute."""
         source = dedent(

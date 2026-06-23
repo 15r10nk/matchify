@@ -210,7 +210,7 @@ class ClassPatternRecognizer(BranchPatternRecognizer):
     ) -> PatternMatch | None:
         components = flatten_boolean(condition, cst.And)
         class_exprs: list[cst.BaseExpression] | None = None
-        attrs: list[tuple[str, cst.BaseExpression]] = []
+        attrs: list[tuple[str, cst.MatchPattern]] = []
         guards: list[cst.BaseExpression] = []
 
         for component in components:
@@ -227,7 +227,7 @@ class ClassPatternRecognizer(BranchPatternRecognizer):
             if is_subject_derived_complex_pattern(component, subject):
                 return None
 
-            attr_check = extract_attribute_literal_check(component, subject)
+            attr_check = extract_attribute_pattern_check(component, subject)
             if attr_check is not None:
                 attrs.append(attr_check)
                 continue
@@ -245,9 +245,9 @@ class ClassPatternRecognizer(BranchPatternRecognizer):
                 kwds=[
                     cst.MatchKeywordElement(
                         key=cst.Name(attr_name),
-                        pattern=build_value_pattern(value),
+                        pattern=pattern,
                     )
-                    for attr_name, value in attrs
+                    for attr_name, pattern in attrs
                 ]
             )
 
@@ -353,7 +353,7 @@ class NestedClassPatternRecognizer(BranchPatternRecognizer):
         components = flatten_boolean(condition, cst.And)
         main_classes: list[cst.BaseExpression] | None = None
         nested_classes: dict[tuple[str, ...], list[cst.BaseExpression]] = {}
-        scalar_checks: dict[tuple[str, ...], cst.BaseExpression] = {}
+        scalar_checks: dict[tuple[str, ...], cst.MatchPattern] = {}
         sequence_checks: dict[tuple[str, ...], cst.BaseExpression] = {}
         guards: list[cst.BaseExpression] = []
 
@@ -388,10 +388,10 @@ class NestedClassPatternRecognizer(BranchPatternRecognizer):
                 nested_classes[attr_path] = class_exprs
                 continue
 
-            attr_check = extract_attribute_path_literal_check(component, subject)
+            attr_check = extract_attribute_path_pattern_check(component, subject)
             if attr_check is not None:
-                path, value = attr_check
-                scalar_checks[path] = value
+                path, pattern = attr_check
+                scalar_checks[path] = pattern
                 continue
 
             sequence_check = extract_attribute_path_sequence_len_check(
@@ -445,9 +445,9 @@ class SequenceAttributePatternRecognizer(BranchPatternRecognizer):
         components = flatten_boolean(condition, cst.And)
         class_exprs: list[cst.BaseExpression] | None = None
         sequence_subjects: dict[str, cst.Attribute] = {}
-        scalar_attrs: list[tuple[str, cst.BaseExpression]] = []
+        scalar_attrs: list[tuple[str, cst.MatchPattern]] = []
         nested_classes: dict[tuple[str, ...], list[cst.BaseExpression]] = {}
-        nested_scalar_checks: dict[tuple[str, ...], cst.BaseExpression] = {}
+        nested_scalar_checks: dict[tuple[str, ...], cst.MatchPattern] = {}
         guards: list[cst.BaseExpression] = []
 
         for component in components:
@@ -474,17 +474,23 @@ class SequenceAttributePatternRecognizer(BranchPatternRecognizer):
                 sequence_subjects[sequence_subject.attr.value] = sequence_subject
                 continue
 
-            attr_check = extract_attribute_literal_check(component, subject)
+            attr_check = extract_attribute_pattern_check(component, subject)
             if attr_check is not None:
                 scalar_attrs.append(attr_check)
                 continue
 
-            nested_scalar_check = extract_attribute_path_literal_check(
+            nested_scalar_check = extract_attribute_path_pattern_check(
                 component, subject
             )
             if nested_scalar_check is not None:
-                path, value = nested_scalar_check
-                nested_scalar_checks[path] = value
+                path, pattern = nested_scalar_check
+                nested_scalar_checks[path] = pattern
+                continue
+
+            if any(
+                is_component_for_sequence_subject(component, sequence_subject)
+                for sequence_subject in sequence_subjects.values()
+            ):
                 continue
 
             if is_sequence_attribute_component(component, subject):
@@ -514,13 +520,13 @@ class SequenceAttributePatternRecognizer(BranchPatternRecognizer):
             )
             used_attrs.add(attr_name)
 
-        for attr_name, value in scalar_attrs:
+        for attr_name, pattern in scalar_attrs:
             if attr_name in sequence_subjects:
                 continue
             kwds.append(
                 cst.MatchKeywordElement(
                     key=cst.Name(attr_name),
-                    pattern=build_value_pattern(value),
+                    pattern=pattern,
                 )
             )
             used_attrs.add(attr_name)
@@ -644,6 +650,36 @@ def extract_attribute_literal_check(
     return attr_name, target.comparator
 
 
+def extract_attribute_pattern_check(
+    node: cst.BaseExpression, subject: cst.BaseExpression
+) -> tuple[str, cst.MatchPattern] | None:
+    literal_check = extract_attribute_literal_check(node, subject)
+    if literal_check is not None:
+        attr_name, value = literal_check
+        return attr_name, build_value_pattern(value)
+
+    parts = flatten_boolean(node, cst.Or)
+    if len(parts) <= 1:
+        return None
+
+    attr_name: str | None = None
+    patterns: list[cst.MatchPattern] = []
+    for part in parts:
+        literal_part = extract_attribute_literal_check(part, subject)
+        if literal_part is None:
+            return None
+        part_attr_name, value = literal_part
+        if attr_name is None:
+            attr_name = part_attr_name
+        elif part_attr_name != attr_name:
+            return None
+        patterns.append(build_value_pattern(value))
+
+    if attr_name is None:
+        return None
+    return attr_name, build_or_pattern(patterns)
+
+
 def extract_attribute_path_literal_check(
     node: cst.BaseExpression, subject: cst.BaseExpression
 ) -> tuple[tuple[str, ...], cst.BaseExpression] | None:
@@ -664,6 +700,36 @@ def extract_attribute_path_literal_check(
     if not is_literal_value(target.comparator):
         return None
     return attr_path, target.comparator
+
+
+def extract_attribute_path_pattern_check(
+    node: cst.BaseExpression, subject: cst.BaseExpression
+) -> tuple[tuple[str, ...], cst.MatchPattern] | None:
+    literal_check = extract_attribute_path_literal_check(node, subject)
+    if literal_check is not None:
+        path, value = literal_check
+        return path, build_value_pattern(value)
+
+    parts = flatten_boolean(node, cst.Or)
+    if len(parts) <= 1:
+        return None
+
+    attr_path: tuple[str, ...] | None = None
+    patterns: list[cst.MatchPattern] = []
+    for part in parts:
+        literal_part = extract_attribute_path_literal_check(part, subject)
+        if literal_part is None:
+            return None
+        part_path, value = literal_part
+        if attr_path is None:
+            attr_path = part_path
+        elif part_path != attr_path:
+            return None
+        patterns.append(build_value_pattern(value))
+
+    if attr_path is None:
+        return None
+    return attr_path, build_or_pattern(patterns)
 
 
 def extract_attribute_path_isinstance_check(
@@ -719,7 +785,7 @@ def build_nested_class_pattern(
     class_expr: cst.BaseExpression,
     path: tuple[str, ...],
     nested_classes: dict[tuple[str, ...], list[cst.BaseExpression]],
-    scalar_checks: dict[tuple[str, ...], cst.BaseExpression],
+    scalar_checks: dict[tuple[str, ...], cst.MatchPattern],
     sequence_checks: dict[tuple[str, ...], cst.BaseExpression],
 ) -> cst.MatchClass | None:
     child_names = {
@@ -773,7 +839,7 @@ def build_nested_class_pattern(
             pattern_infos, use_star = sequence_result
             child_pattern = build_bracketed_sequence_match_list(pattern_infos, use_star)
         else:
-            child_pattern = build_value_pattern(scalar_checks[child_path])
+            child_pattern = scalar_checks[child_path]
 
         kwds.append(cst.MatchKeywordElement(key=cst.Name(name), pattern=child_pattern))
 

@@ -44,10 +44,11 @@ class OrPattern:
         return " | ".join(pattern.to_code() for pattern in self.alternatives)
 
     def to_condition_code(self, subject: str, safe: bool = False) -> str:
-        return " or ".join(
+        condition = " or ".join(
             pattern.to_condition_code(subject, safe=safe)
             for pattern in self.alternatives
         )
+        return f"({condition})"
 
     def to_value_code(self) -> str:
         return self.alternatives[0].to_value_code()
@@ -222,10 +223,7 @@ def generate_pattern(
     if kind == "singleton":
         return SingletonPattern(rng.choice(["None", "True", "False"]))
     if kind == "or_literal":
-        values = rng.sample(["0", "1", "2", "'red'", "'blue'", "None", "False"], 3)
-        return OrPattern(
-            tuple(pattern_from_literal_or_singleton(value) for value in values)
-        )
+        return generate_or_literal_pattern(rng)
     if kind == "class":
         return generate_class_pattern(rng, classes, depth=0)
     if kind == "nested_class":
@@ -256,12 +254,14 @@ def generate_attribute_pattern(
 ) -> GeneratedPattern:
     if depth <= 0:
         return generate_literal_or_singleton(rng)
-    choices = ["literal", "singleton", "class", "sequence"]
+    choices = ["literal", "singleton", "or_literal", "class", "sequence"]
     kind = rng.choice(choices)
     if kind == "literal":
         return LiteralPattern(generate_literal(rng))
     if kind == "singleton":
         return SingletonPattern(rng.choice(["None", "True", "False"]))
+    if kind == "or_literal":
+        return generate_or_literal_pattern(rng)
     if kind == "class":
         return generate_class_pattern(rng, classes, depth=depth - 1)
     return generate_sequence_pattern(
@@ -293,7 +293,7 @@ def generate_sequence_element_pattern(
     if depth <= 0:
         return generate_literal_or_singleton(rng)
 
-    choices = ["literal", "singleton", "class"]
+    choices = ["literal", "singleton", "or_literal", "class"]
     if allow_nested_sequence:
         choices.append("sequence")
     kind = rng.choice(choices)
@@ -301,6 +301,8 @@ def generate_sequence_element_pattern(
         return LiteralPattern(generate_literal(rng))
     if kind == "singleton":
         return SingletonPattern(rng.choice(["None", "True", "False"]))
+    if kind == "or_literal":
+        return generate_or_literal_pattern(rng)
     if kind == "class":
         return generate_class_pattern(rng, classes, depth=0)
     return generate_sequence_pattern(
@@ -316,6 +318,13 @@ def pattern_from_literal_or_singleton(value: str) -> LiteralPattern | SingletonP
     if value in {"None", "True", "False"}:
         return SingletonPattern(value)
     return LiteralPattern(value)
+
+
+def generate_or_literal_pattern(rng: random.Random) -> OrPattern:
+    values = rng.sample(["0", "1", "2", "'red'", "'blue'", "None", "False"], 3)
+    return OrPattern(
+        tuple(pattern_from_literal_or_singleton(value) for value in values)
+    )
 
 
 def generate_literal_or_singleton(
@@ -474,9 +483,9 @@ class Point:
 result = 'unmatched'
 value = None
 match value:
-    case [1],:
+    case Point(kind='blue', x='red'),:
         result = 'branch_0'
-    case Point(x=1):
+    case 1,:
         result = 'branch_1'
     case -1:
         result = 'branch_2'
@@ -508,14 +517,24 @@ value = None
 match value:
     case True,:
         result = 'branch_0'
-    case Point(x=[True, ['ready', False, None]]):
+    case Point(x=Point()):
         result = 'branch_1'
-    case Point():
+    case Point(kind=-1, y=None), Point(kind=None, y=False):
         result = 'branch_2'
-    case Point(kind=[[None, 'blue'], True, 1]):
+    case Point(x='blue'),:
         result = 'branch_3'
+    case _:
+        result = 'default'
 ---
 class Point:
+    def __init__(self, **attrs):
+        self.__dict__.update(attrs)
+
+class Token:
+    def __init__(self, **attrs):
+        self.__dict__.update(attrs)
+
+class Node:
     def __init__(self, **attrs):
         self.__dict__.update(attrs)
 result = 'unmatched'
@@ -525,10 +544,8 @@ match value:
         result = 'branch_0'
     case True:
         result = 'branch_1'
-    case [-1, [True]], 0, True:
-        result = 'branch_2'
-    case _:
-        result = 'default'\
+    case Token(kind=True, x=None), [[2], Node(kind=False, x=False), 0], 'red':
+        result = 'branch_2'\
 """
     )
 
