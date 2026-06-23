@@ -962,6 +962,60 @@ class TestEdgeCases:
 
         check_code(source, expected)
 
+    def test_value_pattern_with_guard_condition(self):
+        """Test literal equality with an independent guard condition."""
+        source = dedent(
+            """
+            ENABLED = True
+            value = 1
+            if value == 1 and ENABLED:
+                print("enabled one")
+            elif value == 2:
+                print("two")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            ENABLED = True
+            value = 1
+            match value:
+                case 1 if ENABLED:
+                    print("enabled one")
+                case 2:
+                    print("two")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_or_pattern_with_guard_condition(self):
+        """Test OR value patterns inside an AND chain with a guard."""
+        source = dedent(
+            """
+            ENABLED = True
+            value = 1
+            if (value == 1 or value is None) and ENABLED:
+                print("enabled one or none")
+            elif value == 2:
+                print("two")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            ENABLED = True
+            value = 1
+            match value:
+                case 1 | None if ENABLED:
+                    print("enabled one or none")
+                case 2:
+                    print("two")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_guard_pattern_with_multiple_conditions(self):
         """Test isinstance with multiple independent guard conditions."""
         source = dedent(

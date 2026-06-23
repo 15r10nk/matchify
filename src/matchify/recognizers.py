@@ -77,6 +77,9 @@ class SubjectRecognizer:
             sequence_subject = find_sequence_subject(test)
             if sequence_subject is not None:
                 return sequence_subject
+            value_subject = self._find_value_subject(test)
+            if value_subject is not None:
+                return value_subject
             isinstance_subject = self._find_isinstance_subject(
                 test, include_subscripts=True
             )
@@ -120,6 +123,31 @@ class SubjectRecognizer:
                 return None
 
         return subject
+
+    def _find_value_subject(
+        self, test: cst.BaseExpression
+    ) -> cst.BaseExpression | None:
+        for component in flatten_boolean(test, cst.And):
+            or_subject = self._recognize_or_subject(component)
+            if or_subject is not None and not contains_subscript(or_subject):
+                return or_subject
+
+            if not isinstance(component, cst.Comparison):
+                continue
+            if len(component.comparisons) != 1:
+                continue
+            target = component.comparisons[0]
+            if contains_subscript(component.left):
+                continue
+            if isinstance(target.operator, cst.Equal) and is_literal_value(
+                target.comparator
+            ):
+                return component.left
+            if isinstance(target.operator, cst.Is) and is_singleton_name(
+                target.comparator
+            ):
+                return component.left
+        return None
 
     def _find_isinstance_subject(
         self, test: cst.BaseExpression, include_subscripts: bool
@@ -567,6 +595,15 @@ class GuardFallbackRecognizer(BranchPatternRecognizer):
         guard_parts = []
 
         for component in components:
+            or_pattern = OrPatternRecognizer().recognize(component, subject)
+            if (
+                or_pattern is not None
+                and or_pattern.pattern is not None
+                and or_pattern.guard is None
+            ):
+                pattern_parts.append(ValuePatternPart(or_pattern.pattern))
+                continue
+
             equality = EqualityPatternRecognizer().recognize(component, subject)
             if equality is not None and equality.pattern is not None:
                 pattern_parts.append(ValuePatternPart(equality.pattern))

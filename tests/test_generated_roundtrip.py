@@ -340,7 +340,7 @@ def generate_pattern(
         "singleton",
         "or_literal",
         "class",
-        "guarded_class",
+        "guarded",
         "sequence",
         "gapped_sequence",
         "star",
@@ -358,8 +358,8 @@ def generate_pattern(
         return generate_or_literal_pattern(rng)
     if kind == "class":
         return generate_class_pattern(rng, classes, depth=0)
-    if kind == "guarded_class":
-        return generate_guarded_class_pattern(rng, classes, depth=depth)
+    if kind == "guarded":
+        return generate_guarded_pattern(rng, classes, depth=depth)
     if kind == "nested_class":
         return generate_class_pattern(rng, classes, depth=depth)
     if kind == "nested_sequence":
@@ -394,11 +394,21 @@ def generate_class_pattern(
     return ClassPattern(class_name, attr_patterns)
 
 
-def generate_guarded_class_pattern(
+def generate_guarded_pattern(
     rng: random.Random, classes: tuple[str, ...], depth: int
 ) -> GuardedPattern:
+    kind = rng.choice(["literal", "singleton", "or_literal", "class"])
+    if kind == "literal":
+        pattern: GeneratedPattern = LiteralPattern(generate_literal(rng))
+    elif kind == "singleton":
+        pattern = SingletonPattern(rng.choice(["None", "True", "False"]))
+    elif kind == "or_literal":
+        pattern = generate_or_literal_pattern(rng)
+    else:
+        pattern = generate_class_pattern(rng, classes, depth=depth)
+
     return GuardedPattern(
-        generate_class_pattern(rng, classes, depth=depth),
+        pattern,
         rng.choice(["True", "not False", "(True or False)"]),
     )
 
@@ -676,10 +686,13 @@ def test_guarded_generated_program_survives_matchify(tmp_path: Path):
         classes=("Point",),
         cases=(
             GeneratedCase(
-                GuardedPattern(ClassPattern("Point"), "not False"),
+                GuardedPattern(
+                    OrPattern((LiteralPattern("1"), SingletonPattern("None"))),
+                    "not False",
+                ),
                 "branch_0",
             ),
-            GeneratedCase(SingletonPattern("None"), "branch_1"),
+            GeneratedCase(ClassPattern("Point"), "branch_1"),
         ),
     )
 
