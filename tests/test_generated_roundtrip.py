@@ -11,6 +11,8 @@ from matchify.cli import convert_file
 
 @dataclass(frozen=True)
 class LiteralPattern:
+    """A literal value pattern, rendered as `subject == value` in generated if code."""
+
     value: str
 
     def to_condition_code(self, subject: str, safe: bool = False) -> str:
@@ -22,6 +24,8 @@ class LiteralPattern:
 
 @dataclass(frozen=True)
 class SingletonPattern:
+    """A singleton pattern for None/True/False, rendered with identity checks."""
+
     value: str
 
     def to_condition_code(self, subject: str, safe: bool = False) -> str:
@@ -33,6 +37,8 @@ class SingletonPattern:
 
 @dataclass(frozen=True)
 class OrPattern:
+    """Several literal-like alternatives for the same subject."""
+
     alternatives: tuple["GeneratedPattern", ...]
 
     def to_condition_code(self, subject: str, safe: bool = False) -> str:
@@ -48,6 +54,8 @@ class OrPattern:
 
 @dataclass(frozen=True)
 class ClassPattern:
+    """An isinstance check with optional recursively generated attribute checks."""
+
     class_name: str
     attrs: tuple[tuple[str, "GeneratedPattern"], ...] = ()
 
@@ -71,6 +79,8 @@ class ClassPattern:
 
 @dataclass(frozen=True)
 class ClassUnionPattern:
+    """An isinstance tuple whose attribute checks apply to every class alternative."""
+
     class_names: tuple[str, ...]
     attrs: tuple[tuple[str, "GeneratedPattern"], ...] = ()
 
@@ -89,6 +99,8 @@ class ClassUnionPattern:
 
 @dataclass(frozen=True)
 class SequencePattern:
+    """A fixed-length sequence pattern expressed as len and element checks."""
+
     elements: tuple["GeneratedPattern", ...]
     bracketed: bool
 
@@ -108,6 +120,8 @@ class SequencePattern:
 
 @dataclass(frozen=True)
 class WildcardPattern:
+    """A fallback branch that always matches and becomes `else` in if code."""
+
     def to_condition_code(self, subject: str, safe: bool = False) -> str:
         return "True"
 
