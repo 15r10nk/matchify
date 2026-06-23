@@ -325,13 +325,30 @@ class GeneratedProgram:
         return f"{class_defs}values = [\n{value_lines}\n]\nfor value in values:\n{branches}\n"
 
     def sample_value_codes(self) -> list[str]:
-        values = [
-            case.pattern.to_value_code()
-            for case in self.cases
-            if not isinstance(case.pattern, WildcardPattern)
-        ]
+        values = []
+        for case in self.cases:
+            if isinstance(case.pattern, WildcardPattern):
+                continue
+            values.append(case.pattern.to_value_code())
+            fallthrough_value = fallthrough_value_code(case.pattern)
+            if fallthrough_value is not None:
+                values.append(fallthrough_value)
         values.append("object()")
         return values
+
+
+def fallthrough_value_code(pattern: GeneratedPattern) -> str | None:
+    if isinstance(pattern, AttributeGuardedClassPattern):
+        return (
+            f"{pattern.class_name}({pattern.attr}={mismatching_literal(pattern.value)})"
+        )
+    return None
+
+
+def mismatching_literal(value: str) -> str:
+    if value == "'ready'":
+        return "'miss'"
+    return "0" if value != "0" else "1"
 
 
 def generated_programs(count: int, seed: int) -> list[GeneratedProgram]:
@@ -787,7 +804,7 @@ def test_attribute_guarded_class_generated_program_survives_matchify(tmp_path: P
                 AttributeGuardedClassPattern("Point", "x", "len([None])", "1"),
                 "branch_0",
             ),
-            GeneratedCase(SingletonPattern("None"), "branch_1"),
+            GeneratedCase(ClassPattern("Point"), "branch_1"),
         ),
     )
 
