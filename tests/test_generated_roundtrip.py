@@ -596,6 +596,7 @@ def generate_guarded_pattern(
             "singleton",
             "or_literal",
             "class",
+            "capture_class",
             "sequence",
             "gapped_sequence",
             "star",
@@ -610,6 +611,8 @@ def generate_guarded_pattern(
         pattern = generate_or_literal_pattern(rng)
     elif kind == "class":
         pattern = generate_class_pattern(rng, classes, depth=depth)
+    elif kind == "capture_class":
+        pattern = generate_capture_class_pattern(rng, classes)
     elif kind == "gapped_sequence":
         pattern = generate_gapped_sequence_pattern(
             rng, classes, depth=depth, bracketed=False
@@ -1000,6 +1003,42 @@ def test_generated_sequence_element_capture_program_survives_matchify(tmp_path: 
     )
 
 
+def test_generated_guarded_capture_program_survives_matchify(tmp_path: Path):
+    program = GeneratedProgram(
+        classes=("Point",),
+        cases=(
+            GeneratedCase(
+                GuardedPattern(
+                    CaptureClassPattern("Point", "items", (0, 2)),
+                    "not False",
+                ),
+                "branch_0",
+            ),
+            GeneratedCase(ClassPattern("Point"), "branch_1"),
+            GeneratedCase(WildcardPattern(), "default"),
+        ),
+    )
+    source = program.to_trace_if_code()
+    path = tmp_path / "generated_guarded_capture.py"
+    path.write_text(source, encoding="utf-8")
+    expected_trace = execute_result(source)
+
+    converted_path, changed, error = convert_file(path)
+
+    assert converted_path == path
+    assert changed is True
+    assert error is None
+    transformed = path.read_text(encoding="utf-8")
+    assert "case Point(items=[capture_0_0, _, capture_0_1, *_])" in transformed
+    assert "not False" in transformed
+    assert "capture_0_0 = value.items[0]" not in transformed
+    assert "capture_0_1 = value.items[2]" not in transformed
+    assert execute_result(transformed) == expected_trace, (
+        f"Trace mismatch\nGenerated if/else:\n{source}\n"
+        f"Matchified code:\n{transformed}"
+    )
+
+
 def test_pattern_ir_generates_if_conditions():
     pattern = ClassPattern(
         "Point",
@@ -1262,7 +1301,7 @@ class Point:
         self.__dict__.update(attrs)
 values = [
     Point(kind=2),
-    ['blue', True],
+    Point(x=[1, object()]),
     [False],
     'ready',
     object(),
@@ -1270,7 +1309,8 @@ values = [
 for value in values:
     if isinstance(value, Point) and hasattr(value, 'kind') and value.kind == 2:
         print('branch_0')
-    elif isinstance(value, (list, tuple)) and len(value) == 2 and value[0] == 'blue' and value[1] is True and (True or False):
+    elif isinstance(value, Point) and hasattr(value, 'x') and isinstance(value.x, (list, tuple)) and len(value.x) >= 1 and (True or False):
+        capture_1_0 = value.x[0]
         print('branch_1')
     elif isinstance(value, (list, tuple)) and len(value) == 1 and value[0] is False:
         print('branch_2')

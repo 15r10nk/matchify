@@ -577,7 +577,10 @@ class SequenceAttributePatternRecognizer(BranchPatternRecognizer):
             if is_sequence_attribute_component(component, subject):
                 continue
 
-            return None
+            if is_subject_derived_complex_pattern(component, subject):
+                return None
+
+            guards.append(component)
 
         if class_exprs is None or not (sequence_subjects or nested_sequence_checks):
             return None
