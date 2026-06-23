@@ -1265,6 +1265,38 @@ def test_generated_class_union_capture_program_survives_matchify(tmp_path: Path)
     )
 
 
+def test_generated_three_way_class_union_sequence_program_survives_matchify(
+    tmp_path: Path,
+):
+    program = GeneratedProgram(
+        classes=("Point", "Token", "Node"),
+        cases=(
+            GeneratedCase(
+                ClassUnionPattern(
+                    ("Point", "Token", "Node"),
+                    (
+                        (
+                            "x",
+                            SequencePattern(
+                                (LiteralPattern("+1"), LiteralPattern("-3.5")),
+                                bracketed=True,
+                            ),
+                        ),
+                    ),
+                ),
+                "branch_0",
+            ),
+            GeneratedCase(ClassPattern("Point"), "branch_1"),
+            GeneratedCase(WildcardPattern(), "default"),
+        ),
+    )
+
+    source = program.to_trace_if_code()
+    assert "isinstance(value, (Point, Token, Node))" in source
+    assert "value.x[0] == +1" in source
+    assert_matchify_preserves_trace(program, tmp_path)
+
+
 def test_generated_sequence_element_capture_program_survives_matchify(tmp_path: Path):
     program = GeneratedProgram(
         classes=("Point",),
