@@ -550,6 +550,15 @@ def generated_programs(count: int, seed: int) -> list[GeneratedProgram]:
 
 
 def generate_program(rng: random.Random) -> GeneratedProgram:
+    program = generate_program_candidate(rng)
+    for _ in range(99):
+        if sample_values_cover_reachable_cases(program):
+            return program
+        program = generate_program_candidate(rng)
+    return program
+
+
+def generate_program_candidate(rng: random.Random) -> GeneratedProgram:
     class_pool = ("Point", "Token", "Node")
     class_count = rng.randint(1, len(class_pool))
     classes = class_pool[:class_count]
@@ -561,6 +570,24 @@ def generate_program(rng: random.Random) -> GeneratedProgram:
     if rng.choice([True, False]):
         cases.append(GeneratedCase(WildcardPattern(), "default"))
     return GeneratedProgram(classes=classes, cases=tuple(cases))
+
+
+def sample_values_cover_reachable_cases(program: GeneratedProgram) -> bool:
+    _, output, error = execute_result(program.to_trace_if_code())
+    if error is not None:
+        return False
+
+    reached = set(output.splitlines())
+    required = {
+        case.body
+        for case in program.cases
+        if not is_constructed_as_unreachable(case.pattern)
+    }
+    return required <= reached
+
+
+def is_constructed_as_unreachable(pattern: GeneratedPattern) -> bool:
+    return isinstance(pattern, GuardedPattern) and pattern.guard == "False"
 
 
 def generate_pattern(
@@ -1305,6 +1332,33 @@ def test_sequence_element_attribute_guarded_generated_program_survives_matchify(
     assert "[Point(x=1)]" in source
     assert "[Point(x=0)]" in source
     assert_matchify_preserves_trace(program, tmp_path)
+
+
+def test_sample_values_must_cover_reachable_generated_cases():
+    program = GeneratedProgram(
+        classes=("Point",),
+        cases=(
+            GeneratedCase(ClassPattern("Point"), "branch_0"),
+            GeneratedCase(
+                ClassPattern("Point", (("x", LiteralPattern("1")),)), "branch_1"
+            ),
+            GeneratedCase(WildcardPattern(), "default"),
+        ),
+    )
+
+    assert not sample_values_cover_reachable_cases(program)
+
+
+def test_false_guarded_generated_cases_are_not_required_for_sample_coverage():
+    program = GeneratedProgram(
+        classes=("Point",),
+        cases=(
+            GeneratedCase(GuardedPattern(LiteralPattern("1"), "False"), "branch_0"),
+            GeneratedCase(LiteralPattern("1"), "branch_1"),
+        ),
+    )
+
+    assert sample_values_cover_reachable_cases(program)
 
 
 def test_generated_program_if_code_is_stable():
