@@ -105,7 +105,8 @@ class GuardedPattern:
     guard: str
 
     def to_condition_code(self, subject: str, safe: bool = False) -> str:
-        return f"{self.pattern.to_condition_code(subject, safe=safe)} and {self.guard}"
+        guard = self.guard.format(subject=subject)
+        return f"{self.pattern.to_condition_code(subject, safe=safe)} and {guard}"
 
     def to_value_code(self) -> str:
         return self.pattern.to_value_code()
@@ -793,6 +794,8 @@ def generate_guard_expression(rng: random.Random) -> str:
             "len([None]) == 1",
             "bool([None])",
             "(1 < 2 and 'x'.islower())",
+            "{subject} is not None",
+            "not isinstance({subject}, dict)",
             "False",
         ]
     )
@@ -1332,6 +1335,23 @@ def test_computed_guarded_generated_program_survives_matchify(tmp_path: Path):
     assert_matchify_preserves_trace(program, tmp_path)
 
 
+def test_subject_guarded_generated_program_survives_matchify(tmp_path: Path):
+    program = GeneratedProgram(
+        classes=("Point",),
+        cases=(
+            GeneratedCase(
+                GuardedPattern(LiteralPattern("1"), "{subject} is not None"),
+                "branch_0",
+            ),
+            GeneratedCase(LiteralPattern("2"), "branch_1"),
+        ),
+    )
+
+    source = program.to_trace_if_code()
+    assert "value is not None" in source
+    assert_matchify_preserves_trace(program, tmp_path)
+
+
 def test_guarded_sequence_generated_program_survives_matchify(tmp_path: Path):
     program = GeneratedProgram(
         classes=("Point",),
@@ -1571,16 +1591,14 @@ class Token:
 values = [
     [Token(items=[1, object()])],
     [Token(items=[])],
-    Point(items=[1, object()]),
-    Point(items=[]),
+    None,
     object(),
 ]
 for value in values:
-    if isinstance(value, (list, tuple)) and len(value) == 1 and isinstance(value[0], Token) and hasattr(value[0], 'items') and isinstance(value[0].items, (list, tuple)) and len(value[0].items) >= 1 and (1 < 2 and 'x'.islower()):
+    if isinstance(value, (list, tuple)) and len(value) == 1 and isinstance(value[0], Token) and hasattr(value[0], 'items') and isinstance(value[0].items, (list, tuple)) and len(value[0].items) >= 1 and value is not None:
         capture_0_0 = value[0].items[0]
         print('branch_0')
-    elif isinstance(value, Point) and hasattr(value, 'items') and isinstance(value.items, (list, tuple)) and len(value.items) >= 1:
-        capture_1_0 = value.items[0]
+    elif (value is None or value == 0 or value is False):
         print('branch_1')
 ---
 class Point:
