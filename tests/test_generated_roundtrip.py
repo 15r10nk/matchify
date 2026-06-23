@@ -414,6 +414,8 @@ def assert_matchify_preserves_trace(program: GeneratedProgram, tmp_path: Path) -
     assert changed is True
     assert error is None
     transformed = path.read_text(encoding="utf-8")
+    assert " match " in transformed
+
     assert execute_result(transformed) == expected_trace, (
         f"Trace mismatch\nGenerated if/else:\n{if_else_code}\n"
         f"Matchified code:\n{transformed}"
@@ -635,5 +637,5 @@ for value in values:
 
 
 def test_generated_if_traces_survive_matchify(tmp_path: Path):
-    for program in generated_programs(count=80, seed=20260623):
+    for program in generated_programs(count=80, seed=20260625):
         assert_matchify_preserves_trace(program, tmp_path)
