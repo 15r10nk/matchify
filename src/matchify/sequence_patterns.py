@@ -8,7 +8,11 @@ import libcst as cst
 from libcst import matchers as m
 
 from .patterns import build_class_pattern, build_value_pattern, flatten_boolean
-from .subject_path import SubjectPath, extract_integer_subscript_index
+from .subject_path import (
+    SubjectPath,
+    SubscriptPathPart,
+    extract_integer_subscript_index,
+)
 
 
 @dataclass(frozen=True)
@@ -474,6 +478,8 @@ def is_sequence_attribute_component(
             )
         if isinstance(left, cst.Subscript):
             return SubjectPath.from_expression(left.value, subject) is not None
+        if isinstance(left, cst.Attribute):
+            return SubjectPath.from_expression(left.value, subject) is not None
     if isinstance(node, cst.Call) and m.matches(
         node, m.Call(func=m.Name(value="isinstance"))
     ):
@@ -543,6 +549,11 @@ def is_component_for_sequence_subject(
             return len_call.args[0].value.deep_equals(sequence_subject)
         if isinstance(component.left, cst.Subscript):
             return component.left.value.deep_equals(sequence_subject)
+        if isinstance(component.left, cst.Attribute):
+            return component.left.value.deep_equals(sequence_subject) or (
+                isinstance(component.left.value, cst.Subscript)
+                and component.left.value.value.deep_equals(sequence_subject)
+            )
     if isinstance(component, cst.Call) and m.matches(
         component, m.Call(func=m.Name(value="isinstance"))
     ):
@@ -559,12 +570,19 @@ def build_sequence_element_class_pattern(
     class_exprs: list[cst.BaseExpression],
 ) -> cst.MatchPattern | None:
     sequence_subjects: dict[str, cst.Attribute] = {}
+    scalar_attrs: list[tuple[str, cst.BaseExpression]] = []
     for component in flatten_boolean(condition, cst.And):
         sequence_subject = extract_len_sequence_attribute(component, element_subject)
         if sequence_subject is not None:
             sequence_subjects[sequence_subject.attr.value] = sequence_subject
+            continue
 
-    if not sequence_subjects:
+        attr_check = extract_direct_attribute_check(component, element_subject)
+        if attr_check is not None:
+            attr_name, value = attr_check
+            scalar_attrs.append((attr_name, value))
+
+    if not sequence_subjects and not scalar_attrs:
         return None
     if len(class_exprs) > 1:
         return None
@@ -583,8 +601,73 @@ def build_sequence_element_class_pattern(
                 pattern=build_bracketed_sequence_match_list(pattern_infos, use_star),
             )
         )
+    for attr_name, value in scalar_attrs:
+        if attr_name in sequence_subjects:
+            continue
+        kwds.append(
+            cst.MatchKeywordElement(
+                key=cst.Name(attr_name), pattern=build_value_pattern(value)
+            )
+        )
 
     return cst.MatchClass(cls=class_exprs[0], patterns=[], kwds=kwds)
+
+
+def extract_direct_attribute_check(
+    node: cst.BaseExpression, subject: cst.BaseExpression
+) -> tuple[str, cst.BaseExpression] | None:
+    if not isinstance(node, cst.Comparison) or len(node.comparisons) != 1:
+        return None
+    if not isinstance(node.left, cst.Attribute):
+        return None
+    if not node.left.value.deep_equals(subject):
+        return None
+
+    target = node.comparisons[0]
+    if not isinstance(target.operator, (cst.Equal, cst.Is)):
+        return None
+    if isinstance(target.operator, cst.Is) and not m.matches(
+        target.comparator,
+        m.Name(value="None") | m.Name(value="True") | m.Name(value="False"),
+    ):
+        return None
+    if not SequencePatternCollector(subject)._is_literal_value(target.comparator):
+        return None
+
+    return node.left.attr.value, target.comparator
+
+
+def extract_sequence_element_direct_attribute_check(
+    node: cst.BaseExpression, sequence_subject: cst.BaseExpression
+) -> tuple[int, str, cst.BaseExpression] | None:
+    if not isinstance(node, cst.Comparison) or len(node.comparisons) != 1:
+        return None
+    if not isinstance(node.left, cst.Attribute):
+        return None
+
+    target = node.comparisons[0]
+    if not isinstance(target.operator, (cst.Equal, cst.Is)):
+        return None
+    if isinstance(target.operator, cst.Is) and not m.matches(
+        target.comparator,
+        m.Name(value="None") | m.Name(value="True") | m.Name(value="False"),
+    ):
+        return None
+    if not SequencePatternCollector(sequence_subject)._is_literal_value(
+        target.comparator
+    ):
+        return None
+
+    element_path = SubjectPath.from_expression(node.left.value, sequence_subject)
+    if (
+        element_path is None
+        or len(element_path.parts) != 1
+        or not isinstance(element_path.parts[0], SubscriptPathPart)
+        or element_path.parts[0].index is None
+    ):
+        return None
+
+    return element_path.parts[0].index, node.left.attr.value, target.comparator
 
 
 def extract_nested_sequence_element(

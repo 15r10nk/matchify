@@ -34,13 +34,12 @@ condition is unsupported or ambiguous, the transformer either keeps the original
 - A walrus expression in the `isinstance` subject position, for example
   `isinstance((x := make()), Point)`, is not converted because the assignment
   cannot be preserved safely by a pattern.
-- Some deeply combined recursive class patterns are currently normalized to
-  guards instead of fully nested patterns. For example, a class pattern that
-  combines a sequence attribute and another nested class attribute can become:
+- Sequence attributes inside a nested class attribute are currently normalized
+  to guards instead of fully nested patterns. For example:
 
   ```python
   match value:
-      case Node() if len(value.kind) == 2 and isinstance(value.y, Token):
+      case Point() if isinstance(value.x, Node) and len(value.x.kind) == 2:
           ...
   ```
 
@@ -48,7 +47,7 @@ condition is unsupported or ambiguous, the transformer either keeps the original
 
   ```python
   match value:
-      case Node(kind=[Node(), True], y=Token()):
+      case Point(x=Node(kind=[1, 2])):
           ...
   ```
 

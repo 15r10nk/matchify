@@ -934,6 +934,39 @@ class TestIfToMatchTransformer:
 
         check_code(source, expected)
 
+    def test_sequence_pattern_with_class_element_attributes(self):
+        """Test class attributes on an element inside a sequence pattern."""
+        source = dedent(
+            """
+            class Point:
+                def __init__(self, x, y):
+                    self.x = x
+                    self.y = y
+            value = [Point(1, 2)]
+            if len(value) == 1 and isinstance(value[0], Point) and value[0].x == 1 and value[0].y == 2:
+                print("match")
+            elif value == 1:
+                print("other")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Point:
+                def __init__(self, x, y):
+                    self.x = x
+                    self.y = y
+            value = [Point(1, 2)]
+            match value:
+                case Point(x=1, y=2),:
+                    print("match")
+                case 1:
+                    print("other")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_sequence_pattern_with_mixed_isinstance_and_literals(self):
         """Test sequence pattern mixing isinstance and literal checks.
 
@@ -2401,6 +2434,51 @@ class TestIfToMatchTransformer:
                 case Container(items=[1, 2, 3], count=3):
                     print("match")
                 case Container():
+                    print("other")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_isinstance_with_sequence_and_nested_class_attributes(self):
+        """Test class pattern with both sequence and nested class attributes."""
+        source = dedent(
+            """
+            class Node:
+                pass
+
+            class Token:
+                def __init__(self, x, y):
+                    self.x = x
+                    self.y = y
+
+            value = Node()
+            value.kind = [Node(), True]
+            value.y = Token('ready', 0)
+            if isinstance(value, Node) and len(value.kind) == 2 and isinstance(value.kind[0], Node) and value.kind[1] is True and isinstance(value.y, Token) and value.y.x == 'ready' and value.y.y == 0:
+                print("match")
+            elif isinstance(value, Node):
+                print("other")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Node:
+                pass
+
+            class Token:
+                def __init__(self, x, y):
+                    self.x = x
+                    self.y = y
+
+            value = Node()
+            value.kind = [Node(), True]
+            value.y = Token('ready', 0)
+            match value:
+                case Node(kind=[Node(), True], y=Token(x='ready', y=0)):
+                    print("match")
+                case Node():
                     print("other")
         """
         ).strip()

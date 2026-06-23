@@ -270,8 +270,7 @@ def generate_class_pattern(
     rng: random.Random, classes: tuple[str, ...], depth: int
 ) -> ClassPattern:
     class_name = rng.choice(classes)
-    max_attrs = 1 if depth > 0 else 2
-    attrs = rng.sample(["x", "y", "kind"], rng.randint(0, max_attrs))
+    attrs = rng.sample(["x", "y", "kind"], rng.randint(0, 2))
     attr_patterns = tuple(
         (attr, generate_attribute_pattern(rng, classes, depth)) for attr in attrs
     )
@@ -329,9 +328,7 @@ def generate_sequence_element_pattern(
     if kind == "singleton":
         return SingletonPattern(rng.choice(["None", "True", "False"]))
     if kind == "class":
-        # Matchify supports class checks inside sequence elements, but not
-        # arbitrary scalar class attributes on those nested element patterns.
-        return ClassPattern(rng.choice(classes))
+        return generate_class_pattern(rng, classes, depth=0)
     return generate_sequence_pattern(
         rng,
         classes,
@@ -613,11 +610,11 @@ class Point:
     pass
 value = None
 match value:
-    case Point():
+    case Point(y=[Point(x='red', y=3.5)], x=1):
         result = 'branch_0'
-    case Point(kind=None, x='red'):
+    case [-1, None], Point(kind=2, x=False), None:
         result = 'branch_1'
-    case 3.5,:
+    case None | 2 | 0:
         result = 'branch_2'
     case _:
         result = 'default'\
