@@ -3007,6 +3007,43 @@ class TestIfToMatchTransformer:
 
         check_code(source, expected)
 
+    def test_nested_attribute_non_literal_check_preserved_as_guard(self):
+        """Test nested non-literal attribute comparisons stay guards."""
+        source = dedent(
+            """
+            class Point:
+                pass
+
+            value = Point()
+            value.x = Point()
+            value.x.x = Point()
+            value.x.x.y = "ready"
+            if isinstance(value, Point) and isinstance(value.x, Point) and isinstance(value.x.x, Point) and value.x.x.y == str("ready"):
+                print("match")
+            elif isinstance(value, Point):
+                print("other")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Point:
+                pass
+
+            value = Point()
+            value.x = Point()
+            value.x.x = Point()
+            value.x.x.y = "ready"
+            match value:
+                case Point(x=Point(x=Point())) if value.x.x.y == str("ready"):
+                    print("match")
+                case Point():
+                    print("other")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_isinstance_with_nested_sequence_attributes(self):
         """Test nested isinstance with sequence attributes.
 

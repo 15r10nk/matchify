@@ -455,6 +455,11 @@ class NestedClassPatternRecognizer(BranchPatternRecognizer):
                 scalar_checks[path] = pattern
                 continue
 
+            attr_guard = extract_attribute_path_guard_check(component, subject)
+            if attr_guard is not None:
+                guards.append(attr_guard)
+                continue
+
             sequence_check = extract_attribute_path_sequence_len_check(
                 component, subject
             )
@@ -559,6 +564,11 @@ class SequenceAttributePatternRecognizer(BranchPatternRecognizer):
             if nested_scalar_check is not None:
                 path, pattern = nested_scalar_check
                 nested_scalar_checks[path] = pattern
+                continue
+
+            attr_guard = extract_attribute_path_guard_check(component, subject)
+            if attr_guard is not None:
+                guards.append(attr_guard)
                 continue
 
             if is_hasattr_guard(component, subject):
@@ -835,6 +845,24 @@ def extract_attribute_path_pattern_check(
     if attr_path is None:
         return None
     return attr_path, build_or_pattern(patterns)
+
+
+def extract_attribute_path_guard_check(
+    node: cst.BaseExpression, subject: cst.BaseExpression
+) -> cst.BaseExpression | None:
+    if not isinstance(node, cst.Comparison) or len(node.comparisons) != 1:
+        return None
+
+    path = SubjectPath.from_expression(node.left, subject)
+    if path is None or path.attribute_names is None:
+        return None
+
+    target = node.comparisons[0]
+    if not isinstance(target.operator, cst.Equal):
+        return None
+    if is_literal_value(target.comparator):
+        return None
+    return node
 
 
 def extract_attribute_path_isinstance_check(
