@@ -883,9 +883,9 @@ def extract_attribute_path_guard_check(
         return None
 
     target = node.comparisons[0]
-    if not isinstance(target.operator, cst.Equal):
-        return None
-    if is_literal_value(target.comparator):
+    if isinstance(target.operator, (cst.Equal, cst.Is)) and is_literal_value(
+        target.comparator
+    ):
         return None
     return node
 
