@@ -2342,6 +2342,48 @@ class TestIfToMatchTransformer:
 
         check_code(source, expected)
 
+    def test_capture_pattern_sequence_element_class_union_nested_attribute(self):
+        """Test nested captures inside sequence element class union alternatives."""
+        source = dedent(
+            """
+            class Point:
+                def __init__(self, **attrs):
+                    self.__dict__.update(attrs)
+
+            class Token:
+                def __init__(self, **attrs):
+                    self.__dict__.update(attrs)
+
+            value = [Point(x=Token(x=[1, 2])), -1]
+            if len(value) == 2 and isinstance(value[0], (Point, Token)) and isinstance(value[0].x, Token) and len(value[0].x.x) >= 2 and value[1] == -1:
+                item = value[0].x.x[1]
+                print(item)
+            elif value is False:
+                print("false")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Point:
+                def __init__(self, **attrs):
+                    self.__dict__.update(attrs)
+
+            class Token:
+                def __init__(self, **attrs):
+                    self.__dict__.update(attrs)
+
+            value = [Point(x=Token(x=[1, 2])), -1]
+            match value:
+                case Point(x=Token(x=[_, item, *_])) | Token(x=Token(x=[_, item, *_])), -1:
+                    print(item)
+                case False:
+                    print("false")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_mixed_pattern_types_in_chain(self):
         """Test that all pattern types can be mixed in a single if/elif chain.
 

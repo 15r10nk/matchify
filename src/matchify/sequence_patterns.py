@@ -761,6 +761,15 @@ def build_nested_sequence_element_pattern(
     scalar_checks: dict[tuple[str, ...], cst.MatchPattern],
     sequence_checks: dict[tuple[str, ...], cst.BaseExpression],
 ) -> cst.MatchPattern | None:
+    if path in sequence_checks:
+        sequence_result = extract_sequence_pattern_for_subject(
+            condition, sequence_checks[path]
+        )
+        if sequence_result is None:
+            return None
+        pattern_infos, use_star = sequence_result
+        return build_bracketed_sequence_match_list(pattern_infos, use_star)
+
     if path in nested_classes:
         class_patterns = []
         for class_expr in nested_classes[path]:
@@ -776,15 +785,6 @@ def build_nested_sequence_element_pattern(
                 return None
             class_patterns.append(class_pattern)
         return build_or_pattern(class_patterns)
-
-    if path in sequence_checks:
-        sequence_result = extract_sequence_pattern_for_subject(
-            condition, sequence_checks[path]
-        )
-        if sequence_result is None:
-            return None
-        pattern_infos, use_star = sequence_result
-        return build_bracketed_sequence_match_list(pattern_infos, use_star)
 
     return scalar_checks.get(path)
 
