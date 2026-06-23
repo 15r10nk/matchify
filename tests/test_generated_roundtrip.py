@@ -2,10 +2,11 @@ import random
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
 from io import StringIO
+from pathlib import Path
 
 from inline_snapshot import snapshot
 
-from matchify.transform import transform_code
+from matchify.cli import convert_file
 
 
 @dataclass(frozen=True)
@@ -384,10 +385,18 @@ def execute_result(source: str) -> tuple[str, str, type[BaseException] | None]:
     )
 
 
-def assert_round_trips(program: GeneratedProgram) -> None:
+def assert_round_trips(program: GeneratedProgram, tmp_path: Path) -> None:
     if_else_code = program.to_if_code()
     match_code = program.to_match_code()
-    transformed = transform_code(if_else_code)
+    path = tmp_path / "generated.py"
+    path.write_text(if_else_code, encoding="utf-8")
+
+    converted_path, changed, error = convert_file(path)
+
+    assert converted_path == path
+    assert changed is True
+    assert error is None
+    transformed = path.read_text(encoding="utf-8")
     assert transformed.strip() == match_code.strip(), (
         f"Round-trip mismatch\nGenerated match:\n{match_code}\n"
         f"Generated if/else:\n{if_else_code}\nRematchified:\n{transformed}"
@@ -586,9 +595,9 @@ match value:
     )
 
 
-def test_generated_match_patterns_round_trip_through_matchify():
+def test_generated_match_patterns_round_trip_through_matchify(tmp_path: Path):
     for program in generated_programs(count=80, seed=20260623):
-        assert_round_trips(program)
+        assert_round_trips(program, tmp_path)
 
 
 def test_generated_if_and_match_programs_execute_the_same():
