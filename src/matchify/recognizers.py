@@ -391,6 +391,9 @@ class SequencePatternRecognizer(BranchPatternRecognizer):
         if not is_component_for_sequence_subject(component, subject):
             return False
 
+        if m.matches(component.left, m.Call(func=m.Name(value="len"), args=[m.Arg()])):
+            return False
+
         path = SubjectPath.from_expression(component.left, subject)
         if path is not None and len(path.parts) == 1 and path.starts_with_subscript:
             return True

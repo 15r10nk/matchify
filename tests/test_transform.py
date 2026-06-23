@@ -2308,6 +2308,40 @@ class TestIfToMatchTransformer:
 
         check_code(source, expected)
 
+    def test_capture_pattern_sequence_element_class_attribute(self):
+        """Test captures from sequence element class attributes."""
+        source = dedent(
+            """
+            class Point:
+                def __init__(self, items):
+                    self.items = items
+
+            value = [Point([1, 2, 3])]
+            if len(value) == 1 and isinstance(value[0], Point) and len(value[0].items) >= 1:
+                item = value[0].items[0]
+                print(item)
+            elif value == 0:
+                print("zero")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Point:
+                def __init__(self, items):
+                    self.items = items
+
+            value = [Point([1, 2, 3])]
+            match value:
+                case Point(items=[item, *_]),:
+                    print(item)
+                case 0:
+                    print("zero")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_mixed_pattern_types_in_chain(self):
         """Test that all pattern types can be mixed in a single if/elif chain.
 
