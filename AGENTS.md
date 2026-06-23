@@ -249,6 +249,23 @@ print(isinstance(node, cst.If))
 node1.deep_equals(node2)
 ```
 
+### Minimizing Generated Failures
+
+For complex failures produced by the generated roundtrip tests,
+`pysource-minimize` can reduce a large generated Python file to a smaller
+reproducer while a command still fails.
+
+Example CLI shape:
+```bash
+pysource-minimize --file bug.py --track "Trace mismatch" -- python bug.py
+```
+
+For Matchify bugs, prefer a precise checker that runs Matchify on the generated
+if/elif trace program and verifies that the original trace differs from the
+matchified trace. Avoid overly broad checks such as just looking for any
+`AssertionError`, because the minimizer may find a different program that fails
+for an unrelated reason.
+
 ## Dependencies
 
 - **libcst>=1.8.6** - Core CST parsing and transformation
