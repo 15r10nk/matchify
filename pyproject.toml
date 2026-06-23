@@ -73,7 +73,7 @@ parallel = true
 scripts.test = "pytest {args:tests}"
 dependencies = [
   "pytest",
-  "inline-snapshot"
+  "inline-snapshot[black]"
 ]
 
 [tool.hatch.envs.all]
@@ -81,7 +81,7 @@ dependencies = [
   "coverage[toml]>=6.5",
   "coverage-enable-subprocess",
   "pytest",
-  "inline-snapshot"
+  "inline-snapshot[black]"
 ]
 env-vars.TOP = "{root}"
 scripts.test-cov = "coverage run -m pytest {args:tests}"
@@ -116,6 +116,7 @@ path = "src/matchify/__init__.py"
 [dependency-groups]
 dev = [
     "coverage>=7.12.0",
+    "inline-snapshot[black]>=0.30.1",
     "pytest>=9.0.1",
     "pytest-cov>=7.0.0",
 ]
