@@ -381,32 +381,40 @@ class SequencePatternRecognizer(BranchPatternRecognizer):
     def _is_sequence_guard_component(
         self, component: cst.BaseExpression, subject: cst.BaseExpression
     ) -> bool:
-        if isinstance(component, cst.BooleanOperation) and isinstance(
-            component.operator, cst.Or
-        ):
-            return is_component_for_sequence_subject(component, subject)
+        return is_sequence_subject_guard_component(component, subject)
 
-        if not isinstance(component, cst.Comparison) or len(component.comparisons) != 1:
-            return False
-        if not is_component_for_sequence_subject(component, subject):
-            return False
 
-        if m.matches(component.left, m.Call(func=m.Name(value="len"), args=[m.Arg()])):
-            return False
+def is_sequence_subject_guard_component(
+    component: cst.BaseExpression, subject: cst.BaseExpression
+) -> bool:
+    if isinstance(component, cst.BooleanOperation) and isinstance(
+        component.operator, cst.Or
+    ):
+        parts = flatten_boolean(component, cst.Or)
+        return all(
+            is_component_for_sequence_subject(part, subject) for part in parts
+        ) and any(is_sequence_subject_guard_component(part, subject) for part in parts)
 
-        target = component.comparisons[0]
-        if isinstance(target.operator, cst.Equal) and not is_literal_value(
-            target.comparator
-        ):
-            path = SubjectPath.from_expression(component.left, subject)
-            return path is not None and path.starts_with_subscript
+    if not isinstance(component, cst.Comparison) or len(component.comparisons) != 1:
+        return False
+    if not is_component_for_sequence_subject(component, subject):
+        return False
 
+    if m.matches(component.left, m.Call(func=m.Name(value="len"), args=[m.Arg()])):
+        return False
+
+    target = component.comparisons[0]
+    if isinstance(target.operator, cst.Equal) and not is_literal_value(
+        target.comparator
+    ):
         path = SubjectPath.from_expression(component.left, subject)
-        if path is not None and len(path.parts) == 1 and path.starts_with_subscript:
-            return True
+        return path is not None and path.starts_with_subscript
 
-        operator = target.operator
-        return not isinstance(operator, (cst.Equal, cst.Is))
+    path = SubjectPath.from_expression(component.left, subject)
+    if path is not None and len(path.parts) == 1 and path.starts_with_subscript:
+        return not isinstance(target.operator, (cst.Equal, cst.Is))
+
+    return not isinstance(target.operator, (cst.Equal, cst.Is))
 
 
 class NestedClassPatternRecognizer(BranchPatternRecognizer):
@@ -479,6 +487,11 @@ class NestedClassPatternRecognizer(BranchPatternRecognizer):
                 is_component_for_sequence_subject(component, sequence_subject)
                 for sequence_subject in sequence_checks.values()
             ):
+                if any(
+                    is_sequence_subject_guard_component(component, sequence_subject)
+                    for sequence_subject in sequence_checks.values()
+                ):
+                    guards.append(component)
                 continue
 
             if is_subject_derived_complex_pattern(component, subject):
@@ -582,13 +595,18 @@ class SequenceAttributePatternRecognizer(BranchPatternRecognizer):
                 guards.append(component)
                 continue
 
+            sequence_guard_subjects = list(sequence_subjects.values()) + list(
+                nested_sequence_checks.values()
+            )
             if any(
                 is_component_for_sequence_subject(component, sequence_subject)
-                for sequence_subject in (
-                    list(sequence_subjects.values())
-                    + list(nested_sequence_checks.values())
-                )
+                for sequence_subject in sequence_guard_subjects
             ):
+                if any(
+                    is_sequence_subject_guard_component(component, sequence_subject)
+                    for sequence_subject in sequence_guard_subjects
+                ):
+                    guards.append(component)
                 continue
 
             if is_sequence_attribute_component(component, subject):

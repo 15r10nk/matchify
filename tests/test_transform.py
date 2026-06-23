@@ -2863,6 +2863,47 @@ class TestIfToMatchTransformer:
 
         check_code(source, expected)
 
+    def test_sequence_attribute_element_non_literal_check_preserved_as_guard(self):
+        """Test non-literal checks on sequence attribute elements stay guards."""
+        source = dedent(
+            """
+            class Node:
+                def __init__(self, y):
+                    self.y = y
+
+            class Point:
+                def __init__(self, y):
+                    self.y = y
+
+            value = Node([[0], Point(1)])
+            if isinstance(value, Node) and len(value.y) == 2 and len(value.y[0]) == 1 and value.y[0][0] == 0 and isinstance(value.y[1], Point) and value.y[1].y == len([None]):
+                print("match")
+            elif isinstance(value, Node):
+                print("node")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Node:
+                def __init__(self, y):
+                    self.y = y
+
+            class Point:
+                def __init__(self, y):
+                    self.y = y
+
+            value = Node([[0], Point(1)])
+            match value:
+                case Node(y=[[0], Point()]) if value.y[1].y == len([None]):
+                    print("match")
+                case Node():
+                    print("node")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_isinstance_with_sequence_attribute_mixed_types(self):
         """Test class pattern with sequence attribute containing mixed types."""
         source = dedent(
