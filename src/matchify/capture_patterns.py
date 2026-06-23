@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import libcst as cst
 
+from .subject_path import SubjectPath
+
 
 class CapturePatternTransformer(cst.CSTTransformer):
     """Second-pass transformer that adds capture patterns to match statements.
@@ -37,17 +39,17 @@ class CapturePatternTransformer(cst.CSTTransformer):
                 continue
 
             # Group captures by attribute
-            captures_by_attr = {}
-            for var_name, attr_name, index in captures:
-                if attr_name not in captures_by_attr:
-                    captures_by_attr[attr_name] = []
-                captures_by_attr[attr_name].append((var_name, attr_name, index))
+            captures_by_attr_path = {}
+            for var_name, attr_path, index in captures:
+                if attr_path not in captures_by_attr_path:
+                    captures_by_attr_path[attr_path] = []
+                captures_by_attr_path[attr_path].append((var_name, attr_path, index))
 
             # Try to add captures for each attribute
             new_pattern = case.pattern
-            for attr_name, attr_captures in captures_by_attr.items():
+            for attr_path, attr_captures in captures_by_attr_path.items():
                 new_pattern = self._add_multiple_captures_to_pattern(
-                    new_pattern, attr_name, attr_captures
+                    new_pattern, attr_path, attr_captures
                 )
                 if new_pattern is None:
                     break
@@ -67,11 +69,11 @@ class CapturePatternTransformer(cst.CSTTransformer):
 
     def _detect_multiple_captures(
         self, body: cst.IndentedBlock, subject: cst.BaseExpression
-    ) -> list[tuple[str, str, int]]:
+    ) -> list[tuple[str, tuple[str, ...], int]]:
         """Detect multiple consecutive capture assignments at the start of body.
 
         Returns:
-            List of (var_name, attr_name, index) tuples, one for each capture assignment.
+            List of (var_name, attr_path, index) tuples, one for each capture assignment.
             Empty list if no valid captures found.
         """
         captures = []
@@ -96,11 +98,11 @@ class CapturePatternTransformer(cst.CSTTransformer):
 
     def _detect_capture_assignment(
         self, assign: cst.Assign, subject: cst.BaseExpression
-    ) -> tuple[str, str, int] | None:
-        """Detect if assignment is like: var = subject.attr[index]
+    ) -> tuple[str, tuple[str, ...], int] | None:
+        """Detect if assignment is like: var = subject.attr[index].
 
         Returns:
-            Tuple of (var_name, attr_name, index) or None if not matching pattern
+            Tuple of (var_name, attr_path, index) or None if not matching pattern
         """
         # Check target is a simple name
         if len(assign.targets) != 1:
@@ -122,12 +124,10 @@ class CapturePatternTransformer(cst.CSTTransformer):
         if not isinstance(subscript.value, cst.Attribute):
             return None
 
-        attr = subscript.value
-        attr_name = attr.attr.value
-
-        # Check the base is the match subject
-        if not attr.value.deep_equals(subject):
+        path = SubjectPath.from_expression(subscript.value, subject)
+        if path is None or path.attribute_names is None:
             return None
+        attr_path = path.attribute_names
 
         # Check index is an integer literal
         if not isinstance(subscript.slice[0].slice, cst.Index):
@@ -139,13 +139,13 @@ class CapturePatternTransformer(cst.CSTTransformer):
 
         index = int(index_node.value)
 
-        return (var_name, attr_name, index)
+        return (var_name, attr_path, index)
 
     def _add_multiple_captures_to_pattern(
         self,
         pattern: cst.MatchClass,
-        attr_name: str,
-        captures: list[tuple[str, str, int]],
+        attr_path: tuple[str, ...],
+        captures: list[tuple[str, tuple[str, ...], int]],
     ) -> cst.MatchClass | None:
         """Add multiple capture patterns to the specified attribute.
 
@@ -158,6 +158,11 @@ class CapturePatternTransformer(cst.CSTTransformer):
         Supports indices not starting from 0:
         captures = [('second', 'x', 1), ('third', 'x', 2)] → Point(x=[_, second, third, *_])
         """
+        if len(attr_path) > 1:
+            return self._add_nested_captures_to_pattern(pattern, attr_path, captures)
+
+        attr_name = attr_path[0]
+
         # Get indices and sort captures by index
         indices = [idx for _, _, idx in captures]
         sorted_captures = sorted(captures, key=lambda c: c[2])
@@ -235,6 +240,43 @@ class CapturePatternTransformer(cst.CSTTransformer):
             new_seq_pattern = seq_pattern.with_changes(patterns=new_elements)
             new_kwd = kwd.with_changes(pattern=new_seq_pattern)
             new_kwds.append(new_kwd)
+            found = True
+
+        if not found:
+            return None
+
+        return pattern.with_changes(kwds=new_kwds)
+
+    def _add_nested_captures_to_pattern(
+        self,
+        pattern: cst.MatchClass,
+        attr_path: tuple[str, ...],
+        captures: list[tuple[str, tuple[str, ...], int]],
+    ) -> cst.MatchClass | None:
+        attr_name = attr_path[0]
+        remaining_path = attr_path[1:]
+        new_kwds = []
+        found = False
+
+        for kwd in pattern.kwds:
+            if not isinstance(kwd, cst.MatchKeywordElement):
+                new_kwds.append(kwd)
+                continue
+
+            if kwd.key.value != attr_name:
+                new_kwds.append(kwd)
+                continue
+
+            if not isinstance(kwd.pattern, cst.MatchClass):
+                new_kwds.append(kwd)
+                continue
+
+            nested_pattern = self._add_multiple_captures_to_pattern(
+                kwd.pattern, remaining_path, captures
+            )
+            if nested_pattern is None:
+                return None
+            new_kwds.append(kwd.with_changes(pattern=nested_pattern))
             found = True
 
         if not found:

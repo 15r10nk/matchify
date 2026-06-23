@@ -2224,6 +2224,48 @@ class TestIfToMatchTransformer:
 
         check_code(source, expected)
 
+    def test_capture_pattern_nested_attribute(self):
+        """Test capturing from a sequence on a nested class attribute."""
+        source = dedent(
+            """
+            class Point:
+                def __init__(self, data):
+                    self.data = data
+
+            class Data:
+                def __init__(self, items):
+                    self.items = items
+
+            n = Point(Data([1, 2, 3]))
+            if isinstance(n, Point) and isinstance(n.data, Data) and len(n.data.items) >= 1:
+                item = n.data.items[0]
+                print(item)
+            elif isinstance(n, Point):
+                print("point")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Point:
+                def __init__(self, data):
+                    self.data = data
+
+            class Data:
+                def __init__(self, items):
+                    self.items = items
+
+            n = Point(Data([1, 2, 3]))
+            match n:
+                case Point(data=Data(items=[item, *_])):
+                    print(item)
+                case Point():
+                    print("point")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_mixed_pattern_types_in_chain(self):
         """Test that all pattern types can be mixed in a single if/elif chain.
 

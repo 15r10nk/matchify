@@ -155,16 +155,16 @@ class CaptureClassPattern:
         elements = ", ".join(str(index + 1) for index in range(self.required_length()))
         return f"{self.class_name}({self.attr}=[{elements}, object()])"
 
-    def body_code(self, label: str, subject: str, case_index: int) -> str:
+    def capture_assignments(
+        self, subject: str, case_index: int, names: list[str]
+    ) -> list[str]:
         lines = []
-        names = []
+        start = len(names)
         for capture_number, capture_index in enumerate(self.capture_indices):
-            name = f"capture_{case_index}_{capture_number}"
+            name = f"capture_{case_index}_{start + capture_number}"
             names.append(name)
             lines.append(f"{name} = {subject}.{self.attr}[{capture_index}]")
-        captured_values = ",".join(f"{{{name}!r}}" for name in names)
-        lines.append(f"print(f'{label}:{captured_values}')")
-        return "\n".join(lines)
+        return lines
 
     def required_length(self) -> int:
         return max(self.capture_indices) + 1
@@ -315,14 +315,48 @@ def class_attr_sort_key(attr_pattern: tuple[str, GeneratedPattern]) -> tuple[int
     return (0 if is_sequence else 1, attr)
 
 
+def collect_capture_assignments(
+    pattern: GeneratedPattern, subject: str, case_index: int, names: list[str]
+) -> list[str]:
+    if isinstance(pattern, CaptureClassPattern):
+        return pattern.capture_assignments(subject, case_index, names)
+    if isinstance(pattern, GuardedPattern):
+        return collect_capture_assignments(pattern.pattern, subject, case_index, names)
+    if isinstance(pattern, ClassPattern):
+        lines = []
+        for attr, attr_pattern in sorted(pattern.attrs, key=class_attr_sort_key):
+            lines.extend(
+                collect_capture_assignments(
+                    attr_pattern, f"{subject}.{attr}", case_index, names
+                )
+            )
+        return lines
+    return []
+
+
+def contains_capture(pattern: GeneratedPattern) -> bool:
+    if isinstance(pattern, CaptureClassPattern):
+        return True
+    if isinstance(pattern, GuardedPattern):
+        return contains_capture(pattern.pattern)
+    if isinstance(pattern, (ClassPattern, ClassUnionPattern)):
+        return any(contains_capture(attr_pattern) for _, attr_pattern in pattern.attrs)
+    return False
+
+
 @dataclass(frozen=True)
 class GeneratedCase:
     pattern: GeneratedPattern
     body: str
 
     def trace_body_code(self, subject: str, case_index: int) -> str:
-        if isinstance(self.pattern, CaptureClassPattern):
-            return self.pattern.body_code(self.body, subject, case_index)
+        names: list[str] = []
+        assignments = collect_capture_assignments(
+            self.pattern, subject, case_index, names
+        )
+        if assignments:
+            captured_values = ",".join(f"{{{name}!r}}" for name in names)
+            return "\n".join([*assignments, f"print(f'{self.body}:{captured_values}')"])
         return f"print({self.body!r})"
 
 
@@ -481,7 +515,11 @@ def generate_class_pattern(
     attr_patterns = tuple(
         (attr, generate_attribute_pattern(rng, classes, depth)) for attr in attrs
     )
-    if len(classes) > 1 and rng.choice([True, False]):
+    if (
+        len(classes) > 1
+        and not any(contains_capture(pattern) for _, pattern in attr_patterns)
+        and rng.choice([True, False])
+    ):
         class_names = tuple(rng.sample(classes, rng.randint(2, len(classes))))
         return ClassUnionPattern(class_names, attr_patterns)
     return ClassPattern(class_name, attr_patterns)
@@ -568,6 +606,7 @@ def generate_attribute_pattern(
         "singleton",
         "or_literal",
         "class",
+        "capture_class",
         "sequence",
         "gapped_sequence",
         "star",
@@ -582,6 +621,8 @@ def generate_attribute_pattern(
         return generate_or_literal_pattern(rng)
     if kind == "class":
         return generate_class_pattern(rng, classes, depth=depth - 1)
+    if kind == "capture_class":
+        return generate_capture_class_pattern(rng, classes)
     if kind == "gapped_sequence":
         return generate_gapped_sequence_pattern(
             rng, classes, depth=depth - 1, bracketed=True
@@ -814,6 +855,43 @@ def test_generated_capture_program_survives_matchify(tmp_path: Path):
     )
 
 
+def test_generated_nested_capture_program_survives_matchify(tmp_path: Path):
+    program = GeneratedProgram(
+        classes=("Point", "Data"),
+        cases=(
+            GeneratedCase(
+                ClassPattern(
+                    "Point",
+                    (("data", CaptureClassPattern("Data", "items", (0, 2))),),
+                ),
+                "branch_0",
+            ),
+            GeneratedCase(ClassPattern("Point"), "branch_1"),
+            GeneratedCase(WildcardPattern(), "default"),
+        ),
+    )
+    source = program.to_trace_if_code()
+    path = tmp_path / "generated_nested_capture.py"
+    path.write_text(source, encoding="utf-8")
+    expected_trace = execute_result(source)
+
+    converted_path, changed, error = convert_file(path)
+
+    assert converted_path == path
+    assert changed is True
+    assert error is None
+    transformed = path.read_text(encoding="utf-8")
+    assert "case Point(data=Data(items=[capture_0_0, _, capture_0_1, *_]))" in (
+        transformed
+    )
+    assert "capture_0_0 = value.data.items[0]" not in transformed
+    assert "capture_0_1 = value.data.items[2]" not in transformed
+    assert execute_result(transformed) == expected_trace, (
+        f"Trace mismatch\nGenerated if/else:\n{source}\n"
+        f"Matchified code:\n{transformed}"
+    )
+
+
 def test_pattern_ir_generates_if_conditions():
     pattern = ClassPattern(
         "Point",
@@ -1036,7 +1114,7 @@ class Node:
         self.__dict__.update(attrs)
 values = [
     [[Token(kind='ready'), object(), [-1, object()], object(), object(), object()], object()],
-    Token(kind=[[None, 'blue', object()], 'red', ['red', object()], object()]),
+    Token(kind=[object(), object(), 'red', ['red', object()], object()]),
     [[['red', False, 0, object(), 'red'], [None, 'red', 'red', 'blue', object()], object(), [None, 1], object()], None],
     [[1, object()]],
     object(),
@@ -1044,7 +1122,7 @@ values = [
 for value in values:
     if isinstance(value, (list, tuple)) and len(value) >= 1 and isinstance(value[0], (list, tuple)) and len(value[0]) >= 5 and isinstance(value[0][0], Token) and hasattr(value[0][0], 'kind') and value[0][0].kind == 'ready' and isinstance(value[0][2], (list, tuple)) and len(value[0][2]) >= 1 and value[0][2][0] == -1:
         print('branch_0')
-    elif isinstance(value, (Token, Point)) and hasattr(value, 'kind') and isinstance(value.kind, (list, tuple)) and len(value.kind) >= 3 and isinstance(value.kind[0], (list, tuple)) and len(value.kind[0]) >= 2 and value.kind[0][0] is None and value.kind[0][1] == 'blue' and (value.kind[1] == 'red' or value.kind[1] == 0 or value.kind[1] == 1) and isinstance(value.kind[2], (list, tuple)) and len(value.kind[2]) >= 1 and value.kind[2][0] == 'red':
+    elif isinstance(value, (Token, Point)) and hasattr(value, 'kind') and isinstance(value.kind, (list, tuple)) and len(value.kind) == 5 and (value.kind[2] == 'red' or value.kind[2] == 0 or value.kind[2] == 1) and isinstance(value.kind[3], (list, tuple)) and len(value.kind[3]) >= 1 and value.kind[3][0] == 'red':
         print('branch_1')
     elif isinstance(value, (list, tuple)) and len(value) == 2 and isinstance(value[0], (list, tuple)) and len(value[0]) >= 4 and isinstance(value[0][0], (list, tuple)) and len(value[0][0]) == 5 and value[0][0][0] == 'red' and value[0][0][1] is False and value[0][0][2] == 0 and value[0][0][4] == 'red' and isinstance(value[0][1], (list, tuple)) and len(value[0][1]) >= 4 and value[0][1][0] is None and value[0][1][1] == 'red' and value[0][1][2] == 'red' and value[0][1][3] == 'blue' and isinstance(value[0][3], (list, tuple)) and len(value[0][3]) == 2 and value[0][3][0] is None and value[0][3][1] == 1 and value[1] is None:
         print('branch_2')

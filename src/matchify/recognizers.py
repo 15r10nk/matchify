@@ -576,7 +576,7 @@ class SequenceAttributePatternRecognizer(BranchPatternRecognizer):
 
             return None
 
-        if class_exprs is None or not sequence_subjects:
+        if class_exprs is None or not (sequence_subjects or nested_sequence_checks):
             return None
 
         keyword_patterns: list[tuple[str, cst.MatchPattern]] = []
@@ -601,6 +601,8 @@ class SequenceAttributePatternRecognizer(BranchPatternRecognizer):
         for path, component in nested_class_components.items():
             if path in sequence_paths:
                 guards.append(component)
+        for path in sequence_paths:
+            nested_classes.pop(path, None)
 
         for attr_name, pattern in scalar_attrs:
             if attr_name in sequence_subjects:

@@ -56,7 +56,9 @@ condition is unsupported or ambiguous, the transformer either keeps the original
 ## Capture Patterns
 
 - Capture patterns are only detected from simple assignments that immediately
-  read checked sequence elements.
+  read checked direct or nested sequence attributes.
 - Duplicate captures for the same source index are not converted.
+- Capture extraction does not descend into OR class alternatives such as
+  `case Point(...) | Token(...):`.
 - Capture extraction is conservative when body statements or index usage become
   ambiguous.
