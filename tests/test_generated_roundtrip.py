@@ -715,6 +715,44 @@ def assert_matchify_preserves_trace(program: GeneratedProgram, tmp_path: Path) -
     )
 
 
+def test_generated_capture_program_survives_matchify(tmp_path: Path):
+    source = """
+class Point:
+    def __init__(self, **attrs):
+        self.__dict__.update(attrs)
+
+values = [
+    Point(x=[1, 2]),
+    Point(x=[]),
+    object(),
+]
+for value in values:
+    if isinstance(value, Point) and len(value.x) >= 1:
+        first = value.x[0]
+        print(f"branch_0:{first}")
+    elif isinstance(value, Point):
+        print("branch_1")
+    else:
+        print("default")
+""".lstrip()
+    path = tmp_path / "generated_capture.py"
+    path.write_text(source, encoding="utf-8")
+    expected_trace = execute_result(source)
+
+    converted_path, changed, error = convert_file(path)
+
+    assert converted_path == path
+    assert changed is True
+    assert error is None
+    transformed = path.read_text(encoding="utf-8")
+    assert "case Point(x=[first, *_]):" in transformed
+    assert "first = value.x[0]" not in transformed
+    assert execute_result(transformed) == expected_trace, (
+        f"Trace mismatch\nGenerated if/else:\n{source}\n"
+        f"Matchified code:\n{transformed}"
+    )
+
+
 def test_pattern_ir_generates_if_conditions():
     pattern = ClassPattern(
         "Point",
