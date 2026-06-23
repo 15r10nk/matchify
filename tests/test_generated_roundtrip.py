@@ -1057,7 +1057,10 @@ def pattern_from_literal_or_singleton(value: str) -> LiteralPattern | SingletonP
 
 
 def generate_or_literal_pattern(rng: random.Random) -> OrPattern:
-    values = rng.sample(["0", "1", "2", "'red'", "'blue'", "None", "False"], 3)
+    values = rng.sample(
+        ["0", "1", "2", "3.5", "'red'", "'blue'", "'ready'", "None", "False"],
+        rng.randint(2, 4),
+    )
     return OrPattern(
         tuple(pattern_from_literal_or_singleton(value) for value in values)
     )
@@ -1492,6 +1495,53 @@ def test_guarded_sequence_element_generated_program_survives_matchify(
     assert_matchify_preserves_trace(program, tmp_path)
 
 
+def test_or_attribute_generated_program_survives_matchify(tmp_path: Path):
+    program = GeneratedProgram(
+        classes=("Point",),
+        cases=(
+            GeneratedCase(
+                ClassPattern(
+                    "Point",
+                    (
+                        (
+                            "x",
+                            OrPattern((LiteralPattern("1"), LiteralPattern("2"))),
+                        ),
+                    ),
+                ),
+                "branch_0",
+            ),
+            GeneratedCase(ClassPattern("Point"), "branch_1"),
+            GeneratedCase(WildcardPattern(), "default"),
+        ),
+    )
+
+    source = program.to_trace_if_code()
+    assert "(value.x == 1 or value.x == 2)" in source
+    assert_matchify_preserves_trace(program, tmp_path)
+
+
+def test_or_sequence_element_generated_program_survives_matchify(tmp_path: Path):
+    program = GeneratedProgram(
+        classes=("Point",),
+        cases=(
+            GeneratedCase(
+                SequencePattern(
+                    (OrPattern((LiteralPattern("1"), LiteralPattern("2"))),),
+                    False,
+                ),
+                "branch_0",
+            ),
+            GeneratedCase(SingletonPattern("None"), "branch_1"),
+            GeneratedCase(WildcardPattern(), "default"),
+        ),
+    )
+
+    source = program.to_trace_if_code()
+    assert "(value[0] == 1 or value[0] == 2)" in source
+    assert_matchify_preserves_trace(program, tmp_path)
+
+
 def test_attribute_guarded_class_generated_program_survives_matchify(tmp_path: Path):
     program = GeneratedProgram(
         classes=("Point",),
@@ -1785,14 +1835,14 @@ class Token:
 values = [
     Point(y=[1, 2, object()]),
     Point(y=[object()]),
-    ['blue', True],
+    [None, 'ready'],
     object(),
 ]
 for value in values:
     if isinstance(value, Point) and hasattr(value, 'y') and isinstance(value.y, (list, tuple)) and len(value.y) >= 2:
         capture_0_0 = value.y[1]
         print('branch_0')
-    elif isinstance(value, (list, tuple)) and len(value) == 2 and (value[0] == 'blue' or value[0] == 'red' or value[0] == 0) and value[1] is True:
+    elif isinstance(value, (list, tuple)) and len(value) == 2 and (value[0] is None or value[0] == 1 or value[0] == 0 or value[0] == 2) and value[1] == 'ready' and bool([None]) and not isinstance(value[1], dict):
         print('branch_1')
 ---
 class Point:
@@ -1802,24 +1852,34 @@ class Point:
 class Token:
     def __init__(self, **attrs):
         self.__dict__.update(attrs)
+
+class Node:
+    def __init__(self, **attrs):
+        self.__dict__.update(attrs)
 values = [
-    [[True], Token(y=['ready', 2, object(), None, object(), object()]), Point(y=[1, object()]), Point(), [[object(), 3.5, object(), object()], Token(y=1), [object(), True, None, object(), None]]],
-    [[True], Token(y=['ready', 2, object(), None, object(), object()]), Point(y=[]), Point(), [[object(), 3.5, object(), object()], Token(y=1), [object(), True, None, object(), None]]],
-    [object(), [None, object(), Point(y='ready'), 'blue'], object()],
-    [object(), [None, object(), Point(y='miss'), 'blue'], object()],
-    1,
+    [-1, -1, 2],
+    [Point(x=Token(y=[1, 2, 3, object()])), 1, Token()],
+    [Point(x=Token(y=[object(), object()])), 1, Token()],
+    Node(items=[1, object()]),
+    Node(items=[]),
+    3.5,
+    Point(),
     object(),
 ]
 for value in values:
-    if isinstance(value, (list, tuple)) and len(value) == 5 and isinstance(value[0], (list, tuple)) and len(value[0]) == 1 and value[0][0] is True and isinstance(value[1], Token) and hasattr(value[1], 'y') and isinstance(value[1].y, (list, tuple)) and len(value[1].y) >= 5 and value[1].y[0] == 'ready' and value[1].y[1] == 2 and value[1].y[3] is None and isinstance(value[2], Point) and hasattr(value[2], 'y') and isinstance(value[2].y, (list, tuple)) and len(value[2].y) >= 1 and isinstance(value[3], (Point, Token)) and isinstance(value[4], (list, tuple)) and len(value[4]) == 3 and isinstance(value[4][0], (list, tuple)) and len(value[4][0]) == 4 and value[4][0][1] == 3.5 and isinstance(value[4][1], Token) and hasattr(value[4][1], 'y') and value[4][1].y == 1 and isinstance(value[4][2], (list, tuple)) and len(value[4][2]) == 5 and value[4][2][1] is True and value[4][2][2] is None and value[4][2][4] is None:
-        capture_0_0 = value[2].y[0]
+    if isinstance(value, (list, tuple)) and len(value) == 3 and value[0] == -1 and value[1] == -1 and value[2] == 2:
         print('branch_0')
-    elif isinstance(value, (list, tuple)) and len(value) >= 2 and isinstance(value[1], (list, tuple)) and len(value[1]) == 4 and value[1][0] is None and len([None]) == 1 and isinstance(value[1][2], Point) and hasattr(value[1][2], 'y') and value[1][2].y == str('ready') and value[1][3] == 'blue' and not False:
+    elif isinstance(value, (list, tuple)) and len(value) == 3 and isinstance(value[0], Point) and hasattr(value[0], 'x') and isinstance(value[0].x, Token) and hasattr(value[0].x, 'y') and isinstance(value[0].x.y, (list, tuple)) and len(value[0].x.y) >= 3 and (value[1] == 1 or value[1] is None or value[1] == 0) and isinstance(value[2], Token):
+        capture_1_0 = value[0].x.y[1]
+        capture_1_1 = value[0].x.y[2]
         print('branch_1')
-    elif value == 1:
+    elif isinstance(value, Node) and hasattr(value, 'items') and isinstance(value.items, (list, tuple)) and len(value.items) >= 1:
+        capture_2_0 = value.items[0]
         print('branch_2')
-    else:
-        print('default')\
+    elif value == 3.5:
+        print('branch_3')
+    elif isinstance(value, (Point, Node)):
+        print('branch_4')\
 """
     )
 
