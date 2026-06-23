@@ -389,6 +389,47 @@ class TestEdgeCases:
 
         check_code(source, expected)
 
+    def test_isinstance_with_nested_class_sequence_attribute(self):
+        """Test sequence attributes inside a nested class attribute."""
+        source = dedent(
+            """
+            class Point:
+                def __init__(self, data=None):
+                    self.data = data
+
+            class Data:
+                def __init__(self, kind=None):
+                    self.kind = kind
+
+            obj = Point(Data([1, 2]))
+            if isinstance(obj, Point) and isinstance(obj.data, Data) and len(obj.data.kind) == 2 and obj.data.kind[0] == 1 and obj.data.kind[1] == 2:
+                print("match")
+            elif isinstance(obj, int):
+                print("int")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Point:
+                def __init__(self, data=None):
+                    self.data = data
+
+            class Data:
+                def __init__(self, kind=None):
+                    self.kind = kind
+
+            obj = Point(Data([1, 2]))
+            match obj:
+                case Point(data=Data(kind=[1, 2])):
+                    print("match")
+                case int():
+                    print("int")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_isinstance_with_nested_isinstance_tuple(self):
         """Test nested isinstance with tuple of classes on nested attribute."""
         source = dedent(

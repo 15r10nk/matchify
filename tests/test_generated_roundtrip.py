@@ -263,7 +263,7 @@ def generate_attribute_pattern(
     if kind == "singleton":
         return SingletonPattern(rng.choice(["None", "True", "False"]))
     if kind == "class":
-        return generate_class_pattern(rng, classes, depth=0)
+        return generate_class_pattern(rng, classes, depth=depth - 1)
     return generate_sequence_pattern(
         rng, classes, depth - 1, bracketed=True, allow_nested_sequence=False
     )
