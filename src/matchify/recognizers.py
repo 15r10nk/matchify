@@ -106,8 +106,20 @@ class SubjectRecognizer:
 
         subject: cst.BaseExpression | None = None
         for part in parts:
-            if not isinstance(part, cst.Comparison) or len(part.comparisons) != 1:
+            part_subject = self._recognize_or_part_subject(part)
+            if part_subject is None:
                 return None
+            if subject is None:
+                subject = part_subject
+            elif not part_subject.deep_equals(subject):
+                return None
+
+        return subject
+
+    def _recognize_or_part_subject(
+        self, part: cst.BaseExpression
+    ) -> cst.BaseExpression | None:
+        if isinstance(part, cst.Comparison) and len(part.comparisons) == 1:
             target = part.comparisons[0]
             if not isinstance(target.operator, (cst.Equal, cst.Is)):
                 return None
@@ -117,12 +129,21 @@ class SubjectRecognizer:
                 return None
             if not is_literal_value(target.comparator):
                 return None
-            if subject is None:
-                subject = part.left
-            elif not part.left.deep_equals(subject):
-                return None
+            return part.left
 
-        return subject
+        if isinstance(part, cst.Call) and m.matches(
+            part, m.Call(func=m.Name(value="isinstance"))
+        ):
+            if (
+                len(part.args) >= 2
+                and extract_isinstance_classes(
+                    part.args[1].value, self.ignore_types_pattern
+                )
+                is not None
+            ):
+                return part.args[0].value
+
+        return None
 
     def _find_value_subject(
         self, test: cst.BaseExpression
@@ -208,7 +229,10 @@ class EqualityPatternRecognizer(BranchPatternRecognizer):
 
 
 class OrPatternRecognizer(BranchPatternRecognizer):
-    """Recognizes `subject == a or subject == b` style OR patterns."""
+    """Recognizes OR chains of value or plain class patterns."""
+
+    def __init__(self, ignore_types_pattern: str | None = r".*_TYPES$") -> None:
+        self.ignore_types_pattern = ignore_types_pattern
 
     def recognize(
         self, condition: cst.BaseExpression, subject: cst.BaseExpression
@@ -220,9 +244,21 @@ class OrPatternRecognizer(BranchPatternRecognizer):
         patterns = []
         for part in parts:
             result = EqualityPatternRecognizer().recognize(part, subject)
-            if result is None or result.guard is not None or result.pattern is None:
+            if (
+                result is not None
+                and result.guard is None
+                and result.pattern is not None
+            ):
+                patterns.append(result.pattern)
+                continue
+
+            class_exprs = extract_isinstance_call(
+                part, subject, ignore_types_pattern=self.ignore_types_pattern
+            )
+            if class_exprs is None:
                 return None
-            patterns.append(result.pattern)
+            for class_expr in class_exprs:
+                patterns.append(build_class_pattern([class_expr]))
 
         return PatternMatch(build_or_pattern(patterns), None)
 
@@ -692,7 +728,9 @@ class GuardFallbackRecognizer(BranchPatternRecognizer):
         guard_parts = []
 
         for component in components:
-            or_pattern = OrPatternRecognizer().recognize(component, subject)
+            or_pattern = OrPatternRecognizer(self.ignore_types_pattern).recognize(
+                component, subject
+            )
             if (
                 or_pattern is not None
                 and or_pattern.pattern is not None
@@ -734,7 +772,7 @@ class PatternRecognitionEngine:
         # Order matters: exact recognizers run before broader recognizers so the
         # fallback only preserves genuinely unsupported fragments as guards.
         self.branch_recognizers: list[BranchPatternRecognizer] = [
-            OrPatternRecognizer(),
+            OrPatternRecognizer(ignore_types_pattern),
             EqualityPatternRecognizer(),
             ClassPatternRecognizer(ignore_types_pattern),
             SequencePatternRecognizer(),

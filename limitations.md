@@ -24,8 +24,12 @@ condition is unsupported or ambiguous, the transformer either keeps the original
 - Comparisons against f-strings are not converted into value patterns because
   Python does not allow f-strings in `case` value patterns. They can still be
   preserved as guards around a surrounding class or sequence pattern.
-- OR patterns must compare the same subject in every alternative.
-- OR patterns with non-literal alternatives are not converted.
+- OR patterns must describe the same subject in every alternative.
+- OR patterns support literal/singleton comparisons and plain `isinstance`
+  alternatives such as `x == 1 or isinstance(x, Point)`.
+- OR branches that need their own nested attribute or sequence checks, such as
+  `(isinstance(x, Point) and x.kind == 1) or isinstance(x, Token)`, are not
+  converted yet.
 
 ## Class Patterns
 

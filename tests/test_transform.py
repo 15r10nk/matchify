@@ -2036,6 +2036,74 @@ class TestIfToMatchTransformer:
 
         check_code(source, expected)
 
+    def test_or_pattern_with_isinstance_classes(self):
+        """Test OR pattern from isinstance checks on the same subject."""
+        source = dedent(
+            """
+            class Point:
+                pass
+
+            class Node:
+                pass
+
+            value = Point()
+            if isinstance(value, Point) or isinstance(value, Node):
+                print("class")
+            elif value == 1:
+                print("one")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Point:
+                pass
+
+            class Node:
+                pass
+
+            value = Point()
+            match value:
+                case Point() | Node():
+                    print("class")
+                case 1:
+                    print("one")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_or_pattern_with_mixed_value_and_isinstance(self):
+        """Test OR pattern mixing a literal and a class pattern."""
+        source = dedent(
+            """
+            class Point:
+                pass
+
+            value = Point()
+            if value == 1 or isinstance(value, Point):
+                print("one or point")
+            elif value is None:
+                print("none")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Point:
+                pass
+
+            value = Point()
+            match value:
+                case 1 | Point():
+                    print("one or point")
+                case None:
+                    print("none")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_or_pattern_with_variable_not_converted(self):
         """Test that OR patterns with variables (non-literals) are not converted."""
         source = dedent(

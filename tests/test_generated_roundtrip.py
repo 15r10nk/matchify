@@ -37,7 +37,7 @@ class SingletonPattern:
 
 @dataclass(frozen=True)
 class OrPattern:
-    """Generates `subject == a or subject == b`, matching `case a | b:`."""
+    """Generates OR conditions, matching `case a | Class() | ...:`."""
 
     alternatives: tuple["GeneratedPattern", ...]
 
@@ -704,7 +704,7 @@ def generate_pattern(
     if kind == "singleton":
         return SingletonPattern(rng.choice(["None", "True", "False"]))
     if kind == "or_literal":
-        return generate_or_literal_pattern(rng)
+        return generate_or_pattern(rng, classes)
     if kind == "class":
         return generate_class_pattern(rng, classes, depth=0)
     if kind == "attribute_guarded_class":
@@ -1119,6 +1119,17 @@ def generate_or_literal_pattern(rng: random.Random) -> OrPattern:
     return OrPattern(
         tuple(pattern_from_literal_or_singleton(value) for value in values)
     )
+
+
+def generate_or_pattern(rng: random.Random, classes: tuple[str, ...]) -> OrPattern:
+    alternatives: list[GeneratedPattern] = list(
+        generate_or_literal_pattern(rng).alternatives
+    )
+    if classes and rng.choice([True, False]):
+        for class_name in rng.sample(classes, rng.randint(1, len(classes))):
+            alternatives.append(ClassPattern(class_name))
+    rng.shuffle(alternatives)
+    return OrPattern(tuple(alternatives))
 
 
 def generate_literal_or_singleton(
@@ -1767,6 +1778,30 @@ def test_or_sequence_element_generated_program_survives_matchify(tmp_path: Path)
 
     source = program.to_trace_if_code()
     assert "(value[0] == 1 or value[0] == 2)" in source
+    assert_matchify_preserves_trace(program, tmp_path)
+
+
+def test_class_or_generated_program_survives_matchify(tmp_path: Path):
+    program = GeneratedProgram(
+        classes=("Point", "Token"),
+        cases=(
+            GeneratedCase(
+                OrPattern(
+                    (
+                        ClassPattern("Point"),
+                        ClassPattern("Token"),
+                        LiteralPattern("1"),
+                    )
+                ),
+                "branch_0",
+            ),
+            GeneratedCase(SingletonPattern("None"), "branch_1"),
+            GeneratedCase(WildcardPattern(), "default"),
+        ),
+    )
+
+    source = program.to_trace_if_code()
+    assert "isinstance(value, Point) or isinstance(value, Token)" in source
     assert_matchify_preserves_trace(program, tmp_path)
 
 

@@ -37,3 +37,14 @@ class TestExtractSubject:
         subject = transformer._extract_subject(test_expr)
         assert subject is not None
         assert subject.deep_equals(cst.parse_expression("obj.attr"))
+
+    def test_extract_subject_from_isinstance_or_pattern(self):
+        """Test extracting subject from class OR conditions."""
+        transformer = IfToMatchTransformer()
+
+        source = "isinstance(value, Point) or isinstance(value, Node)"
+        test_expr = cst.parse_expression(source)
+
+        subject = transformer._extract_subject(test_expr)
+        assert subject is not None
+        assert subject.deep_equals(cst.parse_expression("value"))
