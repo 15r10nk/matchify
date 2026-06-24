@@ -258,6 +258,8 @@ class OrPatternRecognizer(BranchPatternRecognizer):
     def _recognize_part_pattern(
         self, part: cst.BaseExpression, subject: cst.BaseExpression
     ) -> cst.MatchPattern | None:
+        part = remove_redundant_hasattr_checks(part, subject)
+
         result = EqualityPatternRecognizer().recognize(part, subject)
         if result is not None and result.guard is None:
             return result.pattern
@@ -275,6 +277,7 @@ class OrPatternRecognizer(BranchPatternRecognizer):
 
         for recognizer in (
             ClassPatternRecognizer(self.ignore_types_pattern),
+            SequencePatternRecognizer(),
             NestedClassPatternRecognizer(self.ignore_types_pattern),
             SequenceAttributePatternRecognizer(self.ignore_types_pattern),
         ):
@@ -284,6 +287,11 @@ class OrPatternRecognizer(BranchPatternRecognizer):
                 and part_result.guard is None
                 and part_result.pattern is not None
             ):
+                if isinstance(part_result.pattern, cst.MatchList):
+                    return part_result.pattern.with_changes(
+                        lbracket=cst.LeftSquareBracket(),
+                        rbracket=cst.RightSquareBracket(),
+                    )
                 return part_result.pattern
 
         return None
@@ -296,6 +304,58 @@ def extend_or_patterns(
         patterns.extend(element.pattern for element in pattern.patterns)
         return
     patterns.append(pattern)
+
+
+def remove_redundant_hasattr_checks(
+    part: cst.BaseExpression, subject: cst.BaseExpression
+) -> cst.BaseExpression:
+    if not isinstance(part, cst.BooleanOperation) or not isinstance(
+        part.operator, cst.And
+    ):
+        return part
+
+    components = flatten_boolean(part, cst.And)
+    checked_attrs = {
+        attr_name
+        for component in components
+        if (attr_check := extract_attribute_pattern_check(component, subject))
+        is not None
+        for attr_name, _ in (attr_check,)
+    }
+    if not checked_attrs:
+        return part
+
+    filtered = [
+        component
+        for component in components
+        if extract_direct_hasattr_name(component, subject) not in checked_attrs
+    ]
+    if len(filtered) == len(components):
+        return part
+    if len(filtered) == 1:
+        return filtered[0]
+    combined = combine_guards(filtered)
+    return combined if combined is not None else part
+
+
+def extract_direct_hasattr_name(
+    node: cst.BaseExpression, subject: cst.BaseExpression
+) -> str | None:
+    if not isinstance(node, cst.Call) or not m.matches(
+        node, m.Call(func=m.Name(value="hasattr"))
+    ):
+        return None
+    if len(node.args) != 2 or not node.args[0].value.deep_equals(subject):
+        return None
+    name_arg = node.args[1].value
+    if not isinstance(name_arg, cst.SimpleString):
+        return None
+    try:
+        value = cst.ensure_type(cst.parse_expression(name_arg.value), cst.SimpleString)
+    except cst.ParserSyntaxError:
+        return None
+    literal = value.evaluated_value
+    return literal if isinstance(literal, str) else None
 
 
 class ClassPatternRecognizer(BranchPatternRecognizer):

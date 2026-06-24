@@ -1128,6 +1128,8 @@ def generate_or_pattern(rng: random.Random, classes: tuple[str, ...]) -> OrPatte
     if classes and rng.choice([True, False]):
         for class_name in rng.sample(classes, rng.randint(1, len(classes))):
             alternatives.append(generate_or_class_alternative(rng, class_name))
+    if rng.choice([True, False]):
+        alternatives.append(generate_or_sequence_alternative(rng))
     rng.shuffle(alternatives)
     return OrPattern(tuple(alternatives))
 
@@ -1138,6 +1140,14 @@ def generate_or_class_alternative(rng: random.Random, class_name: str) -> ClassP
 
     attr = rng.choice(["x", "y", "kind"])
     return ClassPattern(class_name, ((attr, generate_literal_or_singleton(rng)),))
+
+
+def generate_or_sequence_alternative(rng: random.Random) -> SequencePattern:
+    return SequencePattern(
+        tuple(generate_literal_or_singleton(rng) for _ in range(rng.randint(1, 3))),
+        bracketed=False,
+        tuple_value=rng.choice([True, False]),
+    )
 
 
 def generate_literal_or_singleton(
@@ -1835,6 +1845,33 @@ def test_class_attribute_or_generated_program_survives_matchify(tmp_path: Path):
     source = program.to_trace_if_code()
     assert "isinstance(value, Point)" in source
     assert "value.kind == 1" in source
+    assert_matchify_preserves_trace(program, tmp_path)
+
+
+def test_sequence_or_generated_program_survives_matchify(tmp_path: Path):
+    program = GeneratedProgram(
+        classes=("Token",),
+        cases=(
+            GeneratedCase(
+                OrPattern(
+                    (
+                        SequencePattern(
+                            (LiteralPattern("1"), LiteralPattern("2")),
+                            bracketed=False,
+                        ),
+                        ClassPattern("Token"),
+                        SingletonPattern("None"),
+                    )
+                ),
+                "branch_0",
+            ),
+            GeneratedCase(LiteralPattern("3"), "branch_1"),
+            GeneratedCase(WildcardPattern(), "default"),
+        ),
+    )
+
+    source = program.to_trace_if_code()
+    assert "len(value) == 2" in source
     assert_matchify_preserves_trace(program, tmp_path)
 
 

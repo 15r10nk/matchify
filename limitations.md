@@ -27,8 +27,7 @@ condition is unsupported or ambiguous, the transformer either keeps the original
 - OR patterns must describe the same subject in every alternative.
 - OR patterns support literal/singleton comparisons, plain `isinstance`
   alternatives such as `x == 1 or isinstance(x, Point)`, and alternatives whose
-  nested class attribute checks can be moved fully into patterns.
-- Top-level sequence patterns are not folded into OR patterns yet.
+  nested class attribute or sequence checks can be moved fully into patterns.
 - OR alternatives that need their own guards, such as
   `(isinstance(x, Point) and x.kind > 0) or isinstance(x, Token)`, are not folded
   into one OR pattern because Python only supports guards for the whole `case`.

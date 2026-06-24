@@ -2143,6 +2143,45 @@ class TestIfToMatchTransformer:
 
         check_code(source, expected)
 
+    def test_or_pattern_with_redundant_hasattr_class_attribute_alternative(self):
+        """Test safe hasattr checks do not block class attribute OR patterns."""
+        source = dedent(
+            """
+            class Point:
+                def __init__(self, kind):
+                    self.kind = kind
+
+            class Token:
+                pass
+
+            value = Point(1)
+            if (isinstance(value, Point) and hasattr(value, "kind") and value.kind == 1) or isinstance(value, Token):
+                print("match")
+            elif value is None:
+                print("none")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Point:
+                def __init__(self, kind):
+                    self.kind = kind
+
+            class Token:
+                pass
+
+            value = Point(1)
+            match value:
+                case Point(kind=1) | Token():
+                    print("match")
+                case None:
+                    print("none")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_or_pattern_with_mixed_value_and_class_attribute_alternative(self):
         """Test OR pattern mixing a literal and a class attribute pattern."""
         source = dedent(
@@ -2215,8 +2254,8 @@ class TestIfToMatchTransformer:
 
         check_code(source, expected)
 
-    def test_or_pattern_with_sequence_alternative_stays_guard(self):
-        """Test top-level sequence OR alternatives are not grouped incorrectly."""
+    def test_or_pattern_with_sequence_alternative(self):
+        """Test top-level sequence OR alternatives are bracketed correctly."""
         source = dedent(
             """
             class Token:
@@ -2237,7 +2276,7 @@ class TestIfToMatchTransformer:
 
             value = [1, 2]
             match value:
-                case _ if (len(value) == 2 and value[0] == 1 and value[1] == 2) or isinstance(value, Token):
+                case [1, 2] | Token():
                     print("match")
                 case None:
                     print("none")
