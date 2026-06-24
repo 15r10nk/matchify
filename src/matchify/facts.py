@@ -60,7 +60,7 @@ class OrFact:
     """Multiple alternative facts for the same subject path."""
 
     path: SubjectPath
-    alternatives: tuple[ValueFact | ClassFact | PatternTree, ...]
+    alternatives: tuple[ValueFact | ClassFact | tuple[PathFact, ...], ...]
 
 
 PathFact = ValueFact | ClassFact | SequenceFact | OrFact
@@ -199,46 +199,6 @@ class PatternTree:
     node: PatternNode
 
     @classmethod
-    def from_value_fact(cls, fact: ValueFact) -> PatternTree:
-        return cls.from_facts((fact,))
-
-    @classmethod
-    def from_class_fact(
-        cls,
-        fact: ClassFact,
-        *,
-        value_facts: tuple[ValueFact, ...] = (),
-        class_facts: tuple[ClassFact, ...] = (),
-        sequence_facts: tuple[SequenceFact, ...] = (),
-        or_facts: tuple[OrFact, ...] = (),
-        capture_facts: tuple[CaptureFact, ...] = (),
-    ) -> PatternTree:
-        return cls.from_facts(
-            (fact, *sequence_facts, *or_facts, *value_facts, *class_facts),
-            capture_facts=capture_facts,
-        )
-
-    @classmethod
-    def from_sequence_fact(
-        cls,
-        fact: SequenceFact,
-        *,
-        value_facts: tuple[ValueFact, ...] = (),
-        class_facts: tuple[ClassFact, ...] = (),
-        sequence_facts: tuple[SequenceFact, ...] = (),
-        or_facts: tuple[OrFact, ...] = (),
-        capture_facts: tuple[CaptureFact, ...] = (),
-    ) -> PatternTree:
-        return cls.from_facts(
-            (fact, *or_facts, *sequence_facts, *value_facts, *class_facts),
-            capture_facts=capture_facts,
-        )
-
-    @classmethod
-    def from_or_patterns(cls, patterns: tuple[PatternTree, ...]) -> PatternTree:
-        return cls(OrNode(tuple(pattern.node for pattern in patterns)))
-
-    @classmethod
     def from_facts(
         cls,
         facts: tuple[PathFact, ...],
@@ -297,87 +257,11 @@ class BranchFacts:
         )
 
     @classmethod
-    def from_value_fact(
-        cls,
-        condition: cst.BaseExpression,
-        subject: cst.BaseExpression,
-        fact: ValueFact,
-        *,
-        guard: cst.BaseExpression | None = None,
-    ) -> BranchFacts:
-        return cls(
-            condition=condition,
-            subject=subject,
-            facts=(fact,),
-            pattern=PatternTree.from_value_fact(fact),
-            guard=guard,
-        )
-
-    @classmethod
-    def from_class_fact(
-        cls,
-        condition: cst.BaseExpression,
-        subject: cst.BaseExpression,
-        fact: ClassFact,
-        *,
-        value_facts: tuple[ValueFact, ...] = (),
-        class_facts: tuple[ClassFact, ...] = (),
-        sequence_facts: tuple[SequenceFact, ...] = (),
-        or_facts: tuple[OrFact, ...] = (),
-        capture_facts: tuple[CaptureFact, ...] = (),
-        guard: cst.BaseExpression | None = None,
-    ) -> BranchFacts:
-        return cls(
-            condition=condition,
-            subject=subject,
-            facts=(fact, *sequence_facts, *or_facts, *value_facts, *class_facts),
-            pattern=PatternTree.from_class_fact(
-                fact,
-                value_facts=value_facts,
-                class_facts=class_facts,
-                sequence_facts=sequence_facts,
-                or_facts=or_facts,
-                capture_facts=capture_facts,
-            ),
-            guard=guard,
-        )
-
-    @classmethod
-    def from_sequence_fact(
-        cls,
-        condition: cst.BaseExpression,
-        subject: cst.BaseExpression,
-        fact: SequenceFact,
-        *,
-        value_facts: tuple[ValueFact, ...] = (),
-        class_facts: tuple[ClassFact, ...] = (),
-        sequence_facts: tuple[SequenceFact, ...] = (),
-        or_facts: tuple[OrFact, ...] = (),
-        capture_facts: tuple[CaptureFact, ...] = (),
-        guard: cst.BaseExpression | None = None,
-    ) -> BranchFacts:
-        return cls(
-            condition=condition,
-            subject=subject,
-            facts=(fact, *or_facts, *sequence_facts, *value_facts, *class_facts),
-            pattern=PatternTree.from_sequence_fact(
-                fact,
-                value_facts=value_facts,
-                class_facts=class_facts,
-                sequence_facts=sequence_facts,
-                or_facts=or_facts,
-                capture_facts=capture_facts,
-            ),
-            guard=guard,
-        )
-
-    @classmethod
-    def from_or_patterns(
+    def from_facts(
         cls,
         condition: cst.BaseExpression,
         subject: cst.BaseExpression,
         facts: tuple[BranchFact, ...],
-        patterns: tuple[PatternTree, ...],
         *,
         guard: cst.BaseExpression | None = None,
     ) -> BranchFacts:
@@ -385,7 +269,7 @@ class BranchFacts:
             condition=condition,
             subject=subject,
             facts=facts,
-            pattern=PatternTree.from_or_patterns(patterns),
+            pattern=PatternTree.from_facts(facts),
             guard=guard,
         )
 
@@ -414,13 +298,13 @@ def node_from_fact(fact: PathFact) -> PatternNode:
 
 
 def node_from_or_alternative(
-    alternative: ValueFact | ClassFact | PatternTree,
+    alternative: ValueFact | ClassFact | tuple[PathFact, ...],
 ) -> PatternNode:
     if isinstance(alternative, ValueFact):
         return ValueNode(alternative.value)
     if isinstance(alternative, ClassFact):
         return ClassNode(alternative.classes)
-    return alternative.node
+    return PatternTree.from_facts(alternative).node
 
 
 def insert_node(root: PatternNode, path: SubjectPath, node: PatternNode) -> PatternNode:
@@ -554,16 +438,28 @@ def bracket_sequence_pattern(pattern: cst.MatchList) -> cst.MatchList:
 
 def strip_or_alternative_prefix(
     fact: OrFact, path: SubjectPath
-) -> tuple[ValueFact | ClassFact | PatternTree, ...]:
-    alternatives: list[ValueFact | ClassFact | PatternTree] = []
+) -> tuple[ValueFact | ClassFact | tuple[PathFact, ...], ...]:
+    alternatives: list[ValueFact | ClassFact | tuple[PathFact, ...]] = []
     for alternative in fact.alternatives:
         if isinstance(alternative, ValueFact):
             alternatives.append(ValueFact(path, alternative.value))
         elif isinstance(alternative, ClassFact):
             alternatives.append(ClassFact(path, alternative.classes))
         else:
-            alternatives.append(alternative)
+            alternatives.append(strip_or_alternative_fact_prefix(path, alternative))
     return tuple(alternatives)
+
+
+def strip_or_alternative_fact_prefix(
+    path: SubjectPath, facts: tuple[PathFact, ...]
+) -> tuple[PathFact, ...]:
+    if not facts:
+        return facts
+    first_fact = facts[0]
+    return (
+        replace_fact_path(first_fact, path),
+        *facts[1:],
+    )
 
 
 def replace_fact_path(fact: PathFact, path: SubjectPath) -> PathFact:

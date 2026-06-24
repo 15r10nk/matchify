@@ -10,7 +10,6 @@ from .facts import (
     ClassFact,
     OrFact,
     PathFact,
-    PatternTree,
     SequenceFact,
     ValueFact,
     replace_fact_path,
@@ -459,8 +458,7 @@ def normalize_or_branch_facts(
     if len(parts) <= 1:
         return None
 
-    facts: list[ValueFact | ClassFact | SequenceFact] = []
-    patterns: list[PatternTree] = []
+    alternatives: list[tuple[PathFact, ...]] = []
     guards: list[cst.BaseExpression | None] = []
     for part in parts:
         part = remove_redundant_subject_checks(part, subject)
@@ -473,8 +471,7 @@ def normalize_or_branch_facts(
         )
         if branch is None or branch.pattern is None:
             return None
-        facts.extend(branch.facts)
-        patterns.append(branch.pattern)
+        alternatives.append(branch.facts)
         guards.append(branch.guard)
 
     common_guard = common_or_guard(guards)
@@ -483,11 +480,10 @@ def normalize_or_branch_facts(
     if common_guard is not None and not is_liftable_or_guard(common_guard):
         return None
 
-    return BranchFacts.from_or_patterns(
+    return BranchFacts.from_facts(
         condition,
         subject,
-        tuple(facts),
-        tuple(patterns),
+        (OrFact(SubjectPath(()), tuple(alternatives)),),
         guard=common_guard,
     )
 
@@ -525,32 +521,17 @@ def normalize_unguarded_fact_backed_branch(
 ) -> BranchFacts | None:
     value_fact = normalize_subject_value_fact(condition, subject)
     if value_fact is not None:
-        return BranchFacts.from_value_fact(condition, subject, value_fact)
+        return BranchFacts.from_facts(condition, subject, (value_fact,))
 
     class_fact = normalize_subject_class_fact(condition, subject, ignore_types_pattern)
     if class_fact is not None:
-        return BranchFacts.from_class_fact(condition, subject, class_fact)
+        return BranchFacts.from_facts(condition, subject, (class_fact,))
 
     class_attribute_facts = normalize_subject_class_attribute_facts(
         condition, subject, ignore_types_pattern
     )
     if class_attribute_facts is not None:
-        (
-            class_fact,
-            attribute_value_facts,
-            attribute_class_facts,
-            attribute_sequence_facts,
-            attribute_or_facts,
-        ) = class_attribute_facts
-        return BranchFacts.from_class_fact(
-            condition,
-            subject,
-            class_fact,
-            value_facts=attribute_value_facts,
-            class_facts=attribute_class_facts,
-            sequence_facts=attribute_sequence_facts,
-            or_facts=attribute_or_facts,
-        )
+        return BranchFacts.from_facts(condition, subject, class_attribute_facts)
 
     sequence_facts = normalize_subject_sequence_facts(
         condition, subject, ignore_types_pattern
@@ -558,22 +539,7 @@ def normalize_unguarded_fact_backed_branch(
     if sequence_facts is None:
         return None
 
-    (
-        sequence_fact,
-        sequence_value_facts,
-        sequence_class_facts,
-        sequence_sequence_facts,
-        sequence_or_facts,
-    ) = sequence_facts
-    return BranchFacts.from_sequence_fact(
-        condition,
-        subject,
-        sequence_fact,
-        value_facts=sequence_value_facts,
-        class_facts=sequence_class_facts,
-        sequence_facts=sequence_sequence_facts,
-        or_facts=sequence_or_facts,
-    )
+    return BranchFacts.from_facts(condition, subject, sequence_facts)
 
 
 def normalize_guarded_fact_backed_branch(
@@ -624,8 +590,8 @@ def normalize_guarded_fact_backed_branch(
     if branch is None:
         sequence_fact = normalize_sequence_length_fact(pattern_condition, subject)
         if sequence_fact is not None and sequence_fact.path.is_subject:
-            branch = BranchFacts.from_sequence_fact(
-                pattern_condition, subject, sequence_fact
+            branch = BranchFacts.from_facts(
+                pattern_condition, subject, (sequence_fact,)
             )
     if branch is None or branch.pattern is None:
         return None
@@ -804,7 +770,7 @@ def normalize_path_or_fact(
         return None
 
     path: SubjectPath | None = None
-    alternatives: list[ValueFact | ClassFact | PatternTree] = []
+    alternatives: list[ValueFact | ClassFact | tuple[PathFact, ...]] = []
     for part in parts:
         part = remove_redundant_subject_checks(
             part, subject, remove_sequence_type_checks=True
@@ -822,12 +788,12 @@ def normalize_path_or_fact(
                 )
             if pattern_info is None:
                 return None
-            fact_path, pattern_tree = pattern_info
+            fact_path, pattern_facts = pattern_info
             if path is None:
                 path = fact_path
             elif fact_path != path:
                 return None
-            alternatives.append(pattern_tree)
+            alternatives.append(pattern_facts)
             continue
         if path is None:
             path = fact.path
@@ -844,7 +810,7 @@ def normalize_path_pattern_tree(
     condition: cst.BaseExpression,
     subject: cst.BaseExpression,
     ignore_types_pattern: str | None,
-) -> tuple[SubjectPath, PatternTree] | None:
+) -> tuple[SubjectPath, tuple[PathFact, ...]] | None:
     if not isinstance(condition, cst.BooleanOperation) or not isinstance(
         condition.operator, cst.And
     ):
@@ -907,12 +873,12 @@ def normalize_path_pattern_tree(
 
     return (
         base_path,
-        PatternTree.from_class_fact(
+        (
             ClassFact(SubjectPath(()), class_fact.classes),
-            value_facts=strip_path_prefix(base_path, tuple(value_facts)),
-            class_facts=strip_path_prefix(base_path, tuple(class_facts)),
-            sequence_facts=strip_path_prefix(base_path, tuple(sequence_facts)),
-            or_facts=strip_path_prefix(base_path, tuple(or_facts)),
+            *strip_path_prefix(base_path, tuple(sequence_facts)),
+            *strip_path_prefix(base_path, tuple(or_facts)),
+            *strip_path_prefix(base_path, tuple(value_facts)),
+            *strip_path_prefix(base_path, tuple(class_facts)),
         ),
     )
 
@@ -921,29 +887,20 @@ def normalize_path_sequence_pattern_tree(
     condition: cst.BaseExpression,
     subject: cst.BaseExpression,
     ignore_types_pattern: str | None,
-) -> tuple[SubjectPath, PatternTree] | None:
+) -> tuple[SubjectPath, tuple[PathFact, ...]] | None:
     sequence_facts = normalize_sequence_pattern_facts(
         condition, subject, ignore_types_pattern
     )
     if sequence_facts is None:
         return None
 
-    (
-        sequence_fact,
-        value_facts,
-        class_facts,
-        nested_sequence_facts,
-        or_facts,
-    ) = sequence_facts
+    sequence_fact = sequence_facts[0]
     base_path = sequence_fact.path
     return (
         base_path,
-        PatternTree.from_sequence_fact(
+        (
             SequenceFact(SubjectPath(()), sequence_fact.length, sequence_fact.use_star),
-            value_facts=strip_path_prefix(base_path, value_facts),
-            class_facts=strip_path_prefix(base_path, class_facts),
-            sequence_facts=strip_path_prefix(base_path, nested_sequence_facts),
-            or_facts=strip_path_prefix(base_path, or_facts),
+            *strip_path_prefix(base_path, sequence_facts[1:]),
         ),
     )
 
@@ -967,16 +924,7 @@ def normalize_subject_class_attribute_facts(
     condition: cst.BaseExpression,
     subject: cst.BaseExpression,
     ignore_types_pattern: str | None,
-) -> (
-    tuple[
-        ClassFact,
-        tuple[ValueFact, ...],
-        tuple[ClassFact, ...],
-        tuple[SequenceFact, ...],
-        tuple[OrFact, ...],
-    ]
-    | None
-):
+) -> tuple[PathFact, ...] | None:
     if not isinstance(condition, cst.BooleanOperation) or not isinstance(
         condition.operator, cst.And
     ):
@@ -1048,10 +996,10 @@ def normalize_subject_class_attribute_facts(
         return None
     return (
         class_fact,
-        tuple(value_facts),
-        tuple(attribute_class_facts),
-        tuple(attribute_sequence_facts),
-        tuple(attribute_or_facts),
+        *attribute_sequence_facts,
+        *attribute_or_facts,
+        *value_facts,
+        *attribute_class_facts,
     )
 
 
@@ -1147,16 +1095,7 @@ def normalize_sequence_pattern_facts(
     condition: cst.BaseExpression,
     subject: cst.BaseExpression,
     ignore_types_pattern: str | None,
-) -> (
-    tuple[
-        SequenceFact,
-        tuple[ValueFact, ...],
-        tuple[ClassFact, ...],
-        tuple[SequenceFact, ...],
-        tuple[OrFact, ...],
-    ]
-    | None
-):
+) -> tuple[PathFact, ...] | None:
     if not isinstance(condition, cst.BooleanOperation) or not isinstance(
         condition.operator, cst.And
     ):
@@ -1235,10 +1174,10 @@ def normalize_sequence_pattern_facts(
         return None
     return (
         sequence_fact,
-        tuple(value_facts),
-        tuple(class_facts),
-        nested_sequence_facts,
-        tuple(or_facts),
+        *or_facts,
+        *nested_sequence_facts,
+        *value_facts,
+        *class_facts,
     )
 
 
@@ -1271,16 +1210,7 @@ def normalize_subject_sequence_facts(
     condition: cst.BaseExpression,
     subject: cst.BaseExpression,
     ignore_types_pattern: str | None,
-) -> (
-    tuple[
-        SequenceFact,
-        tuple[ValueFact, ...],
-        tuple[ClassFact, ...],
-        tuple[SequenceFact, ...],
-        tuple[OrFact, ...],
-    ]
-    | None
-):
+) -> tuple[PathFact, ...] | None:
     sequence_facts = normalize_sequence_pattern_facts(
         condition, subject, ignore_types_pattern
     )

@@ -154,8 +154,8 @@ def test_normalize_branch_builds_or_value_facts():
     facts = normalize("value == 1 or value == 2", "value")
 
     assert facts.pattern is not None
-    assert [type(fact) for fact in facts.facts] == [ValueFact, ValueFact]
-    assert all(fact.path.is_subject for fact in facts.facts)
+    assert [type(fact) for fact in facts.facts] == [OrFact]
+    assert facts.facts[0].path.is_subject
     assert cst.Module([]).code_for_node(facts.pattern.render()) == "1 | 2"
 
 
@@ -163,8 +163,8 @@ def test_normalize_branch_builds_or_class_facts():
     facts = normalize("isinstance(value, Point) or isinstance(value, Token)", "value")
 
     assert facts.pattern is not None
-    assert [type(fact) for fact in facts.facts] == [ClassFact, ClassFact]
-    assert all(fact.path.is_subject for fact in facts.facts)
+    assert [type(fact) for fact in facts.facts] == [OrFact]
+    assert facts.facts[0].path.is_subject
     assert cst.Module([]).code_for_node(facts.pattern.render()) == "Point() | Token()"
 
 
@@ -176,12 +176,8 @@ def test_normalize_branch_builds_or_class_attribute_facts():
     )
 
     assert facts.pattern is not None
-    assert [type(fact) for fact in facts.facts] == [
-        ClassFact,
-        ValueFact,
-        ClassFact,
-        ValueFact,
-    ]
+    assert [type(fact) for fact in facts.facts] == [OrFact]
+    assert facts.facts[0].path.is_subject
     assert cst.Module([]).code_for_node(facts.pattern.render()) == (
         "Point(x=1) | Token(kind=None)"
     )
@@ -195,11 +191,8 @@ def test_normalize_branch_builds_safe_or_class_attribute_facts():
     )
 
     assert facts.pattern is not None
-    assert [type(fact) for fact in facts.facts] == [
-        ClassFact,
-        ValueFact,
-        ClassFact,
-    ]
+    assert [type(fact) for fact in facts.facts] == [OrFact]
+    assert facts.facts[0].path.is_subject
     assert cst.Module([]).code_for_node(facts.pattern.render()) == (
         "Point(kind=1) | Token()"
     )
@@ -278,7 +271,8 @@ def test_normalize_branch_builds_or_facts_with_common_guard():
     )
 
     assert facts.pattern is not None
-    assert [type(fact) for fact in facts.facts] == [ValueFact, ValueFact]
+    assert [type(fact) for fact in facts.facts] == [OrFact]
+    assert facts.facts[0].path.is_subject
     assert cst.Module([]).code_for_node(facts.pattern.render()) == "1 | 2"
     assert facts.guard is not None
     assert cst.Module([]).code_for_node(facts.guard) == "ENABLED"
@@ -687,13 +681,8 @@ def test_normalize_branch_builds_safe_or_class_sequence_attribute_facts():
     )
 
     assert facts.pattern is not None
-    assert [type(fact) for fact in facts.facts] == [
-        ClassFact,
-        SequenceFact,
-        ValueFact,
-        ValueFact,
-        ValueFact,
-    ]
+    assert [type(fact) for fact in facts.facts] == [OrFact]
+    assert facts.facts[0].path.is_subject
     assert cst.Module([]).code_for_node(facts.pattern.render()) == (
         "Point(items=[1, None]) | 0"
     )
