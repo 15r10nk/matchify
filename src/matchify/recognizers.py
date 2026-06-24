@@ -5,7 +5,7 @@ from __future__ import annotations
 import libcst as cst
 from libcst import matchers as m
 
-from .facts import BranchFacts, PatternTree, ValueFact
+from .facts import BranchFacts, ClassFact, PatternTree, ValueFact
 from .patterns import (
     ClassPatternPart,
     PatternMatch,
@@ -1077,6 +1077,18 @@ class PatternRecognitionEngine:
                 guard=None,
             )
 
+        class_fact = normalize_subject_class_fact(
+            condition, subject, self.ignore_types_pattern
+        )
+        if class_fact is not None:
+            return BranchFacts(
+                condition=condition,
+                subject=subject,
+                facts=(class_fact,),
+                pattern=PatternTree(class_fact=class_fact),
+                guard=None,
+            )
+
         result = self.recognize_branch(condition, subject)
         pattern = None if result.pattern is None else PatternTree(result.pattern)
         return BranchFacts(
@@ -1104,6 +1116,17 @@ def normalize_subject_value_fact(
     if isinstance(target.operator, cst.Equal) and is_literal_value(target.comparator):
         return ValueFact(SubjectPath(()), target.comparator)
     return None
+
+
+def normalize_subject_class_fact(
+    condition: cst.BaseExpression,
+    subject: cst.BaseExpression,
+    ignore_types_pattern: str | None,
+) -> ClassFact | None:
+    class_exprs = extract_isinstance_call(condition, subject, ignore_types_pattern)
+    if class_exprs is None:
+        return None
+    return ClassFact(SubjectPath(()), tuple(class_exprs))
 
 
 def extract_attribute_literal_check(

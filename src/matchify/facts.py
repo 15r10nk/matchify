@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import libcst as cst
 
-from .patterns import build_value_pattern
+from .patterns import build_class_pattern, build_value_pattern
 from .subject_path import SubjectPath
 
 
@@ -18,7 +18,15 @@ class ValueFact:
     value: cst.BaseExpression
 
 
-BranchFact = ValueFact
+@dataclass(frozen=True)
+class ClassFact:
+    """A subject-path isinstance check that can become a class pattern."""
+
+    path: SubjectPath
+    classes: tuple[cst.BaseExpression, ...]
+
+
+BranchFact = ValueFact | ClassFact
 
 
 @dataclass(frozen=True)
@@ -31,12 +39,17 @@ class PatternTree:
 
     pattern: cst.MatchPattern | None = None
     value_fact: ValueFact | None = None
+    class_fact: ClassFact | None = None
 
     def render(self) -> cst.MatchPattern:
         if self.value_fact is not None:
             if not self.value_fact.path.is_subject:
                 raise ValueError("Value facts for derived paths need a parent pattern")
             return build_value_pattern(self.value_fact.value)
+        if self.class_fact is not None:
+            if not self.class_fact.path.is_subject:
+                raise ValueError("Class facts for derived paths need a parent pattern")
+            return build_class_pattern(list(self.class_fact.classes))
         if self.pattern is None:
             raise ValueError("PatternTree has no renderable node")
         return self.pattern

@@ -1,6 +1,6 @@
 import libcst as cst
 
-from matchify.facts import ValueFact
+from matchify.facts import ClassFact, ValueFact
 from matchify.recognizers import PatternRecognitionEngine
 
 
@@ -39,3 +39,28 @@ def test_normalize_branch_builds_singleton_value_fact():
     assert facts.facts[0].path.is_subject
     assert cst.Module([]).code_for_node(facts.facts[0].value) == "None"
     assert cst.Module([]).code_for_node(facts.pattern.render()) == "None"
+
+
+def test_normalize_branch_builds_class_fact():
+    facts = normalize("isinstance(value, Point)", "value")
+
+    assert facts.pattern is not None
+    assert isinstance(facts.facts[0], ClassFact)
+    assert facts.facts[0].path.is_subject
+    assert [cst.Module([]).code_for_node(cls) for cls in facts.facts[0].classes] == [
+        "Point"
+    ]
+    assert cst.Module([]).code_for_node(facts.pattern.render()) == "Point()"
+
+
+def test_normalize_branch_builds_class_union_fact():
+    facts = normalize("isinstance(value, (Point, Token))", "value")
+
+    assert facts.pattern is not None
+    assert isinstance(facts.facts[0], ClassFact)
+    assert facts.facts[0].path.is_subject
+    assert [cst.Module([]).code_for_node(cls) for cls in facts.facts[0].classes] == [
+        "Point",
+        "Token",
+    ]
+    assert cst.Module([]).code_for_node(facts.pattern.render()) == "Point() | Token()"
