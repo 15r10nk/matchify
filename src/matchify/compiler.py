@@ -7,6 +7,7 @@ from typing import NamedTuple
 import libcst as cst
 from libcst import matchers as m
 
+from .facts import BranchFacts
 from .patterns import is_ignored_type_expr
 from .recognizers import PatternRecognitionEngine
 from .safety import is_safe_condition
@@ -87,8 +88,8 @@ class GenericIfChainCompiler:
             if self._has_problematic_isinstance(branch.test, chain.subject):
                 return False
 
-            result = self.recognition.recognize_branch(branch.test, chain.subject)
-            if result.pattern is not None:
+            facts = self.recognition.normalize_branch(branch.test, chain.subject)
+            if facts.pattern is not None:
                 has_extractable_pattern = True
 
         return has_extractable_pattern
@@ -116,11 +117,9 @@ class GenericIfChainCompiler:
     def _compile_branch(
         self, branch: IfBranch, subject: cst.BaseExpression
     ) -> cst.MatchCase:
-        result = self.recognition.recognize_branch(branch.test, subject)
-        pattern = result.pattern
-        guard = result.guard
-        if pattern is None:
-            pattern = cst.MatchAs(pattern=None, name=None)
+        facts = self.recognition.normalize_branch(branch.test, subject)
+        pattern = self._compile_pattern(facts)
+        guard = facts.guard
 
         kwargs = {
             "pattern": pattern,
@@ -133,6 +132,11 @@ class GenericIfChainCompiler:
             kwargs["whitespace_after_if"] = cst.SimpleWhitespace(" ")
 
         return cst.MatchCase(**kwargs)
+
+    def _compile_pattern(self, facts: BranchFacts) -> cst.MatchPattern:
+        if facts.pattern is None:
+            return cst.MatchAs(pattern=None, name=None)
+        return facts.pattern.render()
 
     def _has_problematic_isinstance(
         self, test: cst.BaseExpression, subject: cst.BaseExpression
