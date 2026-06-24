@@ -1271,6 +1271,10 @@ def generate_attribute_pattern(
         "star",
         "gapped_star",
     ]
+    if len(classes) > 1:
+        choices.append("or_capture")
+        if depth > 1:
+            choices.append("nested_or_capture")
     kind = rng.choice(choices)
     if kind == "literal":
         return LiteralPattern(generate_literal(rng))
@@ -1286,6 +1290,10 @@ def generate_attribute_pattern(
         return generate_relational_guarded_class_pattern(rng, classes)
     if kind == "capture_class":
         return generate_capture_class_pattern(rng, classes)
+    if kind == "or_capture":
+        return generate_or_capture_pattern(rng, classes)
+    if kind == "nested_or_capture":
+        return generate_nested_or_capture_pattern(rng, classes)
     if kind == "guarded":
         return GuardedPattern(
             generate_attribute_pattern(rng, classes, depth=depth - 1),
@@ -2483,6 +2491,38 @@ def test_generated_sequence_element_or_capture_program_survives_matchify(
     source = program.to_trace_if_code()
     assert "capture_0_0 = value[0].items[0]" in source
     assert "capture_0_1 = value[0].items[1]" in source
+    assert_matchify_preserves_trace(program, tmp_path)
+
+
+def test_generated_attribute_or_capture_program_survives_matchify(
+    tmp_path: Path,
+):
+    pattern = ClassPattern(
+        "Wrapper",
+        (
+            (
+                "data",
+                OrPattern(
+                    (
+                        CaptureClassPattern("Point", "items", (0, 1)),
+                        CaptureClassPattern("Token", "items", (0, 1)),
+                    )
+                ),
+            ),
+        ),
+    )
+    program = GeneratedProgram(
+        classes=("Wrapper", "Point", "Token"),
+        cases=(
+            GeneratedCase(pattern, "branch_0"),
+            GeneratedCase(SingletonPattern("None"), "branch_1"),
+            GeneratedCase(WildcardPattern(), "default"),
+        ),
+    )
+
+    source = program.to_trace_if_code()
+    assert "capture_0_0 = value.data.items[0]" in source
+    assert "capture_0_1 = value.data.items[1]" in source
     assert_matchify_preserves_trace(program, tmp_path)
 
 
