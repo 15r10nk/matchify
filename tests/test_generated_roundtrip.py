@@ -2,6 +2,7 @@ import random
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
 from io import StringIO
+from itertools import product
 from pathlib import Path
 from typing import Callable
 
@@ -622,6 +623,21 @@ def class_value_codes_from_expansion(
     expand_single_value: bool,
     include_unexpanded_value: bool,
 ) -> list[str]:
+    if include_unexpanded_value and not expand_single_value:
+        attr_options = [
+            (attr, expand_pattern(pattern) or [pattern.to_value_code()])
+            for attr, pattern in sorted(attrs, key=class_attr_sort_key)
+        ]
+        if not attr_options:
+            return [class_value_code(class_name, [])]
+        return [
+            class_value_code(
+                class_name,
+                [f"{attr}={value}" for (attr, _), value in zip(attr_options, values)],
+            )
+            for values in product(*(values for _, values in attr_options))
+        ]
+
     attr_values = []
     for index, (attr, pattern) in enumerate(sorted(attrs, key=class_attr_sort_key)):
         values = expand_pattern(pattern)
@@ -678,6 +694,26 @@ def sequence_value_codes_from_expansion(
     append_extra: bool = False,
     tuple_value: bool = False,
 ) -> list[str]:
+    if include_unexpanded_value and not expand_single_value:
+        element_options = [
+            (
+                ["object()"]
+                if element is None
+                else expand_pattern(element) or [element.to_value_code()]
+            )
+            for element in elements
+        ]
+        if append_extra:
+            element_options.append(["object()"])
+        return [
+            sequence_value_code(
+                ", ".join(values),
+                tuple_value=tuple_value,
+                element_count=len(values),
+            )
+            for values in product(*element_options)
+        ]
+
     element_values = []
     for element in elements:
         if element is None:
@@ -2090,6 +2126,31 @@ def test_generated_sequence_union_fallthrough_samples_cover_all_classes(
     assert_matchify_preserves_trace(program, tmp_path)
 
 
+def test_sequence_matching_samples_cover_class_union_combinations():
+    pattern = SequencePattern(
+        (
+            ClassUnionPattern(
+                ("Point", "Token"),
+                (("kind", LiteralPattern("1")),),
+            ),
+            ClassUnionPattern(
+                ("Node", "Leaf"),
+                (("kind", LiteralPattern("2")),),
+            ),
+        ),
+        bracketed=False,
+    )
+
+    assert matching_value_codes(pattern) == snapshot(
+        [
+            "[Point(kind=1), Node(kind=2)]",
+            "[Point(kind=1), Leaf(kind=2)]",
+            "[Token(kind=1), Node(kind=2)]",
+            "[Token(kind=1), Leaf(kind=2)]",
+        ]
+    )
+
+
 def test_generated_or_capture_program_survives_matchify(tmp_path: Path):
     program = GeneratedProgram(
         classes=("Point", "Token"),
@@ -3479,7 +3540,11 @@ values = [
     ((Point(y=[1, object()]), object(), object(), Point(items=[1, object()]), object()),),
     ((Point(y=[]), object(), object(), Point(items=[1, object()]), object()),),
     (False, (object(), [Point(y=1), None, object(), False], ([(-1, object(), object()), Point(x=1)], Point(x=Point(y=1)), 'ready'), object()), object(), [Point(kind=(None, 'red', 0), x=Point(x=[Point(x=[1, object()])], y=+1)), False, object()], object(), object()),
+    (False, (object(), [Point(y=1), None, object(), False], ([(-1, object(), object()), Point(x=1)], Point(x=Point(y=1)), 'ready'), object()), object(), [Point(kind=(None, 'red', 0), x=Point(x=[Point(x=[1, object()])], y=None)), False, object()], object(), object()),
+    (False, (object(), [Point(y=1), None, object(), False], ([(-1, object(), object()), Point(x=1)], Point(x=Point(y=1)), 'ready'), object()), object(), [Point(kind=(None, 'red', 0), x=Point(x=[Point(x=[1, object()])], y=False)), False, object()], object(), object()),
     (False, (object(), [Point(y=1), None, object(), False], ([(-1, object(), object()), Point(x=1)], Point(x=Point(y=1)), 'ready'), object()), object(), [Point(kind=(None, 'red', -1), x=Point(x=[Point(x=[1, object()])], y=+1)), False, object()], object(), object()),
+    (False, (object(), [Point(y=1), None, object(), False], ([(-1, object(), object()), Point(x=1)], Point(x=Point(y=1)), 'ready'), object()), object(), [Point(kind=(None, 'red', -1), x=Point(x=[Point(x=[1, object()])], y=None)), False, object()], object(), object()),
+    (False, (object(), [Point(y=1), None, object(), False], ([(-1, object(), object()), Point(x=1)], Point(x=Point(y=1)), 'ready'), object()), object(), [Point(kind=(None, 'red', -1), x=Point(x=[Point(x=[1, object()])], y=False)), False, object()], object(), object()),
     (False, (object(), [Point(y=0), None, object(), False], ([(-1, object(), object()), Point(x=1)], Point(x=Point(y=1)), 'ready'), object()), object(), [Point(kind=(None, 'red', 0), x=Point(x=[Point(x=[1, object()])], y=+1)), False, object()], object(), object()),
     object(),
 ]
@@ -3533,15 +3598,23 @@ values = [
     -3.5,
     0,
     [object(), object(), Token(), Token()],
+    [object(), object(), Token(), Point()],
     [object(), object(), Point(), Token()],
+    [object(), object(), Point(), Point()],
     Point(x=[Point(), Point(kind=True)]),
+    Point(x=[Point(), Token(kind=True)]),
     Point(x=[Token(), Point(kind=True)]),
+    Point(x=[Token(), Token(kind=True)]),
     Token(x=[Point(), Point(kind=True)]),
+    Token(x=[Point(), Token(kind=True)]),
     Token(x=[Token(), Point(kind=True)]),
+    Token(x=[Token(), Token(kind=True)]),
     (Point(x=False), object()),
     (Token(x=None), object()),
     (Token(), Point(y=None), False),
+    (Token(), Token(y=None), False),
     (Point(), Point(y=None), False),
+    (Point(), Token(y=None), False),
     Point(kind=2),
     Point(kind=0),
     Point(x=[1, 2, 3, object()]),
