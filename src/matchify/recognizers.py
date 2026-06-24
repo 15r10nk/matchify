@@ -5,43 +5,34 @@ from __future__ import annotations
 import libcst as cst
 from libcst import matchers as m
 
-from .facts import BranchFacts, ClassFact, PatternTree, ValueFact
+from .facts import (
+    BranchFacts,
+    ClassFact,
+    OrFact,
+    PathFact,
+    PatternTree,
+    SequenceFact,
+    ValueFact,
+    replace_fact_path,
+)
 from .patterns import (
-    ClassPatternPart,
-    PatternMatch,
-    PatternPart,
-    ValuePatternPart,
-    build_class_pattern,
-    build_or_pattern,
-    build_pattern_from_parts,
-    build_value_pattern,
     combine_guards,
-    extract_isinstance_call,
     extract_isinstance_classes,
     flatten_boolean,
     is_literal_value,
     is_singleton_name,
 )
-from .safety import is_safe_condition
 from .sequence_patterns import (
-    ClassElementPattern,
-    NestedSequenceElementPattern,
-    RawElementPattern,
-    SequencePatternCollector,
     WildcardElementPattern,
-    build_bracketed_sequence_match_list,
-    build_sequence_element_class_pattern,
-    build_sequence_match_list,
-    extract_len_sequence_attribute,
-    extract_nested_sequence_element,
-    extract_sequence_element_direct_attribute_check,
-    extract_sequence_pattern_for_subject,
     find_sequence_subject,
     is_component_for_sequence_subject,
-    is_sequence_attribute_component,
     validate_wildcard_constraint,
 )
-from .subject_path import AttributePathPart, SubjectPath, SubjectPathPart
+from .subject_path import (
+    AttributePathPart,
+    SubjectPath,
+    SubscriptPathPart,
+)
 
 
 class SubjectRecognizer:
@@ -198,121 +189,6 @@ class SubjectRecognizer:
         return None
 
 
-class BranchPatternRecognizer:
-    """Base class for branch condition recognizers."""
-
-    def recognize(
-        self, condition: cst.BaseExpression, subject: cst.BaseExpression
-    ) -> PatternMatch | None:
-        raise NotImplementedError
-
-
-class EqualityPatternRecognizer(BranchPatternRecognizer):
-    """Recognizes `subject == literal` and `subject is singleton` branches."""
-
-    def recognize(
-        self, condition: cst.BaseExpression, subject: cst.BaseExpression
-    ) -> PatternMatch | None:
-        if not m.matches(condition, m.Comparison(comparisons=[m.ComparisonTarget()])):
-            return None
-
-        comparison = condition  # type: ignore[assignment]
-        if len(comparison.comparisons) != 1 or not comparison.left.deep_equals(subject):
-            return None
-
-        target = comparison.comparisons[0]
-        if isinstance(target.operator, cst.Is):
-            if not is_singleton_name(target.comparator):
-                return None
-            return PatternMatch(build_value_pattern(target.comparator), None)
-
-        if isinstance(target.operator, cst.Equal) and is_literal_value(
-            target.comparator
-        ):
-            return PatternMatch(build_value_pattern(target.comparator), None)
-
-        return None
-
-
-class OrPatternRecognizer(BranchPatternRecognizer):
-    """Recognizes OR chains of value or plain class patterns."""
-
-    def __init__(self, ignore_types_pattern: str | None = r".*_TYPES$") -> None:
-        self.ignore_types_pattern = ignore_types_pattern
-
-    def recognize(
-        self, condition: cst.BaseExpression, subject: cst.BaseExpression
-    ) -> PatternMatch | None:
-        parts = flatten_boolean(condition, cst.Or)
-        if len(parts) <= 1:
-            return None
-
-        patterns = []
-        guards: list[cst.BaseExpression | None] = []
-        for part in parts:
-            result = self._recognize_part(part, subject)
-            if result is None:
-                return None
-            guards.append(result.guard)
-            extend_or_patterns(patterns, result.pattern)
-
-        common_guard = common_or_guard(guards)
-        if common_guard is _MIXED_OR_GUARDS:
-            return None
-
-        return PatternMatch(build_or_pattern(patterns), common_guard)
-
-    def _recognize_part_pattern(
-        self, part: cst.BaseExpression, subject: cst.BaseExpression
-    ) -> cst.MatchPattern | None:
-        result = self._recognize_part(part, subject)
-        return None if result is None else result.pattern
-
-    def _recognize_part(
-        self, part: cst.BaseExpression, subject: cst.BaseExpression
-    ) -> PatternMatch | None:
-        part = remove_redundant_subject_checks(part, subject)
-
-        result = EqualityPatternRecognizer().recognize(part, subject)
-        if result is not None and result.guard is None:
-            return result
-
-        class_exprs = extract_isinstance_call(
-            part, subject, ignore_types_pattern=self.ignore_types_pattern
-        )
-        if class_exprs is not None:
-            return PatternMatch(build_class_pattern(class_exprs), None)
-
-        if not isinstance(part, cst.BooleanOperation) or not isinstance(
-            part.operator, cst.And
-        ):
-            return None
-
-        for recognizer in (
-            ClassPatternRecognizer(self.ignore_types_pattern),
-            SequencePatternRecognizer(),
-            NestedClassPatternRecognizer(self.ignore_types_pattern),
-            SequenceAttributePatternRecognizer(self.ignore_types_pattern),
-        ):
-            part_result = recognizer.recognize(part, subject)
-            if part_result is not None and part_result.pattern is not None:
-                if part_result.guard is not None and not is_liftable_or_guard(
-                    part_result.guard
-                ):
-                    return None
-                if isinstance(part_result.pattern, cst.MatchList):
-                    return PatternMatch(
-                        part_result.pattern.with_changes(
-                            lbracket=cst.LeftSquareBracket(),
-                            rbracket=cst.RightSquareBracket(),
-                        ),
-                        part_result.guard,
-                    )
-                return part_result
-
-        return None
-
-
 _MIXED_OR_GUARDS = object()
 
 
@@ -337,17 +213,11 @@ def is_liftable_or_guard(guard: cst.BaseExpression) -> bool:
     return not m.findall(guard, unsafe_matcher)
 
 
-def extend_or_patterns(
-    patterns: list[cst.MatchPattern], pattern: cst.MatchPattern
-) -> None:
-    if isinstance(pattern, cst.MatchOr):
-        patterns.extend(element.pattern for element in pattern.patterns)
-        return
-    patterns.append(pattern)
-
-
 def remove_redundant_subject_checks(
-    part: cst.BaseExpression, subject: cst.BaseExpression
+    part: cst.BaseExpression,
+    subject: cst.BaseExpression,
+    *,
+    remove_sequence_type_checks: bool = True,
 ) -> cst.BaseExpression:
     if not isinstance(part, cst.BooleanOperation) or not isinstance(
         part.operator, cst.And
@@ -367,7 +237,9 @@ def remove_redundant_subject_checks(
         component
         for component in components
         if not is_redundant_hasattr(component, subject, checked_paths)
-        and not is_redundant_sequence_type_check(component, subject, checked_paths)
+        and not should_remove_redundant_sequence_type_check(
+            component, subject, checked_paths, remove_sequence_type_checks
+        )
     ]
     if len(filtered) == len(components):
         return part
@@ -380,29 +252,42 @@ def remove_redundant_subject_checks(
 def is_redundant_hasattr(
     node: cst.BaseExpression,
     subject: cst.BaseExpression,
-    checked_paths: set[tuple[SubjectPathPart, ...]],
+    checked_paths: set[SubjectPath],
 ) -> bool:
     hasattr_path = extract_hasattr_attribute_path(node, subject)
     if hasattr_path is None:
         return False
     return any(
-        path == hasattr_path or path[: len(hasattr_path)] == hasattr_path
-        for path in checked_paths
+        path == hasattr_path or path.starts_with(hasattr_path) for path in checked_paths
     )
 
 
 def is_redundant_sequence_type_check(
     node: cst.BaseExpression,
     subject: cst.BaseExpression,
-    checked_paths: set[tuple[SubjectPathPart, ...]],
+    checked_paths: set[SubjectPath],
 ) -> bool:
     sequence_path = extract_list_tuple_isinstance_path(node, subject)
     return sequence_path is not None and sequence_path in checked_paths
 
 
+def should_remove_redundant_sequence_type_check(
+    node: cst.BaseExpression,
+    subject: cst.BaseExpression,
+    checked_paths: set[SubjectPath],
+    remove_sequence_type_checks: bool,
+) -> bool:
+    if not is_redundant_sequence_type_check(node, subject, checked_paths):
+        return False
+    sequence_path = extract_list_tuple_isinstance_path(node, subject)
+    return remove_sequence_type_checks or (
+        sequence_path is not None and sequence_path.is_subject
+    )
+
+
 def extract_list_tuple_isinstance_path(
     node: cst.BaseExpression, subject: cst.BaseExpression
-) -> tuple[SubjectPathPart, ...] | None:
+) -> SubjectPath | None:
     if not isinstance(node, cst.Call) or not m.matches(
         node, m.Call(func=m.Name(value="isinstance"))
     ):
@@ -422,12 +307,12 @@ def extract_list_tuple_isinstance_path(
         ):
             return None
         class_names.append(element.value.value)
-    return path.parts if set(class_names) == {"list", "tuple"} else None
+    return path if set(class_names) == {"list", "tuple"} else None
 
 
 def collect_checked_attribute_paths(
     node: cst.BaseExpression, subject: cst.BaseExpression
-) -> set[tuple[SubjectPathPart, ...]]:
+) -> set[SubjectPath]:
     if isinstance(node, cst.BooleanOperation) and isinstance(node.operator, cst.Or):
         parts = [
             collect_checked_attribute_paths(part, subject)
@@ -442,9 +327,9 @@ def collect_checked_attribute_paths(
         if len(node.args) < 2:
             return set()
         path = SubjectPath.from_expression(node.args[0].value, subject)
-        if path is None or not path.parts:
+        if path is None or not path:
             return set()
-        return {path.parts}
+        return {path}
 
     if not isinstance(node, cst.Comparison) or len(node.comparisons) != 1:
         return set()
@@ -456,14 +341,10 @@ def collect_checked_attribute_paths(
         path = SubjectPath.from_expression(len_call.args[0].value, subject)
         if path is None:
             return set()
-        return {path.parts}
+        return {path}
 
     path = SubjectPath.from_expression(node.left, subject)
-    if (
-        path is None
-        or not path.parts
-        or not isinstance(path.parts[-1], AttributePathPart)
-    ):
+    if path is None or not path or not isinstance(path.last_part, AttributePathPart):
         return set()
 
     target = node.comparisons[0]
@@ -474,12 +355,12 @@ def collect_checked_attribute_paths(
     if not is_literal_value(target.comparator):
         return set()
 
-    return {path.parts}
+    return {path}
 
 
 def extract_hasattr_attribute_path(
     node: cst.BaseExpression, subject: cst.BaseExpression
-) -> tuple[SubjectPathPart, ...] | None:
+) -> SubjectPath | None:
     if not isinstance(node, cst.Call) or not m.matches(
         node, m.Call(func=m.Name(value="hasattr"))
     ):
@@ -499,166 +380,7 @@ def extract_hasattr_attribute_path(
     literal = value.evaluated_value
     if not isinstance(literal, str):
         return None
-    return path.parts + (AttributePathPart(literal),)
-
-
-class ClassPatternRecognizer(BranchPatternRecognizer):
-    """Recognizes simple isinstance/class-attribute branches."""
-
-    def __init__(self, ignore_types_pattern: str | None = r".*_TYPES$") -> None:
-        self.ignore_types_pattern = ignore_types_pattern
-
-    def recognize(
-        self, condition: cst.BaseExpression, subject: cst.BaseExpression
-    ) -> PatternMatch | None:
-        components = flatten_boolean(condition, cst.And)
-        class_exprs: list[cst.BaseExpression] | None = None
-        attrs: list[tuple[str, cst.MatchPattern]] = []
-        guards: list[cst.BaseExpression] = []
-
-        for component in components:
-            isinstance_info = extract_isinstance_call(
-                component, subject, self.ignore_types_pattern
-            )
-            if isinstance_info is not None:
-                if class_exprs is not None:
-                    guards.append(component)
-                    continue
-                class_exprs = isinstance_info
-                continue
-
-            if (
-                extract_len_sequence_attribute(component, subject) is not None
-                or extract_attribute_path_sequence_len_check(component, subject)
-                is not None
-                or extract_sequence_attribute_or_pattern(component, subject) is not None
-            ):
-                return None
-
-            if is_subject_derived_complex_pattern(component, subject):
-                return None
-
-            attr_check = extract_attribute_pattern_check(component, subject)
-            if attr_check is not None:
-                attrs.append(attr_check)
-                continue
-
-            guards.append(component)
-
-        if class_exprs is None:
-            return None
-
-        pattern = build_class_pattern(class_exprs, attrs)
-
-        return PatternMatch(pattern, combine_guards(guards))
-
-
-class SequencePatternRecognizer(BranchPatternRecognizer):
-    """Recognizes top-level sequence patterns from len/index checks."""
-
-    def recognize(
-        self, condition: cst.BaseExpression, subject: cst.BaseExpression
-    ) -> PatternMatch | None:
-        if find_sequence_subject(condition) is None:
-            return None
-
-        collector = SequencePatternCollector(subject)
-        components = flatten_boolean(condition, cst.And)
-        guards: list[cst.BaseExpression] = []
-        for component in components:
-            if self._is_sequence_pattern_component(component, collector):
-                if not collector.collect_from_node(component):
-                    return None
-                continue
-            if is_component_for_sequence_subject(component, subject):
-                if self._is_sequence_guard_component(component, subject):
-                    guards.append(component)
-                continue
-
-            guards.append(component)
-
-        for component in components:
-            attr_check = extract_sequence_element_direct_attribute_check(
-                component, subject
-            )
-            if attr_check is None:
-                continue
-            index, _, _ = attr_check
-            if not isinstance(collector.elements.get(index), ClassElementPattern):
-                return None
-
-        for index in collector.nested_sequences:
-            nested_result = extract_nested_sequence_element(condition, subject, index)
-            if nested_result is None:
-                return None
-            pattern_infos, use_star = nested_result
-            collector.elements[index] = NestedSequenceElementPattern(
-                pattern_infos, use_star
-            )
-
-        if collector.expected_len is not None:
-            required_len = collector.expected_len
-            use_star = False
-        elif collector.min_len is not None:
-            required_len = collector.min_len
-            use_star = collector.use_star_pattern
-        else:
-            return None
-
-        if not collector.elements and not guards:
-            return None
-        if not collector.elements and use_star:
-            return None
-        if not use_star:
-            if collector.elements and max(collector.elements) >= required_len:
-                return None
-            if not validate_wildcard_constraint(collector.elements, required_len):
-                return None
-
-        pattern_infos = []
-        for index in range(required_len):
-            pattern_info = collector.elements.get(index, WildcardElementPattern())
-            if isinstance(pattern_info, ClassElementPattern):
-                element_subject = cst.Subscript(
-                    value=subject,
-                    slice=[
-                        cst.SubscriptElement(
-                            slice=cst.Index(value=cst.Integer(str(index)))
-                        )
-                    ],
-                )
-                nested_pattern = build_sequence_element_class_pattern(
-                    condition, element_subject, pattern_info.classes
-                )
-                if nested_pattern is not None:
-                    pattern_info = RawElementPattern(nested_pattern)
-            pattern_infos.append(pattern_info)
-        guards = remove_redundant_sequence_guards(guards, components, subject)
-        return PatternMatch(
-            build_sequence_match_list(pattern_infos, use_star),
-            combine_guards(guards),
-        )
-
-    def _is_sequence_pattern_component(
-        self, component: cst.BaseExpression, collector: SequencePatternCollector
-    ) -> bool:
-        return (
-            collector._is_len_check(component)
-            or collector._is_subscript_literal_check(component)
-            or collector._extract_subscript_or_pattern(component) is not None
-            or collector._is_subscript_isinstance_check(component)
-            or collector._is_nested_len_check(component)
-            or collector._is_nested_subscript_check(component)
-            or extract_sequence_element_direct_attribute_check(
-                component, collector.subject
-            )
-            is not None
-        )
-
-    def _is_sequence_guard_component(
-        self, component: cst.BaseExpression, subject: cst.BaseExpression
-    ) -> bool:
-        return is_sequence_subject_guard_component(component, subject)
+    return SubjectPath((*path.parts, AttributePathPart(literal)))
 
 
 def is_sequence_subject_guard_component(
@@ -694,429 +416,309 @@ def is_sequence_subject_guard_component(
     return not isinstance(target.operator, (cst.Equal, cst.Is))
 
 
-def remove_redundant_sequence_guards(
-    guards: list[cst.BaseExpression],
-    components: list[cst.BaseExpression],
-    subject: cst.BaseExpression,
-) -> list[cst.BaseExpression]:
-    checked_paths = {
-        path
-        for component in components
-        for path in collect_checked_attribute_paths(component, subject)
-    }
-    if not checked_paths:
-        return guards
-    return [
-        guard
-        for guard in guards
-        if not is_redundant_hasattr(guard, subject, checked_paths)
-        and not is_redundant_sequence_type_check(guard, subject, checked_paths)
-    ]
-
-
-class NestedClassPatternRecognizer(BranchPatternRecognizer):
-    """Recognizes nested isinstance checks on attribute paths."""
-
-    def __init__(self, ignore_types_pattern: str | None = r".*_TYPES$") -> None:
-        self.ignore_types_pattern = ignore_types_pattern
-
-    def recognize(
-        self, condition: cst.BaseExpression, subject: cst.BaseExpression
-    ) -> PatternMatch | None:
-        components = flatten_boolean(condition, cst.And)
-        main_classes: list[cst.BaseExpression] | None = None
-        nested_classes: dict[tuple[str, ...], list[cst.BaseExpression]] = {}
-        scalar_checks: dict[tuple[str, ...], cst.MatchPattern] = {}
-        sequence_checks: dict[tuple[str, ...], cst.BaseExpression] = {}
-        guards: list[cst.BaseExpression] = []
-
-        for component in components:
-            if isinstance(component, cst.Call) and m.matches(
-                component, m.Call(func=m.Name(value="isinstance"))
-            ):
-                if len(component.args) < 2:
-                    return None
-                class_exprs = extract_isinstance_classes(
-                    component.args[1].value, self.ignore_types_pattern
-                )
-                if class_exprs is None:
-                    return None
-                arg = component.args[0].value
-                if arg.deep_equals(subject):
-                    if main_classes is None:
-                        main_classes = class_exprs
-                    else:
-                        guards.append(component)
-                    continue
-                path = SubjectPath.from_expression(arg, subject)
-                attr_path = path.attribute_names if path is not None else None
-                if attr_path is None:
-                    if any(
-                        is_component_for_sequence_subject(component, sequence_subject)
-                        for sequence_subject in sequence_checks.values()
-                    ):
-                        continue
-                    guards.append(component)
-                    continue
-                nested_classes[attr_path] = class_exprs
-                continue
-
-            attr_check = extract_attribute_path_pattern_check(component, subject)
-            if attr_check is not None:
-                path, pattern = attr_check
-                scalar_checks[path] = pattern
-                continue
-
-            attr_guard = extract_attribute_path_guard_check(component, subject)
-            if attr_guard is not None:
-                guards.append(attr_guard)
-                continue
-
-            sequence_check = extract_attribute_path_sequence_len_check(
-                component, subject
-            )
-            if sequence_check is not None:
-                path, sequence_subject = sequence_check
-                sequence_checks[path] = sequence_subject
-                continue
-
-            if any(
-                is_component_for_sequence_subject(component, sequence_subject)
-                for sequence_subject in sequence_checks.values()
-            ):
-                if any(
-                    is_sequence_subject_guard_component(component, sequence_subject)
-                    for sequence_subject in sequence_checks.values()
-                ):
-                    guards.append(component)
-                continue
-
-            if is_subject_derived_complex_pattern(component, subject):
-                return None
-
-            guards.append(component)
-
-        if any(path in nested_classes for path in sequence_checks):
-            return None
-
-        if main_classes is None or not nested_classes:
-            return None
-
-        patterns: list[cst.MatchPattern] = []
-        for class_expr in main_classes:
-            pattern = build_nested_class_pattern(
-                condition,
-                class_expr,
-                (),
-                nested_classes,
-                scalar_checks,
-                sequence_checks,
-            )
-            if pattern is None:
-                return None
-            patterns.append(pattern)
-        return PatternMatch(build_or_pattern(patterns), combine_guards(guards))
-
-
-class SequenceAttributePatternRecognizer(BranchPatternRecognizer):
-    """Recognizes class patterns with sequence-valued attributes."""
-
-    def __init__(self, ignore_types_pattern: str | None = r".*_TYPES$") -> None:
-        self.ignore_types_pattern = ignore_types_pattern
-
-    def recognize(
-        self, condition: cst.BaseExpression, subject: cst.BaseExpression
-    ) -> PatternMatch | None:
-        components = flatten_boolean(condition, cst.And)
-        class_exprs: list[cst.BaseExpression] | None = None
-        sequence_subjects: dict[str, cst.Attribute] = {}
-        scalar_attrs: list[tuple[str, cst.MatchPattern]] = []
-        nested_classes: dict[tuple[str, ...], list[cst.BaseExpression]] = {}
-        nested_class_components: dict[tuple[str, ...], cst.BaseExpression] = {}
-        nested_scalar_checks: dict[tuple[str, ...], cst.MatchPattern] = {}
-        nested_sequence_checks: dict[tuple[str, ...], cst.BaseExpression] = {}
-        guards: list[cst.BaseExpression] = []
-
-        for component in components:
-            isinstance_info = extract_isinstance_call(
-                component, subject, self.ignore_types_pattern
-            )
-            if isinstance_info is not None:
-                if class_exprs is None:
-                    class_exprs = isinstance_info
-                else:
-                    guards.append(component)
-                continue
-
-            nested_isinstance = extract_attribute_path_isinstance_check(
-                component, subject, self.ignore_types_pattern
-            )
-            if nested_isinstance is not None:
-                path, classes = nested_isinstance
-                nested_classes[path] = classes
-                nested_class_components[path] = component
-                continue
-
-            sequence_subject = extract_len_sequence_attribute(component, subject)
-            if sequence_subject is not None:
-                sequence_subjects[sequence_subject.attr.value] = sequence_subject
-                continue
-
-            nested_sequence_check = extract_attribute_path_sequence_len_check(
-                component, subject
-            )
-            if nested_sequence_check is not None:
-                path, sequence_subject = nested_sequence_check
-                nested_sequence_checks[path] = sequence_subject
-                continue
-
-            sequence_attr_or_check = extract_sequence_attribute_or_pattern(
-                component, subject
-            )
-            if sequence_attr_or_check is not None:
-                attr_name, pattern = sequence_attr_or_check
-                scalar_attrs.append((attr_name, pattern))
-                continue
-
-            attr_check = extract_attribute_pattern_check(component, subject)
-            if attr_check is not None:
-                scalar_attrs.append(attr_check)
-                continue
-
-            nested_scalar_check = extract_attribute_path_pattern_check(
-                component, subject
-            )
-            if nested_scalar_check is not None:
-                path, pattern = nested_scalar_check
-                nested_scalar_checks[path] = pattern
-                continue
-
-            attr_guard = extract_attribute_path_guard_check(component, subject)
-            if attr_guard is not None:
-                guards.append(attr_guard)
-                continue
-
-            if is_hasattr_guard(component, subject):
-                guards.append(component)
-                continue
-
-            sequence_guard_subjects = list(sequence_subjects.values()) + list(
-                nested_sequence_checks.values()
-            )
-            if any(
-                is_component_for_sequence_subject(component, sequence_subject)
-                for sequence_subject in sequence_guard_subjects
-            ):
-                if any(
-                    is_sequence_subject_guard_component(component, sequence_subject)
-                    for sequence_subject in sequence_guard_subjects
-                ):
-                    guards.append(component)
-                continue
-
-            if is_sequence_attribute_component(component, subject):
-                continue
-
-            if is_subject_derived_complex_pattern(component, subject):
-                return None
-
-            guards.append(component)
-
-        if class_exprs is None or not (
-            sequence_subjects or nested_sequence_checks or scalar_attrs
-        ):
-            return None
-
-        keyword_patterns: list[tuple[str, cst.MatchPattern]] = []
-        used_attrs: set[str] = set()
-        for attr_name, sequence_subject in sequence_subjects.items():
-            sequence_result = extract_sequence_pattern_for_subject(
-                condition, sequence_subject
-            )
-            if sequence_result is None:
-                return None
-            pattern_infos, use_star = sequence_result
-            keyword_patterns.append(
-                (
-                    attr_name,
-                    build_bracketed_sequence_match_list(pattern_infos, use_star),
-                )
-            )
-            used_attrs.add(attr_name)
-
-        sequence_paths = {(attr_name,) for attr_name in sequence_subjects}
-        sequence_paths.update(nested_sequence_checks)
-        for path, component in nested_class_components.items():
-            if path in sequence_paths:
-                guards.append(component)
-        for path in sequence_paths:
-            nested_classes.pop(path, None)
-
-        for attr_name, pattern in scalar_attrs:
-            if attr_name in sequence_subjects:
-                continue
-            keyword_patterns.append((attr_name, pattern))
-            used_attrs.add(attr_name)
-
-        if nested_classes or nested_scalar_checks or nested_sequence_checks:
-            nested_pattern = build_nested_class_pattern(
-                condition,
-                class_exprs[0],
-                (),
-                nested_classes,
-                nested_scalar_checks,
-                nested_sequence_checks,
-            )
-            if nested_pattern is None:
-                return None
-            for kwd in nested_pattern.kwds:
-                if kwd.key.value in used_attrs:
-                    continue
-                keyword_patterns.append((kwd.key.value, kwd.pattern))
-                used_attrs.add(kwd.key.value)
-
-        return PatternMatch(
-            build_class_pattern(class_exprs, keyword_patterns),
-            combine_guards(guards),
-        )
-
-
-class GuardFallbackRecognizer(BranchPatternRecognizer):
-    """Recognizes class/equality fragments in AND chains and preserves the rest."""
-
-    def __init__(self, ignore_types_pattern: str | None = r".*_TYPES$") -> None:
-        self.ignore_types_pattern = ignore_types_pattern
-
-    def recognize(
-        self, condition: cst.BaseExpression, subject: cst.BaseExpression
-    ) -> PatternMatch | None:
-        if not is_safe_condition(condition, subject, self.ignore_types_pattern):
-            return PatternMatch(None, condition)
-
-        components = flatten_boolean(condition, cst.And)
-        pattern_parts: list[PatternPart] = []
-        attribute_checks = []
-        guard_parts = []
-
-        for component in components:
-            or_pattern = OrPatternRecognizer(self.ignore_types_pattern).recognize(
-                component, subject
-            )
-            if (
-                or_pattern is not None
-                and or_pattern.pattern is not None
-                and or_pattern.guard is None
-            ):
-                pattern_parts.append(ValuePatternPart(or_pattern.pattern))
-                continue
-
-            equality = EqualityPatternRecognizer().recognize(component, subject)
-            if equality is not None and equality.pattern is not None:
-                pattern_parts.append(ValuePatternPart(equality.pattern))
-                continue
-
-            isinstance_info = extract_isinstance_call(
-                component, subject, self.ignore_types_pattern
-            )
-            if isinstance_info is not None:
-                pattern_parts.append(ClassPatternPart(isinstance_info))
-                continue
-
-            attr_check = extract_attribute_pattern_check(component, subject)
-            if attr_check is not None:
-                attribute_checks.append(attr_check)
-                continue
-
-            guard_parts.append(component)
-
-        pattern = build_pattern_from_parts(pattern_parts, attribute_checks)
-        guard = combine_guards(guard_parts)
-        return PatternMatch(pattern, guard)
-
-
 class PatternRecognitionEngine:
     """Runs branch recognizers in order, from specific to conservative."""
 
     def __init__(self, ignore_types_pattern: str | None = r".*_TYPES$") -> None:
         self.ignore_types_pattern = ignore_types_pattern
         self.subject_recognizer = SubjectRecognizer(ignore_types_pattern)
-        # Order matters: exact recognizers run before broader recognizers so the
-        # fallback only preserves genuinely unsupported fragments as guards.
-        self.branch_recognizers: list[BranchPatternRecognizer] = [
-            OrPatternRecognizer(ignore_types_pattern),
-            EqualityPatternRecognizer(),
-            ClassPatternRecognizer(ignore_types_pattern),
-            SequencePatternRecognizer(),
-            NestedClassPatternRecognizer(ignore_types_pattern),
-            SequenceAttributePatternRecognizer(ignore_types_pattern),
-            GuardFallbackRecognizer(ignore_types_pattern),
-        ]
 
     def recognize_subject(self, test: cst.BaseExpression) -> cst.BaseExpression | None:
         return self.subject_recognizer.recognize(test)
 
-    def recognize_branch(
-        self, condition: cst.BaseExpression, subject: cst.BaseExpression
-    ) -> PatternMatch:
-        for recognizer in self.branch_recognizers:
-            result = recognizer.recognize(condition, subject)
-            if result is not None:
-                return result
-        return PatternMatch(None, condition)
-
     def normalize_branch(
         self, condition: cst.BaseExpression, subject: cst.BaseExpression
     ) -> BranchFacts:
-        value_fact = normalize_subject_value_fact(condition, subject)
-        if value_fact is not None:
-            return BranchFacts(
-                condition=condition,
-                subject=subject,
-                facts=(value_fact,),
-                pattern=PatternTree(value_fact=value_fact),
-                guard=None,
-            )
-
-        class_fact = normalize_subject_class_fact(
+        or_facts = normalize_or_branch_facts(
             condition, subject, self.ignore_types_pattern
         )
-        if class_fact is not None:
-            return BranchFacts(
-                condition=condition,
-                subject=subject,
-                facts=(class_fact,),
-                pattern=PatternTree(class_fact=class_fact),
-                guard=None,
-            )
+        if or_facts is not None:
+            return or_facts
 
-        class_attribute_facts = normalize_subject_class_attribute_facts(
+        fact_backed_branch = normalize_fact_backed_branch(
             condition, subject, self.ignore_types_pattern
         )
-        if class_attribute_facts is not None:
-            class_fact, attribute_value_facts, attribute_class_facts = (
-                class_attribute_facts
-            )
-            return BranchFacts(
-                condition=condition,
-                subject=subject,
-                facts=(class_fact, *attribute_value_facts, *attribute_class_facts),
-                pattern=PatternTree(
-                    class_fact=class_fact,
-                    attribute_value_facts=attribute_value_facts,
-                    attribute_class_facts=attribute_class_facts,
-                ),
-                guard=None,
-            )
+        if fact_backed_branch is not None:
+            return fact_backed_branch
 
-        result = self.recognize_branch(condition, subject)
-        pattern = None if result.pattern is None else PatternTree(result.pattern)
         return BranchFacts(
             condition=condition,
             subject=subject,
             facts=(),
-            pattern=pattern,
-            guard=result.guard,
+            pattern=None,
+            guard=condition,
         )
+
+
+def normalize_or_branch_facts(
+    condition: cst.BaseExpression,
+    subject: cst.BaseExpression,
+    ignore_types_pattern: str | None,
+) -> BranchFacts | None:
+    parts = flatten_boolean(condition, cst.Or)
+    if len(parts) <= 1:
+        return None
+
+    facts: list[ValueFact | ClassFact | SequenceFact] = []
+    patterns: list[PatternTree] = []
+    guards: list[cst.BaseExpression | None] = []
+    for part in parts:
+        part = remove_redundant_subject_checks(part, subject)
+        branch = normalize_fact_backed_branch(
+            part,
+            subject,
+            ignore_types_pattern,
+            allow_subject_guard=True,
+            remove_sequence_type_checks=True,
+        )
+        if branch is None or branch.pattern is None:
+            return None
+        facts.extend(branch.facts)
+        patterns.append(branch.pattern)
+        guards.append(branch.guard)
+
+    common_guard = common_or_guard(guards)
+    if common_guard is _MIXED_OR_GUARDS:
+        return None
+    if common_guard is not None and not is_liftable_or_guard(common_guard):
+        return None
+
+    return BranchFacts.from_or_patterns(
+        condition,
+        subject,
+        tuple(facts),
+        tuple(patterns),
+        guard=common_guard,
+    )
+
+
+def normalize_fact_backed_branch(
+    condition: cst.BaseExpression,
+    subject: cst.BaseExpression,
+    ignore_types_pattern: str | None,
+    *,
+    allow_subject_guard: bool = False,
+    remove_sequence_type_checks: bool = False,
+) -> BranchFacts | None:
+    condition = remove_redundant_subject_checks(
+        condition,
+        subject,
+        remove_sequence_type_checks=remove_sequence_type_checks,
+    )
+    branch = normalize_unguarded_fact_backed_branch(
+        condition, subject, ignore_types_pattern
+    )
+    if branch is not None:
+        return branch
+    return normalize_guarded_fact_backed_branch(
+        condition,
+        subject,
+        ignore_types_pattern,
+        allow_subject_guard=allow_subject_guard,
+    )
+
+
+def normalize_unguarded_fact_backed_branch(
+    condition: cst.BaseExpression,
+    subject: cst.BaseExpression,
+    ignore_types_pattern: str | None,
+) -> BranchFacts | None:
+    value_fact = normalize_subject_value_fact(condition, subject)
+    if value_fact is not None:
+        return BranchFacts.from_value_fact(condition, subject, value_fact)
+
+    class_fact = normalize_subject_class_fact(condition, subject, ignore_types_pattern)
+    if class_fact is not None:
+        return BranchFacts.from_class_fact(condition, subject, class_fact)
+
+    class_attribute_facts = normalize_subject_class_attribute_facts(
+        condition, subject, ignore_types_pattern
+    )
+    if class_attribute_facts is not None:
+        (
+            class_fact,
+            attribute_value_facts,
+            attribute_class_facts,
+            attribute_sequence_facts,
+            attribute_or_facts,
+        ) = class_attribute_facts
+        return BranchFacts.from_class_fact(
+            condition,
+            subject,
+            class_fact,
+            value_facts=attribute_value_facts,
+            class_facts=attribute_class_facts,
+            sequence_facts=attribute_sequence_facts,
+            or_facts=attribute_or_facts,
+        )
+
+    sequence_facts = normalize_subject_sequence_facts(
+        condition, subject, ignore_types_pattern
+    )
+    if sequence_facts is None:
+        return None
+
+    (
+        sequence_fact,
+        sequence_value_facts,
+        sequence_class_facts,
+        sequence_sequence_facts,
+        sequence_or_facts,
+    ) = sequence_facts
+    return BranchFacts.from_sequence_fact(
+        condition,
+        subject,
+        sequence_fact,
+        value_facts=sequence_value_facts,
+        class_facts=sequence_class_facts,
+        sequence_facts=sequence_sequence_facts,
+        or_facts=sequence_or_facts,
+    )
+
+
+def normalize_guarded_fact_backed_branch(
+    condition: cst.BaseExpression,
+    subject: cst.BaseExpression,
+    ignore_types_pattern: str | None,
+    *,
+    allow_subject_guard: bool = False,
+) -> BranchFacts | None:
+    if not isinstance(condition, cst.BooleanOperation) or not isinstance(
+        condition.operator, cst.And
+    ):
+        return None
+
+    pattern_components: list[cst.BaseExpression] = []
+    guard_components: list[cst.BaseExpression] = []
+    has_subject_class_pattern = False
+    for component in flatten_boolean(condition, cst.And):
+        class_fact = normalize_subject_class_fact(
+            component, subject, ignore_types_pattern
+        )
+        if class_fact is not None:
+            if has_subject_class_pattern:
+                guard_components.append(component)
+                continue
+            has_subject_class_pattern = True
+            pattern_components.append(component)
+            continue
+        if is_fact_backed_pattern_component(component, subject, ignore_types_pattern):
+            pattern_components.append(component)
+        else:
+            guard_components.append(component)
+
+    if not pattern_components or not guard_components:
+        return None
+
+    pattern_condition = combine_guards(pattern_components)
+    if pattern_condition is None:
+        return None
+
+    branch = normalize_unguarded_fact_backed_branch(
+        pattern_condition, subject, ignore_types_pattern
+    )
+    if branch is None:
+        branch = normalize_or_branch_facts(
+            pattern_condition, subject, ignore_types_pattern
+        )
+    if branch is None:
+        sequence_fact = normalize_sequence_length_fact(pattern_condition, subject)
+        if sequence_fact is not None and sequence_fact.path.is_subject:
+            branch = BranchFacts.from_sequence_fact(
+                pattern_condition, subject, sequence_fact
+            )
+    if branch is None or branch.pattern is None:
+        return None
+
+    guard_components = [
+        component
+        for component in guard_components
+        if not is_redundant_union_sequence_type_guard(component, subject, branch.facts)
+    ]
+
+    return BranchFacts(
+        condition=condition,
+        subject=subject,
+        facts=branch.facts,
+        pattern=branch.pattern,
+        guard=combine_guards(guard_components),
+    )
+
+
+def is_redundant_union_sequence_type_guard(
+    component: cst.BaseExpression,
+    subject: cst.BaseExpression,
+    facts: tuple[BranchFact, ...],
+) -> bool:
+    sequence_path = extract_list_tuple_isinstance_path(component, subject)
+    if sequence_path is None:
+        return False
+    return any(
+        isinstance(fact, ClassFact)
+        and len(fact.classes) > 1
+        and sequence_path.starts_with(fact.path)
+        and len(sequence_path.parts) > len(fact.path.parts)
+        for fact in facts
+    )
+
+
+def is_fact_backed_pattern_component(
+    component: cst.BaseExpression,
+    subject: cst.BaseExpression,
+    ignore_types_pattern: str | None,
+) -> bool:
+    or_branch = normalize_or_branch_facts(component, subject, ignore_types_pattern)
+    if or_branch is not None and or_branch.guard is None:
+        return True
+
+    sequence_fact = normalize_sequence_length_fact(component, subject)
+    if sequence_fact is not None:
+        return True
+
+    value_fact = normalize_value_fact(component, subject)
+    if value_fact is not None:
+        return is_fact_pattern_path(value_fact.path)
+
+    class_fact = normalize_class_fact(component, subject, ignore_types_pattern)
+    if extract_list_tuple_isinstance_path(component, subject) is not None:
+        return False
+    if class_fact is not None:
+        return is_fact_pattern_path(class_fact.path)
+
+    or_fact = normalize_path_or_fact(component, subject, ignore_types_pattern)
+    if or_fact is not None:
+        return is_fact_pattern_path(or_fact.path)
+
+    return False
+
+
+def is_fact_pattern_path(path: SubjectPath) -> bool:
+    return (
+        path.is_subject
+        or path.attribute_names is not None
+        or path.starts_with_subscript
+        or sequence_element_parent(path) is not None
+    )
+
+
+def is_allowed_subject_guard(
+    component: cst.BaseExpression, subject: cst.BaseExpression
+) -> bool:
+    return extract_list_tuple_isinstance_path(
+        component, subject
+    ) is not None or is_sequence_subject_guard_component(component, subject)
+
+
+def is_derived_fact_pattern_path(path: SubjectPath) -> bool:
+    return not path.is_subject and is_fact_pattern_path(path)
+
+
+def contains_subject_path(node: cst.CSTNode, subject: cst.BaseExpression) -> bool:
+    if isinstance(node, cst.BaseExpression):
+        path = SubjectPath.from_expression(node, subject)
+        if path is not None:
+            return True
+    return any(contains_subject_path(child, subject) for child in node.children)
 
 
 def normalize_subject_value_fact(
@@ -1126,6 +728,18 @@ def normalize_subject_value_fact(
     if value_fact is None or not value_fact.path.is_subject:
         return None
     return value_fact
+
+
+def append_unique_fact(
+    facts: list[PathFact],
+    fact: PathFact,
+    seen_paths: set[SubjectPath],
+) -> bool:
+    if fact.path in seen_paths:
+        return False
+    seen_paths.add(fact.path)
+    facts.append(fact)
+    return True
 
 
 def normalize_value_fact(
@@ -1180,11 +794,189 @@ def normalize_class_fact(
     return ClassFact(path, tuple(class_exprs))
 
 
+def normalize_path_or_fact(
+    condition: cst.BaseExpression,
+    subject: cst.BaseExpression,
+    ignore_types_pattern: str | None,
+) -> OrFact | None:
+    parts = flatten_boolean(condition, cst.Or)
+    if len(parts) <= 1:
+        return None
+
+    path: SubjectPath | None = None
+    alternatives: list[ValueFact | ClassFact | PatternTree] = []
+    for part in parts:
+        part = remove_redundant_subject_checks(
+            part, subject, remove_sequence_type_checks=True
+        )
+        fact = normalize_value_fact(part, subject)
+        if fact is None:
+            fact = normalize_class_fact(part, subject, ignore_types_pattern)
+        if fact is None:
+            pattern_info = normalize_path_pattern_tree(
+                part, subject, ignore_types_pattern
+            )
+            if pattern_info is None:
+                pattern_info = normalize_path_sequence_pattern_tree(
+                    part, subject, ignore_types_pattern
+                )
+            if pattern_info is None:
+                return None
+            fact_path, pattern_tree = pattern_info
+            if path is None:
+                path = fact_path
+            elif fact_path != path:
+                return None
+            alternatives.append(pattern_tree)
+            continue
+        if path is None:
+            path = fact.path
+        elif fact.path != path:
+            return None
+        alternatives.append(fact)
+
+    if path is None:
+        return None
+    return OrFact(path, tuple(alternatives))
+
+
+def normalize_path_pattern_tree(
+    condition: cst.BaseExpression,
+    subject: cst.BaseExpression,
+    ignore_types_pattern: str | None,
+) -> tuple[SubjectPath, PatternTree] | None:
+    if not isinstance(condition, cst.BooleanOperation) or not isinstance(
+        condition.operator, cst.And
+    ):
+        return None
+
+    class_fact: ClassFact | None = None
+    value_facts: list[ValueFact] = []
+    class_facts: list[ClassFact] = []
+    sequence_facts: list[SequenceFact] = []
+    or_facts: list[OrFact] = []
+    seen_paths: set[SubjectPath] = set()
+    for component in flatten_boolean(condition, cst.And):
+        component_class_fact = normalize_class_fact(
+            component, subject, ignore_types_pattern
+        )
+        if component_class_fact is not None and class_fact is None:
+            class_fact = component_class_fact
+            seen_paths.add(component_class_fact.path)
+            continue
+
+        sequence_fact = normalize_sequence_length_fact(component, subject)
+        if sequence_fact is not None:
+            if not append_unique_fact(sequence_facts, sequence_fact, seen_paths):
+                return None
+            continue
+
+        or_fact = normalize_path_or_fact(component, subject, ignore_types_pattern)
+        if or_fact is not None:
+            if not append_unique_fact(or_facts, or_fact, seen_paths):
+                return None
+            continue
+
+        component_class_fact = normalize_class_fact(
+            component, subject, ignore_types_pattern
+        )
+        if component_class_fact is not None:
+            if not append_unique_fact(class_facts, component_class_fact, seen_paths):
+                return None
+            continue
+
+        value_fact = normalize_value_fact(component, subject)
+        if value_fact is not None:
+            if not append_unique_fact(value_facts, value_fact, seen_paths):
+                return None
+            continue
+
+        return None
+
+    if class_fact is None or not (
+        value_facts or class_facts or sequence_facts or or_facts
+    ):
+        return None
+
+    base_path = class_fact.path
+    if not all(
+        fact_path_starts_with(fact.path, base_path)
+        for fact in (*value_facts, *class_facts, *sequence_facts, *or_facts)
+    ):
+        return None
+
+    return (
+        base_path,
+        PatternTree.from_class_fact(
+            ClassFact(SubjectPath(()), class_fact.classes),
+            value_facts=strip_path_prefix(base_path, tuple(value_facts)),
+            class_facts=strip_path_prefix(base_path, tuple(class_facts)),
+            sequence_facts=strip_path_prefix(base_path, tuple(sequence_facts)),
+            or_facts=strip_path_prefix(base_path, tuple(or_facts)),
+        ),
+    )
+
+
+def normalize_path_sequence_pattern_tree(
+    condition: cst.BaseExpression,
+    subject: cst.BaseExpression,
+    ignore_types_pattern: str | None,
+) -> tuple[SubjectPath, PatternTree] | None:
+    sequence_facts = normalize_sequence_pattern_facts(
+        condition, subject, ignore_types_pattern
+    )
+    if sequence_facts is None:
+        return None
+
+    (
+        sequence_fact,
+        value_facts,
+        class_facts,
+        nested_sequence_facts,
+        or_facts,
+    ) = sequence_facts
+    base_path = sequence_fact.path
+    return (
+        base_path,
+        PatternTree.from_sequence_fact(
+            SequenceFact(SubjectPath(()), sequence_fact.length, sequence_fact.use_star),
+            value_facts=strip_path_prefix(base_path, value_facts),
+            class_facts=strip_path_prefix(base_path, class_facts),
+            sequence_facts=strip_path_prefix(base_path, nested_sequence_facts),
+            or_facts=strip_path_prefix(base_path, or_facts),
+        ),
+    )
+
+
+def fact_path_starts_with(path: SubjectPath, prefix: SubjectPath) -> bool:
+    return len(path.parts) > len(prefix.parts) and path.starts_with(prefix)
+
+
+def strip_path_prefix(
+    prefix: SubjectPath,
+    facts: tuple[PathFact, ...],
+) -> tuple[PathFact, ...]:
+    stripped: list[PathFact] = []
+    for fact in facts:
+        path = fact.path.strip_prefix(prefix)
+        stripped.append(replace_fact_path(fact, path))
+    return tuple(stripped)
+
+
 def normalize_subject_class_attribute_facts(
     condition: cst.BaseExpression,
     subject: cst.BaseExpression,
     ignore_types_pattern: str | None,
-) -> tuple[ClassFact, tuple[ValueFact, ...], tuple[ClassFact, ...]] | None:
+) -> (
+    tuple[
+        ClassFact,
+        tuple[ValueFact, ...],
+        tuple[ClassFact, ...],
+        tuple[SequenceFact, ...],
+        tuple[OrFact, ...],
+    ]
+    | None
+):
     if not isinstance(condition, cst.BooleanOperation) or not isinstance(
         condition.operator, cst.And
     ):
@@ -1193,7 +985,9 @@ def normalize_subject_class_attribute_facts(
     class_fact: ClassFact | None = None
     value_facts: list[ValueFact] = []
     attribute_class_facts: list[ClassFact] = []
-    seen_attribute_names: set[str] = set()
+    attribute_sequence_facts: list[SequenceFact] = []
+    attribute_or_facts: list[OrFact] = []
+    seen_paths: set[SubjectPath] = set()
     for component in flatten_boolean(condition, cst.And):
         component_class_fact = normalize_subject_class_fact(
             component, subject, ignore_types_pattern
@@ -1204,35 +998,386 @@ def normalize_subject_class_attribute_facts(
             class_fact = component_class_fact
             continue
 
+        sequence_fact = normalize_sequence_length_fact(component, subject)
+        if sequence_fact is not None and not sequence_fact.path.is_subject:
+            if not append_unique_fact(
+                attribute_sequence_facts, sequence_fact, seen_paths
+            ):
+                return None
+            continue
+
+        or_fact = normalize_path_or_fact(component, subject, ignore_types_pattern)
+        if or_fact is not None and is_derived_fact_pattern_path(or_fact.path):
+            if not append_unique_fact(attribute_or_facts, or_fact, seen_paths):
+                return None
+            continue
+
         attribute_class_fact = normalize_class_fact(
             component, subject, ignore_types_pattern
         )
-        attr_name = (
-            None
-            if attribute_class_fact is None
-            else attribute_class_fact.path.direct_attribute_name
-        )
-        if attribute_class_fact is not None and attr_name is not None:
-            if attr_name in seen_attribute_names:
+        if attribute_class_fact is not None and is_derived_fact_pattern_path(
+            attribute_class_fact.path
+        ):
+            if not append_unique_fact(
+                attribute_class_facts, attribute_class_fact, seen_paths
+            ):
                 return None
-            seen_attribute_names.add(attr_name)
-            attribute_class_facts.append(attribute_class_fact)
             continue
 
         value_fact = normalize_value_fact(component, subject)
-        attr_name = (
-            None if value_fact is None else value_fact.path.direct_attribute_name
-        )
-        if value_fact is None or attr_name is None:
-            return None
-        if attr_name in seen_attribute_names:
-            return None
-        seen_attribute_names.add(attr_name)
-        value_facts.append(value_fact)
+        if value_fact is not None and is_derived_fact_pattern_path(value_fact.path):
+            if not append_unique_fact(value_facts, value_fact, seen_paths):
+                return None
+            continue
 
-    if class_fact is None or not (value_facts or attribute_class_facts):
         return None
-    return class_fact, tuple(value_facts), tuple(attribute_class_facts)
+
+    if class_fact is None or not (
+        value_facts
+        or attribute_class_facts
+        or attribute_sequence_facts
+        or attribute_or_facts
+    ):
+        return None
+    if not validate_attribute_fact_paths(
+        tuple(value_facts),
+        tuple(attribute_class_facts),
+        tuple(attribute_sequence_facts),
+        tuple(attribute_or_facts),
+    ):
+        return None
+    return (
+        class_fact,
+        tuple(value_facts),
+        tuple(attribute_class_facts),
+        tuple(attribute_sequence_facts),
+        tuple(attribute_or_facts),
+    )
+
+
+def validate_attribute_fact_paths(
+    value_facts: tuple[ValueFact, ...],
+    class_facts: tuple[ClassFact, ...],
+    sequence_facts: tuple[SequenceFact, ...],
+    or_facts: tuple[OrFact, ...],
+) -> bool:
+    class_paths = {
+        names
+        for fact in class_facts
+        for names in (fact.path.attribute_names,)
+        if names is not None
+    }
+    class_subject_paths = {fact.path for fact in class_facts}
+    sequence_paths = {fact.path for fact in sequence_facts}
+    all_attribute_paths = [
+        names
+        for fact in (*value_facts, *class_facts, *sequence_facts, *or_facts)
+        for names in (fact.path.attribute_names,)
+        if names is not None
+    ]
+
+    for path in all_attribute_paths:
+        if not path:
+            return False
+        if len(path) > 1 and path[:-1] not in class_paths:
+            return False
+    for fact in (*value_facts, *class_facts, *or_facts):
+        sequence_parent = sequence_element_parent(fact.path)
+        if sequence_parent is not None and not has_sequence_or_class_parent(
+            fact.path, sequence_paths, class_subject_paths
+        ):
+            return False
+    for value_fact in value_facts:
+        value_path = value_fact.path.attribute_names
+        if value_path in class_paths:
+            return False
+        if value_fact.path in sequence_paths:
+            return False
+    for class_fact in class_facts:
+        if class_fact.path in sequence_paths:
+            return False
+    for or_fact in or_facts:
+        or_path = or_fact.path.attribute_names
+        if or_path in class_paths:
+            return False
+        if or_fact.path in sequence_paths:
+            return False
+    for sequence_fact in sequence_facts:
+        names = sequence_fact.path.attribute_names
+        if names is None and has_sequence_or_class_parent(
+            sequence_fact.path, sequence_paths, class_subject_paths
+        ):
+            continue
+        if names is None:
+            return False
+        if len(names) > 1 and names[:-1] not in class_paths:
+            return False
+        element_indices = sequence_element_indices_for_path(
+            sequence_fact.path, value_facts, class_facts, sequence_facts, or_facts
+        )
+        if (
+            not sequence_fact.use_star
+            and element_indices
+            and max(element_indices) >= sequence_fact.length
+        ):
+            return False
+        if not sequence_fact.use_star and not validate_wildcard_constraint(
+            {index: WildcardElementPattern() for index in element_indices},
+            sequence_fact.length,
+        ):
+            return False
+    return True
+
+
+def normalize_sequence_length_fact(
+    condition: cst.BaseExpression, subject: cst.BaseExpression
+) -> SequenceFact | None:
+    length = extract_subject_sequence_length(condition, subject)
+    if length is None:
+        return None
+    len_call = condition.left  # type: ignore[assignment]
+    path = SubjectPath.from_expression(len_call.args[0].value, subject)
+    if path is None:
+        return None
+    use_star = isinstance(condition.comparisons[0].operator, cst.GreaterThanEqual)
+    return SequenceFact(path, length, use_star=use_star)
+
+
+def normalize_sequence_pattern_facts(
+    condition: cst.BaseExpression,
+    subject: cst.BaseExpression,
+    ignore_types_pattern: str | None,
+) -> (
+    tuple[
+        SequenceFact,
+        tuple[ValueFact, ...],
+        tuple[ClassFact, ...],
+        tuple[SequenceFact, ...],
+        tuple[OrFact, ...],
+    ]
+    | None
+):
+    if not isinstance(condition, cst.BooleanOperation) or not isinstance(
+        condition.operator, cst.And
+    ):
+        return None
+
+    value_facts: list[ValueFact] = []
+    class_facts: list[ClassFact] = []
+    sequence_facts: list[SequenceFact] = []
+    or_facts: list[OrFact] = []
+    seen_paths: set[SubjectPath] = set()
+    for component in flatten_boolean(condition, cst.And):
+        component_sequence_fact = normalize_sequence_length_fact(component, subject)
+        if component_sequence_fact is not None:
+            if not append_unique_fact(
+                sequence_facts, component_sequence_fact, seen_paths
+            ):
+                return None
+            continue
+
+        value_fact = normalize_value_fact(component, subject)
+        if value_fact is not None:
+            if not append_unique_fact(value_facts, value_fact, seen_paths):
+                return None
+            continue
+
+        class_fact = normalize_class_fact(component, subject, ignore_types_pattern)
+        if class_fact is not None:
+            if not append_unique_fact(class_facts, class_fact, seen_paths):
+                return None
+            continue
+
+        or_fact = normalize_path_or_fact(component, subject, ignore_types_pattern)
+        if or_fact is not None:
+            if not append_unique_fact(or_facts, or_fact, seen_paths):
+                return None
+            continue
+
+        return None
+
+    if not sequence_facts:
+        return None
+
+    sequence_fact: SequenceFact | None = None
+    nested_sequence_facts: tuple[SequenceFact, ...] = ()
+    for candidate in sorted(sequence_facts, key=lambda fact: len(fact.path.parts)):
+        candidate_nested_sequence_facts = tuple(
+            fact for fact in sequence_facts if fact != candidate
+        )
+        if not (
+            value_facts or class_facts or candidate_nested_sequence_facts or or_facts
+        ):
+            continue
+        if not all(
+            fact_path_starts_with(fact.path, candidate.path)
+            for fact in (
+                *value_facts,
+                *class_facts,
+                *candidate_nested_sequence_facts,
+                *or_facts,
+            )
+        ):
+            continue
+        sequence_fact = candidate
+        nested_sequence_facts = candidate_nested_sequence_facts
+        break
+
+    if sequence_fact is None:
+        return None
+    if not validate_sequence_fact_paths(
+        sequence_fact,
+        tuple(value_facts),
+        tuple(class_facts),
+        nested_sequence_facts,
+        tuple(or_facts),
+    ):
+        return None
+    return (
+        sequence_fact,
+        tuple(value_facts),
+        tuple(class_facts),
+        nested_sequence_facts,
+        tuple(or_facts),
+    )
+
+
+def sequence_element_parent(path: SubjectPath) -> SubjectPath | None:
+    if not isinstance(path.last_part, SubscriptPathPart):
+        return None
+    if path.last_part.index is None:
+        return None
+    return path.parent()
+
+
+def sequence_element_indices_for_path(
+    sequence_path: SubjectPath,
+    value_facts: tuple[ValueFact, ...],
+    class_facts: tuple[ClassFact, ...],
+    sequence_facts: tuple[SequenceFact, ...],
+    or_facts: tuple[OrFact, ...],
+) -> set[int]:
+    indices: set[int] = set()
+    for fact in (*value_facts, *class_facts, *sequence_facts, *or_facts):
+        if sequence_element_parent(fact.path) != sequence_path:
+            continue
+        index = direct_sequence_index(fact.path.strip_prefix(sequence_path))
+        if index is not None:
+            indices.add(index)
+    return indices
+
+
+def normalize_subject_sequence_facts(
+    condition: cst.BaseExpression,
+    subject: cst.BaseExpression,
+    ignore_types_pattern: str | None,
+) -> (
+    tuple[
+        SequenceFact,
+        tuple[ValueFact, ...],
+        tuple[ClassFact, ...],
+        tuple[SequenceFact, ...],
+        tuple[OrFact, ...],
+    ]
+    | None
+):
+    sequence_facts = normalize_sequence_pattern_facts(
+        condition, subject, ignore_types_pattern
+    )
+    if sequence_facts is None:
+        return None
+    if not sequence_facts[0].path.is_subject:
+        return None
+    return sequence_facts
+
+
+def validate_sequence_fact_paths(
+    root_sequence: SequenceFact,
+    value_facts: tuple[ValueFact, ...],
+    class_facts: tuple[ClassFact, ...],
+    sequence_facts: tuple[SequenceFact, ...],
+    or_facts: tuple[OrFact, ...],
+) -> bool:
+    sequence_by_path = {
+        root_sequence.path: root_sequence,
+        **{fact.path: fact for fact in sequence_facts},
+    }
+    class_paths = {fact.path for fact in class_facts}
+    for fact in sequence_facts:
+        if not has_sequence_or_class_parent(
+            fact.path, set(sequence_by_path), class_paths
+        ):
+            return False
+
+    for fact in (*value_facts, *class_facts, *or_facts):
+        if not has_sequence_or_class_parent(
+            fact.path, set(sequence_by_path), class_paths
+        ):
+            return False
+
+    for sequence in sequence_by_path.values():
+        element_indices = sequence_element_indices_for_path(
+            sequence.path, value_facts, class_facts, sequence_facts, or_facts
+        )
+        if (
+            not sequence.use_star
+            and element_indices
+            and max(element_indices) >= sequence.length
+        ):
+            return False
+        if not sequence.use_star and not validate_wildcard_constraint(
+            {index: WildcardElementPattern() for index in element_indices},
+            sequence.length,
+        ):
+            return False
+    return True
+
+
+def is_under_class_path(path: SubjectPath, class_paths: set[SubjectPath]) -> bool:
+    return any(
+        path.starts_with(class_path) and len(path.parts) > len(class_path.parts)
+        for class_path in class_paths
+    )
+
+
+def has_sequence_or_class_parent(
+    path: SubjectPath,
+    sequence_paths: set[SubjectPath],
+    class_paths: set[SubjectPath],
+) -> bool:
+    parent = sequence_element_parent(path)
+    return (
+        parent in sequence_paths
+        or parent in class_paths
+        or is_under_class_path(path, class_paths)
+    )
+
+
+def extract_subject_sequence_length(
+    condition: cst.BaseExpression, subject: cst.BaseExpression
+) -> int | None:
+    if not isinstance(condition, cst.Comparison) or len(condition.comparisons) != 1:
+        return None
+    target = condition.comparisons[0]
+    if not isinstance(target.operator, (cst.Equal, cst.GreaterThanEqual)):
+        return None
+    if not isinstance(target.comparator, cst.Integer):
+        return None
+    if not isinstance(condition.left, cst.Call) or not m.matches(
+        condition.left, m.Call(func=m.Name(value="len"), args=[m.Arg()])
+    ):
+        return None
+    if len(condition.left.args) != 1:
+        return None
+    if SubjectPath.from_expression(condition.left.args[0].value, subject) is None:
+        return None
+    return int(target.comparator.value)
+
+
+def direct_sequence_index(path: SubjectPath) -> int | None:
+    if len(path.parts) != 1 or not isinstance(path.first_part, SubscriptPathPart):
+        return None
+    return path.first_part.index
 
 
 def extract_attribute_literal_check(
@@ -1267,289 +1412,3 @@ def contains_subscript(node: cst.CSTNode) -> bool:
     if isinstance(node, cst.Subscript):
         return True
     return any(contains_subscript(child) for child in node.children)
-
-
-def extract_attribute_pattern_check(
-    node: cst.BaseExpression, subject: cst.BaseExpression
-) -> tuple[str, cst.MatchPattern] | None:
-    literal_check = extract_attribute_literal_check(node, subject)
-    if literal_check is not None:
-        attr_name, value = literal_check
-        return attr_name, build_value_pattern(value)
-
-    parts = flatten_boolean(node, cst.Or)
-    if len(parts) <= 1:
-        return None
-
-    attr_name: str | None = None
-    patterns: list[cst.MatchPattern] = []
-    for part in parts:
-        literal_part = extract_attribute_literal_check(part, subject)
-        if literal_part is None:
-            return None
-        part_attr_name, value = literal_part
-        if attr_name is None:
-            attr_name = part_attr_name
-        elif part_attr_name != attr_name:
-            return None
-        patterns.append(build_value_pattern(value))
-
-    if attr_name is None:
-        return None
-    return attr_name, build_or_pattern(patterns)
-
-
-def extract_sequence_attribute_or_pattern(
-    node: cst.BaseExpression, subject: cst.BaseExpression
-) -> tuple[str, cst.MatchPattern] | None:
-    parts = flatten_boolean(node, cst.Or)
-    if len(parts) <= 1:
-        return None
-
-    attr_name: str | None = None
-    patterns: list[cst.MatchPattern] = []
-    for part in parts:
-        sequence_subject = find_sequence_subject(part)
-        if sequence_subject is None:
-            return None
-        path = SubjectPath.from_expression(sequence_subject, subject)
-        if path is None or path.direct_attribute_name is None:
-            return None
-        if attr_name is None:
-            attr_name = path.direct_attribute_name
-        elif path.direct_attribute_name != attr_name:
-            return None
-
-        sequence_result = extract_sequence_pattern_for_subject(part, sequence_subject)
-        if sequence_result is None:
-            return None
-        pattern_infos, use_star = sequence_result
-        patterns.append(build_bracketed_sequence_match_list(pattern_infos, use_star))
-
-    if attr_name is None:
-        return None
-    return attr_name, build_or_pattern(patterns)
-
-
-def extract_attribute_path_literal_check(
-    node: cst.BaseExpression, subject: cst.BaseExpression
-) -> tuple[tuple[str, ...], cst.BaseExpression] | None:
-    if not isinstance(node, cst.Comparison) or len(node.comparisons) != 1:
-        return None
-    path = SubjectPath.from_expression(node.left, subject)
-    if path is None:
-        return None
-    attr_path = path.attribute_names
-    if attr_path is None:
-        return None
-
-    target = node.comparisons[0]
-    if isinstance(target.operator, cst.Is) and not is_singleton_name(target.comparator):
-        return None
-    if not isinstance(target.operator, (cst.Equal, cst.Is)):
-        return None
-    if not is_literal_value(target.comparator):
-        return None
-    return attr_path, target.comparator
-
-
-def extract_attribute_path_pattern_check(
-    node: cst.BaseExpression, subject: cst.BaseExpression
-) -> tuple[tuple[str, ...], cst.MatchPattern] | None:
-    literal_check = extract_attribute_path_literal_check(node, subject)
-    if literal_check is not None:
-        path, value = literal_check
-        return path, build_value_pattern(value)
-
-    parts = flatten_boolean(node, cst.Or)
-    if len(parts) <= 1:
-        return None
-
-    attr_path: tuple[str, ...] | None = None
-    patterns: list[cst.MatchPattern] = []
-    for part in parts:
-        literal_part = extract_attribute_path_literal_check(part, subject)
-        if literal_part is None:
-            return None
-        part_path, value = literal_part
-        if attr_path is None:
-            attr_path = part_path
-        elif part_path != attr_path:
-            return None
-        patterns.append(build_value_pattern(value))
-
-    if attr_path is None:
-        return None
-    return attr_path, build_or_pattern(patterns)
-
-
-def extract_attribute_path_guard_check(
-    node: cst.BaseExpression, subject: cst.BaseExpression
-) -> cst.BaseExpression | None:
-    if not isinstance(node, cst.Comparison) or len(node.comparisons) != 1:
-        return None
-
-    path = SubjectPath.from_expression(node.left, subject)
-    if path is None or path.attribute_names is None:
-        return None
-
-    target = node.comparisons[0]
-    if isinstance(target.operator, (cst.Equal, cst.Is)) and is_literal_value(
-        target.comparator
-    ):
-        return None
-    return node
-
-
-def extract_attribute_path_isinstance_check(
-    node: cst.BaseExpression,
-    subject: cst.BaseExpression,
-    ignore_types_pattern: str | None,
-) -> tuple[tuple[str, ...], list[cst.BaseExpression]] | None:
-    if not isinstance(node, cst.Call) or not m.matches(
-        node, m.Call(func=m.Name(value="isinstance"))
-    ):
-        return None
-    if len(node.args) < 2:
-        return None
-
-    path = SubjectPath.from_expression(node.args[0].value, subject)
-    if path is None:
-        return None
-    attr_path = path.attribute_names
-    if attr_path is None:
-        return None
-
-    class_exprs = extract_isinstance_classes(node.args[1].value, ignore_types_pattern)
-    if class_exprs is None:
-        return None
-    return attr_path, class_exprs
-
-
-def extract_attribute_path_sequence_len_check(
-    node: cst.BaseExpression, subject: cst.BaseExpression
-) -> tuple[tuple[str, ...], cst.BaseExpression] | None:
-    if not isinstance(node, cst.Comparison) or len(node.comparisons) != 1:
-        return None
-    if not isinstance(node.comparisons[0].operator, (cst.Equal, cst.GreaterThanEqual)):
-        return None
-    if not isinstance(node.comparisons[0].comparator, cst.Integer):
-        return None
-    if not m.matches(node.left, m.Call(func=m.Name(value="len"), args=[m.Arg()])):
-        return None
-
-    len_call = node.left
-    sequence_subject = len_call.args[0].value
-    path = SubjectPath.from_expression(sequence_subject, subject)
-    if path is None:
-        return None
-    attr_path = path.attribute_names
-    if attr_path is None:
-        return None
-    return attr_path, sequence_subject
-
-
-def is_hasattr_guard(node: cst.BaseExpression, subject: cst.BaseExpression) -> bool:
-    if not isinstance(node, cst.Call) or not m.matches(
-        node, m.Call(func=m.Name(value="hasattr"))
-    ):
-        return False
-    if len(node.args) != 2:
-        return False
-    checked_subject = node.args[0].value
-    path = SubjectPath.from_expression(checked_subject, subject)
-    return path is not None and (path.is_subject or path.attribute_names is not None)
-
-
-def build_nested_class_pattern(
-    condition: cst.BaseExpression,
-    class_expr: cst.BaseExpression,
-    path: tuple[str, ...],
-    nested_classes: dict[tuple[str, ...], list[cst.BaseExpression]],
-    scalar_checks: dict[tuple[str, ...], cst.MatchPattern],
-    sequence_checks: dict[tuple[str, ...], cst.BaseExpression],
-) -> cst.MatchClass | None:
-    child_names = {
-        child_path[len(path)]
-        for child_path in nested_classes
-        if len(child_path) > len(path) and child_path[: len(path)] == path
-    }
-    scalar_names = {
-        scalar_path[len(path)]
-        for scalar_path in scalar_checks
-        if len(scalar_path) == len(path) + 1 and scalar_path[: len(path)] == path
-    }
-    sequence_names = {
-        sequence_path[len(path)]
-        for sequence_path in sequence_checks
-        if len(sequence_path) == len(path) + 1 and sequence_path[: len(path)] == path
-    }
-
-    kwds: list[cst.MatchKeywordElement] = []
-    for name in sorted(
-        child_names | scalar_names | sequence_names,
-        key=lambda child_name: (0 if child_name in sequence_names else 1, child_name),
-    ):
-        child_path = path + (name,)
-        if child_path in nested_classes:
-            child_classes = nested_classes[child_path]
-            child_patterns = []
-            for child_class in child_classes:
-                nested_child_pattern = build_nested_class_pattern(
-                    condition,
-                    child_class,
-                    child_path,
-                    nested_classes,
-                    scalar_checks,
-                    sequence_checks,
-                )
-                if nested_child_pattern is None:
-                    return None
-                child_patterns.append(nested_child_pattern)
-            child_pattern: cst.MatchPattern = build_or_pattern(child_patterns)
-        elif child_path in sequence_checks:
-            sequence_result = extract_sequence_pattern_for_subject(
-                condition, sequence_checks[child_path]
-            )
-            if sequence_result is None:
-                return None
-            pattern_infos, use_star = sequence_result
-            child_pattern = build_bracketed_sequence_match_list(pattern_infos, use_star)
-        else:
-            child_pattern = scalar_checks[child_path]
-
-        kwds.append(cst.MatchKeywordElement(key=cst.Name(name), pattern=child_pattern))
-
-    return cst.MatchClass(cls=class_expr, patterns=[], kwds=kwds)
-
-
-def is_subject_derived_complex_pattern(
-    node: cst.BaseExpression, subject: cst.BaseExpression
-) -> bool:
-    if isinstance(node, cst.Call) and m.matches(
-        node, m.Call(func=m.Name(value="isinstance"))
-    ):
-        if len(node.args) >= 1:
-            path = SubjectPath.from_expression(node.args[0].value, subject)
-            return path is not None and not path.is_subject
-
-    if isinstance(node, cst.Comparison):
-        left = node.left
-        if isinstance(left, cst.Call) and m.matches(
-            left, m.Call(func=m.Name(value="len"))
-        ):
-            if (
-                left.args
-                and SubjectPath.from_expression(left.args[0].value, subject) is not None
-            ):
-                return True
-        if (
-            isinstance(left, cst.Subscript)
-            and SubjectPath.from_expression(left, subject) is not None
-        ):
-            return True
-        if isinstance(left, cst.Attribute):
-            value_path = SubjectPath.from_expression(left.value, subject)
-            return value_path is not None and not value_path.is_subject
-
-    return False

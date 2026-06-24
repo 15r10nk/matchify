@@ -2,31 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import NamedTuple
-
 import libcst as cst
 from libcst import matchers as m
-
-
-class PatternMatch(NamedTuple):
-    """A recognized pattern plus any guard that must remain on the case."""
-
-    pattern: cst.MatchPattern | None
-    guard: cst.BaseExpression | None
-
-
-@dataclass(frozen=True)
-class ValuePatternPart:
-    pattern: cst.MatchPattern
-
-
-@dataclass(frozen=True)
-class ClassPatternPart:
-    classes: list[cst.BaseExpression]
-
-
-PatternPart = ValuePatternPart | ClassPatternPart
 
 
 def flatten_boolean(
@@ -104,20 +81,6 @@ def build_or_pattern(patterns: list[cst.MatchPattern]) -> cst.MatchPattern:
     return cst.MatchOr(patterns=elements)
 
 
-def extract_isinstance_call(
-    node: cst.BaseExpression,
-    subject: cst.BaseExpression,
-    ignore_types_pattern: str | None,
-) -> list[cst.BaseExpression] | None:
-    if not m.matches(node, m.Call(func=m.Name(value="isinstance"))):
-        return None
-    call = node  # type: ignore[assignment]
-    if len(call.args) < 2 or not call.args[0].value.deep_equals(subject):
-        return None
-
-    return extract_isinstance_classes(call.args[1].value, ignore_types_pattern)
-
-
 def extract_isinstance_classes(
     class_arg: cst.BaseExpression, ignore_types_pattern: str | None
 ) -> list[cst.BaseExpression] | None:
@@ -146,29 +109,6 @@ def is_ignored_type_expr(
     import re
 
     return re.match(ignore_types_pattern, expr.value) is not None  # type: ignore[attr-defined]
-
-
-def build_pattern_from_parts(
-    pattern_parts: list[PatternPart],
-    attribute_checks: list[tuple[str, cst.MatchPattern]],
-) -> cst.MatchPattern | None:
-    if not pattern_parts:
-        return None
-
-    isinstance_parts = [
-        part.classes for part in pattern_parts if isinstance(part, ClassPatternPart)
-    ]
-    if isinstance_parts:
-        classes = isinstance_parts[0]
-        return build_class_pattern(classes, attribute_checks)
-
-    value_parts = [
-        part.pattern for part in pattern_parts if isinstance(part, ValuePatternPart)
-    ]
-    if value_parts:
-        return value_parts[0]
-
-    return None
 
 
 def build_class_pattern(

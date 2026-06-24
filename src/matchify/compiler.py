@@ -7,6 +7,7 @@ from typing import NamedTuple
 import libcst as cst
 from libcst import matchers as m
 
+from .capture_patterns import CapturePatternRewriter
 from .facts import BranchFacts
 from .patterns import is_ignored_type_expr
 from .recognizers import PatternRecognitionEngine
@@ -42,6 +43,7 @@ class GenericIfChainCompiler:
     def __init__(self, ignore_types_pattern: str | None = r".*_TYPES$") -> None:
         self.ignore_types_pattern = ignore_types_pattern
         self.recognition = PatternRecognitionEngine(ignore_types_pattern)
+        self.capture_patterns = CapturePatternRewriter()
 
     def extract_chain(self, node: cst.If) -> IfChain | None:
         subject = self.recognition.recognize_subject(node.test)
@@ -118,13 +120,31 @@ class GenericIfChainCompiler:
         self, branch: IfBranch, subject: cst.BaseExpression
     ) -> cst.MatchCase:
         facts = self.recognition.normalize_branch(branch.test, subject)
+        body = branch.body
+
+        aliases = []
+        if facts.pattern is not None:
+            captures = self.capture_patterns._detect_multiple_captures(body, subject)
+            if captures:
+                captures, aliases = self.capture_patterns._normalize_duplicate_captures(
+                    captures
+                )
+                capture_pattern = facts.pattern.with_captures(tuple(captures))
+                if not capture_pattern.render().deep_equals(facts.pattern.render()):
+                    facts = facts.with_pattern(capture_pattern)
+                    body = self.capture_patterns._remove_statements(
+                        body, len(captures) + len(aliases)
+                    )
+                    if aliases:
+                        body = self.capture_patterns._prepend_aliases(body, aliases)
+
         pattern = self._compile_pattern(facts)
         guard = facts.guard
 
         kwargs = {
             "pattern": pattern,
             "guard": guard,
-            "body": branch.body,
+            "body": body,
             "leading_lines": branch.leading_lines,
         }
         if guard is not None:

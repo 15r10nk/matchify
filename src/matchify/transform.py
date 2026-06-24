@@ -5,7 +5,6 @@ from __future__ import annotations
 import libcst as cst
 from libcst.metadata import PositionProvider
 
-from .capture_patterns import CapturePatternTransformer
 from .compiler import GenericIfChainCompiler
 from .recognizers import SubjectRecognizer
 
@@ -89,8 +88,5 @@ def transform_code(source: str, ignore_types_pattern: str | None = None) -> str:
     transformed = wrapper.visit(
         IfToMatchTransformer(ignore_types_pattern=ignore_types_pattern)
     )
-
-    # Second pass: add capture patterns to match statements
-    transformed = transformed.visit(CapturePatternTransformer())
 
     return transformed.code
