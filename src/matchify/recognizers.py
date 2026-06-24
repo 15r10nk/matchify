@@ -1089,18 +1089,21 @@ class PatternRecognitionEngine:
                 guard=None,
             )
 
-        class_attribute_facts = normalize_subject_class_attribute_value_facts(
+        class_attribute_facts = normalize_subject_class_attribute_facts(
             condition, subject, self.ignore_types_pattern
         )
         if class_attribute_facts is not None:
-            class_fact, attribute_facts = class_attribute_facts
+            class_fact, attribute_value_facts, attribute_class_facts = (
+                class_attribute_facts
+            )
             return BranchFacts(
                 condition=condition,
                 subject=subject,
-                facts=(class_fact, *attribute_facts),
+                facts=(class_fact, *attribute_value_facts, *attribute_class_facts),
                 pattern=PatternTree(
                     class_fact=class_fact,
-                    attribute_value_facts=attribute_facts,
+                    attribute_value_facts=attribute_value_facts,
+                    attribute_class_facts=attribute_class_facts,
                 ),
                 guard=None,
             )
@@ -1149,17 +1152,39 @@ def normalize_subject_class_fact(
     subject: cst.BaseExpression,
     ignore_types_pattern: str | None,
 ) -> ClassFact | None:
-    class_exprs = extract_isinstance_call(condition, subject, ignore_types_pattern)
-    if class_exprs is None:
+    class_fact = normalize_class_fact(condition, subject, ignore_types_pattern)
+    if class_fact is None or not class_fact.path.is_subject:
         return None
-    return ClassFact(SubjectPath(()), tuple(class_exprs))
+    return class_fact
 
 
-def normalize_subject_class_attribute_value_facts(
+def normalize_class_fact(
     condition: cst.BaseExpression,
     subject: cst.BaseExpression,
     ignore_types_pattern: str | None,
-) -> tuple[ClassFact, tuple[ValueFact, ...]] | None:
+) -> ClassFact | None:
+    if not isinstance(condition, cst.Call) or not m.matches(
+        condition, m.Call(func=m.Name(value="isinstance"))
+    ):
+        return None
+    if len(condition.args) < 2:
+        return None
+    path = SubjectPath.from_expression(condition.args[0].value, subject)
+    if path is None:
+        return None
+    class_exprs = extract_isinstance_classes(
+        condition.args[1].value, ignore_types_pattern
+    )
+    if class_exprs is None:
+        return None
+    return ClassFact(path, tuple(class_exprs))
+
+
+def normalize_subject_class_attribute_facts(
+    condition: cst.BaseExpression,
+    subject: cst.BaseExpression,
+    ignore_types_pattern: str | None,
+) -> tuple[ClassFact, tuple[ValueFact, ...], tuple[ClassFact, ...]] | None:
     if not isinstance(condition, cst.BooleanOperation) or not isinstance(
         condition.operator, cst.And
     ):
@@ -1167,6 +1192,7 @@ def normalize_subject_class_attribute_value_facts(
 
     class_fact: ClassFact | None = None
     value_facts: list[ValueFact] = []
+    attribute_class_facts: list[ClassFact] = []
     seen_attribute_names: set[str] = set()
     for component in flatten_boolean(condition, cst.And):
         component_class_fact = normalize_subject_class_fact(
@@ -1176,6 +1202,21 @@ def normalize_subject_class_attribute_value_facts(
             if class_fact is not None:
                 return None
             class_fact = component_class_fact
+            continue
+
+        attribute_class_fact = normalize_class_fact(
+            component, subject, ignore_types_pattern
+        )
+        attr_name = (
+            None
+            if attribute_class_fact is None
+            else attribute_class_fact.path.direct_attribute_name
+        )
+        if attribute_class_fact is not None and attr_name is not None:
+            if attr_name in seen_attribute_names:
+                return None
+            seen_attribute_names.add(attr_name)
+            attribute_class_facts.append(attribute_class_fact)
             continue
 
         value_fact = normalize_value_fact(component, subject)
@@ -1189,9 +1230,9 @@ def normalize_subject_class_attribute_value_facts(
         seen_attribute_names.add(attr_name)
         value_facts.append(value_fact)
 
-    if class_fact is None or not value_facts:
+    if class_fact is None or not (value_facts or attribute_class_facts):
         return None
-    return class_fact, tuple(value_facts)
+    return class_fact, tuple(value_facts), tuple(attribute_class_facts)
 
 
 def extract_attribute_literal_check(

@@ -89,3 +89,33 @@ def test_normalize_branch_builds_class_union_attribute_value_facts():
     assert cst.Module([]).code_for_node(facts.pattern.render()) == (
         "Point(kind=None) | Token(kind=None)"
     )
+
+
+def test_normalize_branch_builds_class_attribute_class_facts():
+    facts = normalize(
+        "isinstance(value, NameExpr) and isinstance(value.node, Var)", "value"
+    )
+
+    assert facts.pattern is not None
+    assert isinstance(facts.facts[0], ClassFact)
+    assert isinstance(facts.facts[1], ClassFact)
+    assert facts.facts[1].path.direct_attribute_name == "node"
+    assert [cst.Module([]).code_for_node(cls) for cls in facts.facts[1].classes] == [
+        "Var"
+    ]
+    assert (
+        cst.Module([]).code_for_node(facts.pattern.render()) == "NameExpr(node=Var())"
+    )
+
+
+def test_normalize_branch_combines_attribute_value_and_class_facts():
+    facts = normalize(
+        "isinstance(value, NameExpr) and value.kind is None and isinstance(value.node, Var)",
+        "value",
+    )
+
+    assert facts.pattern is not None
+    assert [type(fact) for fact in facts.facts] == [ClassFact, ValueFact, ClassFact]
+    assert cst.Module([]).code_for_node(facts.pattern.render()) == (
+        "NameExpr(kind=None, node=Var())"
+    )
