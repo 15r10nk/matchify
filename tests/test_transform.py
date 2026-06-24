@@ -3364,6 +3364,33 @@ class TestIfToMatchTransformer:
 
         check_code(source, expected)
 
+    def test_capture_pattern_direct_sequence_subject_or_pattern(self):
+        """Test direct sequence captures are added to every OR alternative."""
+        source = dedent(
+            """
+            value = [1, 2, 3]
+            if (len(value) >= 3 and value[1] == 2) or (len(value) >= 3 and value[1] == 3):
+                first = value[0]
+                third = value[2]
+                print(first, third)
+            elif value is None:
+                print("none")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            value = [1, 2, 3]
+            match value:
+                case [first, 2, third, *_] | [first, 3, third, *_]:
+                    print(first, third)
+                case None:
+                    print("none")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_capture_pattern_sequence_element_class_union_nested_attribute(self):
         """Test nested captures inside sequence element class union alternatives."""
         source = dedent(

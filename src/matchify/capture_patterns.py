@@ -186,13 +186,13 @@ class CapturePatternTransformer(cst.CSTTransformer):
         Supports indices not starting from 0:
         captures = [('second', 'x', 1), ('third', 'x', 2)] → Point(x=[_, second, third, *_])
         """
+        if isinstance(pattern, cst.MatchOr):
+            return self._add_captures_to_or_pattern(pattern, capture_path, captures)
+
         if not capture_path:
             if isinstance(pattern, cst.MatchSequence):
                 return self._add_captures_to_sequence_pattern(pattern, captures)
             return None
-
-        if isinstance(pattern, cst.MatchOr):
-            return self._add_captures_to_or_pattern(pattern, capture_path, captures)
 
         first_part = capture_path[0]
         remaining_path = capture_path[1:]
