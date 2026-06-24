@@ -2285,6 +2285,39 @@ class TestIfToMatchTransformer:
 
         check_code(source, expected)
 
+    def test_or_pattern_with_sequence_attribute_alternative(self):
+        """Test OR alternatives with class sequence attribute patterns."""
+        source = dedent(
+            """
+            class Point:
+                def __init__(self, **attrs):
+                    self.__dict__.update(attrs)
+
+            value = Point(items=[1, None])
+            if (isinstance(value, Point) and len(value.items) == 2 and value.items[0] == 1 and value.items[1] is None) or value == 0:
+                print("match")
+            elif value is None:
+                print("none")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Point:
+                def __init__(self, **attrs):
+                    self.__dict__.update(attrs)
+
+            value = Point(items=[1, None])
+            match value:
+                case Point(items=[1, None]) | 0:
+                    print("match")
+                case None:
+                    print("none")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_or_pattern_with_sequence_element_redundant_hasattr(self):
         """Test safe hasattr checks do not block sequence element class patterns."""
         source = dedent(

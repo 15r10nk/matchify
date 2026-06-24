@@ -31,6 +31,10 @@ condition is unsupported or ambiguous, the transformer either keeps the original
 - OR alternatives that need their own guards, such as
   `(isinstance(x, Point) and x.kind > 0) or isinstance(x, Token)`, are not folded
   into one OR pattern because Python only supports guards for the whole `case`.
+- Generated safe traces keep sequence-type guards such as
+  `isinstance(x.items, (list, tuple))` out of random OR alternatives because those
+  guards apply to only one alternative. Hand-written OR alternatives without that
+  extra guard can still fold to patterns such as `Point(items=[1, None]) | 0`.
 
 ## Class Patterns
 
