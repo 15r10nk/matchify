@@ -152,12 +152,8 @@ class CapturePatternTransformer(cst.CSTTransformer):
 
         subscript = assign.value
 
-        # Check subscript is on an attribute of the subject
-        if not isinstance(subscript.value, cst.Attribute):
-            return None
-
         path = SubjectPath.from_expression(subscript.value, subject)
-        if path is None or not path.parts:
+        if path is None:
             return None
         capture_path = path.parts
 
@@ -191,6 +187,8 @@ class CapturePatternTransformer(cst.CSTTransformer):
         captures = [('second', 'x', 1), ('third', 'x', 2)] → Point(x=[_, second, third, *_])
         """
         if not capture_path:
+            if isinstance(pattern, cst.MatchSequence):
+                return self._add_captures_to_sequence_pattern(pattern, captures)
             return None
 
         if isinstance(pattern, cst.MatchOr):
@@ -303,14 +301,40 @@ class CapturePatternTransformer(cst.CSTTransformer):
     ) -> cst.MatchOr | None:
         elements = []
         for element in pattern.patterns:
-            if not isinstance(element.pattern, cst.MatchClass):
+            if not isinstance(element.pattern, (cst.MatchClass, cst.MatchSequence)):
                 return None
             new_pattern = self._add_multiple_captures_to_pattern(
                 element.pattern, capture_path, captures
             )
-            if new_pattern is None or not isinstance(new_pattern, cst.MatchClass):
+            if new_pattern is None or not isinstance(
+                new_pattern, (cst.MatchClass, cst.MatchSequence)
+            ):
                 return None
             elements.append(element.with_changes(pattern=new_pattern))
+        return pattern.with_changes(patterns=elements)
+
+    def _add_captures_to_sequence_pattern(
+        self,
+        pattern: cst.MatchSequence,
+        captures: list[tuple[str, CapturePath, int]],
+    ) -> cst.MatchSequence:
+        elements = list(pattern.patterns)
+        capture_map = {idx: var_name for var_name, _, idx in captures}
+        max_index = max(capture_map)
+
+        while len(elements) <= max_index:
+            elements.append(
+                cst.MatchSequenceElement(
+                    value=cst.MatchAs(pattern=None, name=None),
+                    comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" ")),
+                )
+            )
+
+        for index, var_name in capture_map.items():
+            elements[index] = elements[index].with_changes(
+                value=cst.MatchAs(pattern=None, name=cst.Name(var_name))
+            )
+
         return pattern.with_changes(patterns=elements)
 
     def _add_subscript_captures_to_pattern(

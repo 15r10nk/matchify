@@ -78,8 +78,8 @@ condition is unsupported or ambiguous, the transformer either keeps the original
 ## Capture Patterns
 
 - Capture patterns are only detected from simple assignments that immediately
-  read checked direct or nested sequence attributes, including attributes on
-  matched sequence elements.
+  read the checked sequence subject itself or checked direct/nested sequence
+  attributes, including attributes on matched sequence elements.
 - Duplicate captures for the same source index reuse the first pattern capture
   and keep later names as alias assignments in the case body.
 - Capture extraction is conservative when body statements or index usage become

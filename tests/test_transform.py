@@ -3312,6 +3312,58 @@ class TestIfToMatchTransformer:
 
         check_code(source, expected)
 
+    def test_capture_pattern_direct_sequence_subject(self):
+        """Test capturing from the matched sequence subject itself."""
+        source = dedent(
+            """
+            value = [1, 2]
+            if len(value) == 2 and value[1] == 2:
+                first = value[0]
+                print(first)
+            elif value is None:
+                print("none")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            value = [1, 2]
+            match value:
+                case first, 2:
+                    print(first)
+                case None:
+                    print("none")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_capture_pattern_direct_star_sequence_subject(self):
+        """Test capturing from the matched subject in an open sequence pattern."""
+        source = dedent(
+            """
+            value = [1, 2, 3]
+            if len(value) >= 2 and value[1] == 2:
+                first = value[0]
+                print(first)
+            elif value is None:
+                print("none")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            value = [1, 2, 3]
+            match value:
+                case first, 2, *_:
+                    print(first)
+                case None:
+                    print("none")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_capture_pattern_sequence_element_class_union_nested_attribute(self):
         """Test nested captures inside sequence element class union alternatives."""
         source = dedent(
