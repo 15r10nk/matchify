@@ -1166,6 +1166,8 @@ def generate_or_safe_attribute_pattern(
     rng: random.Random, classes: tuple[str, ...], depth: int
 ) -> GeneratedPattern:
     choices = ["literal", "singleton", "or_literal"]
+    if classes and depth > 0:
+        choices.append("class")
     kind = rng.choice(choices)
     if kind == "literal":
         return LiteralPattern(generate_literal(rng))
@@ -1173,6 +1175,8 @@ def generate_or_safe_attribute_pattern(
         return SingletonPattern(rng.choice(["None", "True", "False"]))
     if kind == "or_literal":
         return generate_or_literal_pattern(rng)
+    if kind == "class":
+        return generate_or_safe_class_pattern(rng, classes, depth=depth)
     raise AssertionError(f"Unhandled OR-safe attribute kind: {kind}")
 
 
@@ -1941,6 +1945,40 @@ def test_recursive_sequence_or_generated_program_survives_matchify(tmp_path: Pat
     source = program.to_trace_if_code()
     assert "value[0].items[0] == 1" in source
     assert "value.kind == 'ready'" in source
+    assert_matchify_preserves_trace(program, tmp_path)
+
+
+def test_nested_class_or_generated_program_survives_matchify(tmp_path: Path):
+    program = GeneratedProgram(
+        classes=("Point", "Node"),
+        cases=(
+            GeneratedCase(
+                OrPattern(
+                    (
+                        ClassPattern(
+                            "Point",
+                            (
+                                (
+                                    "x",
+                                    ClassPattern(
+                                        "Node", (("kind", LiteralPattern("1")),)
+                                    ),
+                                ),
+                            ),
+                        ),
+                        LiteralPattern("0"),
+                    )
+                ),
+                "branch_0",
+            ),
+            GeneratedCase(SingletonPattern("None"), "branch_1"),
+            GeneratedCase(WildcardPattern(), "default"),
+        ),
+    )
+
+    source = program.to_trace_if_code()
+    assert "isinstance(value.x, Node)" in source
+    assert "value.x.kind == 1" in source
     assert_matchify_preserves_trace(program, tmp_path)
 
 

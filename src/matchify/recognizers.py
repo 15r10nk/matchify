@@ -326,7 +326,7 @@ def remove_redundant_hasattr_checks(
     filtered = [
         component
         for component in components
-        if extract_hasattr_attribute_path(component, subject) not in checked_paths
+        if not is_redundant_hasattr(component, subject, checked_paths)
     ]
     if len(filtered) == len(components):
         return part
@@ -334,6 +334,20 @@ def remove_redundant_hasattr_checks(
         return filtered[0]
     combined = combine_guards(filtered)
     return combined if combined is not None else part
+
+
+def is_redundant_hasattr(
+    node: cst.BaseExpression,
+    subject: cst.BaseExpression,
+    checked_paths: set[tuple[SubjectPathPart, ...]],
+) -> bool:
+    hasattr_path = extract_hasattr_attribute_path(node, subject)
+    if hasattr_path is None:
+        return False
+    return any(
+        path == hasattr_path or path[: len(hasattr_path)] == hasattr_path
+        for path in checked_paths
+    )
 
 
 def collect_checked_attribute_paths(
@@ -347,8 +361,27 @@ def collect_checked_attribute_paths(
         merged = set().union(*parts)
         return merged if len(merged) == 1 else set()
 
+    if isinstance(node, cst.Call) and m.matches(
+        node, m.Call(func=m.Name(value="isinstance"))
+    ):
+        if len(node.args) < 2:
+            return set()
+        path = SubjectPath.from_expression(node.args[0].value, subject)
+        if path is None or not path.parts:
+            return set()
+        return {path.parts}
+
     if not isinstance(node, cst.Comparison) or len(node.comparisons) != 1:
         return set()
+
+    if m.matches(node.left, m.Call(func=m.Name(value="len"), args=[m.Arg()])):
+        len_call = node.left
+        if not len_call.args:
+            return set()
+        path = SubjectPath.from_expression(len_call.args[0].value, subject)
+        if path is None or not path.parts:
+            return set()
+        return {path.parts}
 
     path = SubjectPath.from_expression(node.left, subject)
     if (
