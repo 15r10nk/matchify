@@ -2151,6 +2151,34 @@ def test_sequence_matching_samples_cover_class_union_combinations():
     )
 
 
+def test_class_matching_samples_cover_attribute_combinations():
+    pattern = ClassPattern(
+        "Wrapper",
+        (
+            (
+                "left",
+                ClassUnionPattern(
+                    ("Point", "Token"),
+                    (("kind", LiteralPattern("1")),),
+                ),
+            ),
+            (
+                "right",
+                OrPattern((LiteralPattern("'ready'"), SingletonPattern("None"))),
+            ),
+        ),
+    )
+
+    assert matching_value_codes(pattern) == snapshot(
+        [
+            "Wrapper(left=Point(kind=1), right='ready')",
+            "Wrapper(left=Point(kind=1), right=None)",
+            "Wrapper(left=Token(kind=1), right='ready')",
+            "Wrapper(left=Token(kind=1), right=None)",
+        ]
+    )
+
+
 def test_generated_or_capture_program_survives_matchify(tmp_path: Path):
     program = GeneratedProgram(
         classes=("Point", "Token"),
