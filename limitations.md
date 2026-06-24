@@ -34,8 +34,9 @@ condition is unsupported or ambiguous, the transformer either keeps the original
 - OR alternatives with captures are only folded when every alternative binds the
   same names. Python rejects OR patterns where only one side captures a name.
 - Redundant safety checks such as `hasattr(x, "items")` and
-  `isinstance(x.items, (list, tuple))` can be ignored inside an OR alternative
-  when the same path is fully described by a generated class or sequence pattern.
+  `isinstance(x, (list, tuple))` or `isinstance(x.items, (list, tuple))` can be
+  ignored inside an OR alternative when the same path is fully described by a
+  generated sequence pattern.
 
 ## Class Patterns
 

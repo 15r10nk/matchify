@@ -560,12 +560,31 @@ class GeneratedProgram:
         for case in self.cases:
             if isinstance(case.pattern, WildcardPattern):
                 continue
-            values.append(case.pattern.to_value_code())
+            values.extend(matching_value_codes(case.pattern))
             fallthrough_value = fallthrough_value_code(case.pattern)
             if fallthrough_value is not None:
                 values.append(fallthrough_value)
         values.append("object()")
         return values
+
+
+def matching_value_codes(pattern: GeneratedPattern) -> list[str]:
+    if isinstance(pattern, OrPattern):
+        signatures = [
+            capture_signature(alternative) for alternative in pattern.alternatives
+        ]
+        if (
+            signatures
+            and signatures[0] != ()
+            and all(signature == signatures[0] for signature in signatures[1:])
+        ):
+            return [
+                value
+                for alternative in pattern.alternatives
+                for value in matching_value_codes(alternative)
+            ]
+        return [pattern.to_value_code()]
+    return [pattern.to_value_code()]
 
 
 def fallthrough_value_code(pattern: GeneratedPattern) -> str | None:
@@ -1718,6 +1737,55 @@ def test_generated_or_capture_program_survives_matchify(tmp_path: Path):
     )
 
 
+def test_generated_nested_or_capture_program_survives_matchify(tmp_path: Path):
+    program = GeneratedProgram(
+        classes=("Point", "Token", "Data"),
+        cases=(
+            GeneratedCase(
+                OrPattern(
+                    (
+                        ClassPattern(
+                            "Point",
+                            (("data", CaptureClassPattern("Data", "items", (0, 2))),),
+                        ),
+                        ClassPattern(
+                            "Token",
+                            (("data", CaptureClassPattern("Data", "items", (0, 2))),),
+                        ),
+                    )
+                ),
+                "branch_0",
+            ),
+            GeneratedCase(SingletonPattern("None"), "branch_1"),
+            GeneratedCase(WildcardPattern(), "default"),
+        ),
+    )
+
+    source = program.to_trace_if_code()
+    assert "Point(data=Data(items=[1, 2, 3, object()]))" in source
+    assert "Token(data=Data(items=[1, 2, 3, object()]))" in source
+    path = tmp_path / "generated_nested_or_capture.py"
+    path.write_text(source, encoding="utf-8")
+    expected_trace = execute_result(source)
+
+    converted_path, changed, error = convert_file(path)
+
+    assert converted_path == path
+    assert changed is True
+    assert error is None
+    transformed = path.read_text(encoding="utf-8")
+    assert (
+        "case Point(data=Data(items=[capture_0_0, _, capture_0_1, *_])) | "
+        "Token(data=Data(items=[capture_0_0, _, capture_0_1, *_]))"
+    ) in transformed
+    assert "capture_0_0 = value.data.items[0]" not in transformed
+    assert "capture_0_1 = value.data.items[2]" not in transformed
+    assert execute_result(transformed) == expected_trace, (
+        f"Trace mismatch\nGenerated if/else:\n{source}\n"
+        f"Matchified code:\n{transformed}"
+    )
+
+
 def test_generated_three_way_class_union_sequence_program_survives_matchify(
     tmp_path: Path,
 ):
@@ -2751,6 +2819,7 @@ class Token:
         self.__dict__.update(attrs)
 values = [
     Point(y=[1, object()]),
+    Token(y=[1, object()]),
     Token(x=False),
     Token(),
     object(),

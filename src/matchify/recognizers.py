@@ -370,7 +370,7 @@ def extract_list_tuple_isinstance_path(
     if len(node.args) != 2:
         return None
     path = SubjectPath.from_expression(node.args[0].value, subject)
-    if path is None or not path.parts:
+    if path is None:
         return None
     class_arg = node.args[1].value
     if not isinstance(class_arg, cst.Tuple):
@@ -414,7 +414,7 @@ def collect_checked_attribute_paths(
         if not len_call.args:
             return set()
         path = SubjectPath.from_expression(len_call.args[0].value, subject)
-        if path is None or not path.parts:
+        if path is None:
             return set()
         return {path.parts}
 

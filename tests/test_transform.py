@@ -2285,6 +2285,31 @@ class TestIfToMatchTransformer:
 
         check_code(source, expected)
 
+    def test_or_pattern_with_safe_sequence_alternative(self):
+        """Test safe sequence type checks do not block top-level sequence OR patterns."""
+        source = dedent(
+            """
+            value = [1, 2]
+            if (isinstance(value, (list, tuple)) and len(value) == 2 and value[0] == 1 and value[1] == 2) or value is None:
+                print("match")
+            elif value is False:
+                print("false")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            value = [1, 2]
+            match value:
+                case [1, 2] | None:
+                    print("match")
+                case False:
+                    print("false")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_or_pattern_with_sequence_attribute_alternative(self):
         """Test OR alternatives with class sequence attribute patterns."""
         source = dedent(
