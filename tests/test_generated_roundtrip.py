@@ -725,12 +725,9 @@ def fallthrough_value_codes(pattern: GeneratedPattern) -> list[str]:
                 for alternative in pattern.alternatives
                 for value in fallthrough_value_codes(alternative)
             ]
-        if or_alternatives_have_disjoint_classes(pattern):
-            return [
-                value
-                for alternative in pattern.alternatives
-                for value in fallthrough_value_codes(alternative)
-            ]
+        disjoint_values = disjoint_or_fallthrough_value_codes(pattern)
+        if disjoint_values is not None:
+            return disjoint_values
         return []
     if isinstance(pattern, LiteralPattern):
         return [mismatching_literal(pattern.value)]
@@ -794,23 +791,43 @@ def or_alternatives_have_shared_captures(pattern: OrPattern) -> bool:
     )
 
 
-def or_alternatives_have_disjoint_classes(pattern: OrPattern) -> bool:
+def disjoint_or_fallthrough_value_codes(pattern: OrPattern) -> list[str] | None:
     if any(contains_capture(alternative) for alternative in pattern.alternatives):
-        return False
+        return None
 
     class_names = []
+    has_value_alternative = False
     for alternative in pattern.alternatives:
+        if pattern_is_literal_or_singleton(alternative):
+            has_value_alternative = True
+            continue
         names = pattern_class_names(alternative)
         if not names:
-            return False
+            return None
         class_names.append(names)
 
     seen: set[str] = set()
     for names in class_names:
         if seen & names:
-            return False
+            return None
         seen.update(names)
-    return True
+
+    values = ["object()"] if has_value_alternative else []
+    values.extend(
+        value
+        for alternative in pattern.alternatives
+        if pattern_class_names(alternative)
+        for value in fallthrough_value_codes(alternative)
+    )
+    return values or None
+
+
+def pattern_is_literal_or_singleton(pattern: GeneratedPattern) -> bool:
+    if isinstance(pattern, (LiteralPattern, SingletonPattern)):
+        return True
+    if isinstance(pattern, GuardedPattern):
+        return pattern_is_literal_or_singleton(pattern.pattern)
+    return False
 
 
 def pattern_class_names(pattern: GeneratedPattern) -> set[str]:
@@ -2750,6 +2767,24 @@ def test_sequence_or_fallthrough_samples_cover_disjoint_class_alternatives():
 
     assert fallthrough_value_codes(pattern) == snapshot(
         ["[Point(kind=0)]", "[Token(kind=0)]"]
+    )
+
+
+def test_sequence_or_fallthrough_samples_cover_literal_and_class_alternatives():
+    pattern = SequencePattern(
+        (
+            OrPattern(
+                (
+                    LiteralPattern("1"),
+                    ClassPattern("Point", (("kind", LiteralPattern("2")),)),
+                )
+            ),
+        ),
+        bracketed=False,
+    )
+
+    assert fallthrough_value_codes(pattern) == snapshot(
+        ["[object()]", "[Point(kind=0)]"]
     )
 
 
