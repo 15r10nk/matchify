@@ -3,6 +3,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
 from io import StringIO
 from pathlib import Path
+from typing import Callable
 
 from inline_snapshot import snapshot
 
@@ -612,23 +613,75 @@ def matching_value_codes(pattern: GeneratedPattern) -> list[str]:
 def class_matching_value_codes(
     class_name: str, attrs: tuple[tuple[str, GeneratedPattern], ...]
 ) -> list[str]:
+    return class_value_codes_from_expansion(
+        class_name,
+        attrs,
+        matching_value_codes,
+        expand_single_value=False,
+        include_unexpanded_value=True,
+    )
+
+
+def class_value_codes_from_expansion(
+    class_name: str,
+    attrs: tuple[tuple[str, GeneratedPattern], ...],
+    expand_pattern: "ValueExpander",
+    expand_single_value: bool,
+    include_unexpanded_value: bool,
+) -> list[str]:
     attr_values = []
-    for attr, pattern in sorted(attrs, key=class_attr_sort_key):
-        values = matching_value_codes(pattern)
-        if len(values) > 1:
+    for index, (attr, pattern) in enumerate(sorted(attrs, key=class_attr_sort_key)):
+        values = expand_pattern(pattern)
+        if values and (expand_single_value or len(values) > 1):
             return [
-                f"{class_name}({', '.join([*attr_values, f'{attr}={value}', *matching_attrs_after(attrs, attr)])})"
+                class_value_code(
+                    class_name,
+                    [
+                        *attr_values,
+                        f"{attr}={value}",
+                        *matching_attrs_after_index(attrs, index),
+                    ],
+                )
                 for value in values
             ]
-        attr_values.append(f"{attr}={values[0]}")
+        if values:
+            attr_values.append(f"{attr}={values[0]}")
+        else:
+            attr_values.append(f"{attr}={pattern.to_value_code()}")
+    if include_unexpanded_value:
+        return [class_value_code(class_name, attr_values)]
+    return []
 
+
+def class_value_code(class_name: str, attr_values: list[str]) -> str:
     if not attr_values:
-        return [f"{class_name}()"]
-    return [f"{class_name}({', '.join(attr_values)})"]
+        return f"{class_name}()"
+    return f"{class_name}({', '.join(attr_values)})"
 
 
 def sequence_matching_value_codes(
     elements: tuple[GeneratedPattern | None, ...],
+    append_extra: bool = False,
+    tuple_value: bool = False,
+) -> list[str]:
+    return sequence_value_codes_from_expansion(
+        elements,
+        matching_value_codes,
+        expand_single_value=False,
+        include_unexpanded_value=True,
+        append_extra=append_extra,
+        tuple_value=tuple_value,
+    )
+
+
+ValueExpander = Callable[[GeneratedPattern], list[str]]
+
+
+def sequence_value_codes_from_expansion(
+    elements: tuple[GeneratedPattern | None, ...],
+    expand_pattern: "ValueExpander",
+    expand_single_value: bool,
+    include_unexpanded_value: bool,
     append_extra: bool = False,
     tuple_value: bool = False,
 ) -> list[str]:
@@ -638,33 +691,32 @@ def sequence_matching_value_codes(
             element_values.append("object()")
             continue
 
-        values = matching_value_codes(element)
-        if len(values) > 1:
-            suffix = [
-                "object()" if suffix_element is None else suffix_element.to_value_code()
-                for suffix_element in elements[len(element_values) + 1 :]
-            ]
+        values = expand_pattern(element)
+        if values and (expand_single_value or len(values) > 1):
+            suffix = matching_sequence_suffix_after(elements, len(element_values))
             if append_extra:
                 suffix.append("object()")
             return [
                 sequence_value_code(
                     ", ".join([*element_values, value, *suffix]),
                     tuple_value=tuple_value,
-                    element_count=len(element_values) + 1 + len(suffix),
+                    element_count=len(element_values) + len(suffix) + 1,
                 )
                 for value in values
             ]
-        element_values.append(values[0])
+        element_values.append(element.to_value_code())
 
     if append_extra:
         element_values.append("object()")
-    return [
-        sequence_value_code(
-            ", ".join(element_values),
-            tuple_value=tuple_value,
-            element_count=len(element_values),
-        )
-    ]
+    if include_unexpanded_value:
+        return [
+            sequence_value_code(
+                ", ".join(element_values),
+                tuple_value=tuple_value,
+                element_count=len(element_values),
+            )
+        ]
+    return []
 
 
 def fallthrough_value_code(pattern: GeneratedPattern) -> str | None:
@@ -740,33 +792,21 @@ def class_fallthrough_value_code(
 def class_fallthrough_value_codes(
     class_name: str, attrs: tuple[tuple[str, GeneratedPattern], ...]
 ) -> list[str]:
-    attr_values = []
-    for attr, pattern in sorted(attrs, key=class_attr_sort_key):
-        values = fallthrough_value_codes(pattern)
-        if values:
-            return [
-                f"{class_name}({', '.join([*attr_values, f'{attr}={value}', *matching_attrs_after(attrs, attr)])})"
-                for value in values
-            ]
-        attr_values.append(f"{attr}={pattern.to_value_code()}")
-
-    return []
+    return class_value_codes_from_expansion(
+        class_name,
+        attrs,
+        fallthrough_value_codes,
+        expand_single_value=True,
+        include_unexpanded_value=False,
+    )
 
 
-def matching_attrs_after(
-    attrs: tuple[tuple[str, GeneratedPattern], ...], current_attr: str
+def matching_attrs_after_index(
+    attrs: tuple[tuple[str, GeneratedPattern], ...], current_index: int
 ) -> list[str]:
-    sorted_attrs = sorted(attrs, key=class_attr_sort_key)
     return [
         f"{attr}={pattern.to_value_code()}"
-        for attr, pattern in sorted_attrs[
-            next(
-                index
-                for index, (attr, _) in enumerate(sorted_attrs)
-                if attr == current_attr
-            )
-            + 1 :
-        ]
+        for attr, pattern in sorted(attrs, key=class_attr_sort_key)[current_index + 1 :]
     ]
 
 
@@ -784,31 +824,23 @@ def sequence_fallthrough_value_codes(
     append_extra: bool = False,
     tuple_value: bool = False,
 ) -> list[str]:
-    element_values = []
-    for element in elements:
-        if element is None:
-            element_values.append("object()")
-            continue
+    return sequence_value_codes_from_expansion(
+        elements,
+        fallthrough_value_codes,
+        expand_single_value=True,
+        include_unexpanded_value=False,
+        append_extra=append_extra,
+        tuple_value=tuple_value,
+    )
 
-        values = fallthrough_value_codes(element)
-        if values:
-            suffix = [
-                "object()" if suffix_element is None else suffix_element.to_value_code()
-                for suffix_element in elements[len(element_values) + 1 :]
-            ]
-            if append_extra:
-                suffix.append("object()")
-            return [
-                sequence_value_code(
-                    ", ".join([*element_values, value, *suffix]),
-                    tuple_value=tuple_value,
-                    element_count=len(element_values) + 1 + len(suffix),
-                )
-                for value in values
-            ]
-        element_values.append(element.to_value_code())
 
-    return []
+def matching_sequence_suffix_after(
+    elements: tuple[GeneratedPattern | None, ...], current_index: int
+) -> list[str]:
+    return [
+        "object()" if element is None else element.to_value_code()
+        for element in elements[current_index + 1 :]
+    ]
 
 
 def mismatching_literal(value: str) -> str:
