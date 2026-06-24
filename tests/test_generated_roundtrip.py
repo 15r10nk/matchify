@@ -620,7 +620,7 @@ def generate_program_candidate(rng: random.Random) -> GeneratedProgram:
     classes = class_pool[:class_count]
     branches = rng.randint(2, 5)
     cases = [
-        GeneratedCase(generate_pattern(rng, classes, depth=2), f"branch_{index}")
+        GeneratedCase(generate_pattern(rng, classes, depth=3), f"branch_{index}")
         for index in range(branches)
     ]
     if rng.choice([True, False]):
@@ -1299,6 +1299,50 @@ def test_generated_nested_capture_program_survives_matchify(tmp_path: Path):
         f"Trace mismatch\nGenerated if/else:\n{source}\n"
         f"Matchified code:\n{transformed}"
     )
+
+
+def test_generated_deep_nested_program_survives_matchify(tmp_path: Path):
+    program = GeneratedProgram(
+        classes=("Point", "Node", "Leaf"),
+        cases=(
+            GeneratedCase(
+                ClassPattern(
+                    "Point",
+                    (
+                        (
+                            "x",
+                            ClassPattern(
+                                "Node",
+                                (
+                                    (
+                                        "y",
+                                        SequencePattern(
+                                            (
+                                                ClassPattern(
+                                                    "Leaf",
+                                                    (("kind", LiteralPattern("1")),),
+                                                ),
+                                                SingletonPattern("None"),
+                                            ),
+                                            bracketed=True,
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                "branch_0",
+            ),
+            GeneratedCase(ClassPattern("Point"), "branch_1"),
+            GeneratedCase(WildcardPattern(), "default"),
+        ),
+    )
+
+    source = program.to_trace_if_code()
+    assert "isinstance(value.x, Node)" in source
+    assert "isinstance(value.x.y[0], Leaf)" in source
+    assert_matchify_preserves_trace(program, tmp_path)
 
 
 def test_generated_class_union_capture_program_survives_matchify(tmp_path: Path):
@@ -2328,7 +2372,8 @@ class Point:
 values = [
     ((Point(y=[1, object()]), object(), object(), Point(items=[1, object()]), object()),),
     ((Point(y=[]), object(), object(), Point(items=[1, object()]), object()),),
-    (False, [object(), [False, True, object(), -3.5], False, object()], object(), [-1, 'blue', -1], object(), object()),
+    (False, (object(), (Point(y=1), None, object(), +3.5), False, object()), object(), ((-1, +3.5, True, object()), object(), object()), object(), object()),
+    (False, (object(), (Point(y=0), None, object(), +3.5), False, object()), object(), ((-1, +3.5, True, object()), object(), object()), object(), object()),
     object(),
 ]
 for value in values:
@@ -2336,34 +2381,29 @@ for value in values:
         capture_0_0 = value[0][0].y[0]
         capture_0_1 = value[0][3].items[0]
         print('branch_0')
-    elif isinstance(value, (list, tuple)) and len(value) >= 5 and value[0] is False and isinstance(value[1], (list, tuple)) and len(value[1]) >= 3 and isinstance(value[1][1], (list, tuple)) and len(value[1][1]) == 4 and value[1][1][0] is False and value[1][1][1] is True and value[1][1][3] == -3.5 and value[1][2] is False and isinstance(value[3], (list, tuple)) and len(value[3]) == 3 and value[3][0] == -1 and value[3][1] == 'blue' and value[3][2] == -1 and bool([None]):
+    elif isinstance(value, (list, tuple)) and len(value) >= 5 and value[0] is False and isinstance(value[1], (list, tuple)) and len(value[1]) >= 3 and isinstance(value[1][1], (list, tuple)) and len(value[1][1]) == 4 and isinstance(value[1][1][0], Point) and hasattr(value[1][1][0], 'y') and value[1][1][0].y != 0 and value[1][1][1] is None and value[1][1][3] == +3.5 and hasattr(value[1][1][3], '__class__') and value[1][2] is False and isinstance(value[3], (list, tuple)) and len(value[3]) == 3 and isinstance(value[3][0], (list, tuple)) and len(value[3][0]) >= 3 and value[3][0][0] == -1 and value[3][0][1] == +3.5 and value[3][0][2] is True and True:
         print('branch_1')
-    else:
-        print('default')
 ---
 class Point:
     def __init__(self, **attrs):
         self.__dict__.update(attrs)
 values = [
-    [Point(x=1), False],
-    [Point(x=0), False],
-    Point(x=False),
+    Point(y=1),
+    Point(y=0),
     ('blue', (None, 'red', 0)),
     [object(), Point(x=Point(items=[1, object()]), y=Point(items=[1, object()])), Point(kind=2), object(), object()],
     [object(), Point(x=Point(items=[]), y=Point(items=[1, object()])), Point(kind=2), object(), object()],
     object(),
 ]
 for value in values:
-    if isinstance(value, (list, tuple)) and len(value) == 2 and isinstance(value[0], Point) and hasattr(value[0], 'x') and value[0].x > 0 and value[1] is False:
+    if isinstance(value, Point) and hasattr(value, 'y') and value.y != 0:
         print('branch_0')
-    elif isinstance(value, Point) and hasattr(value, 'x') and value.x is False:
-        print('branch_1')
     elif isinstance(value, (list, tuple)) and len(value) == 2 and (value[0] == 'blue' or value[0] == +1 or value[0] == 0 or value[0] == 'ready') and isinstance(value[1], (list, tuple)) and len(value[1]) == 3 and value[1][0] is None and value[1][1] == 'red' and (value[1][2] == 0 or value[1][2] == -1):
-        print('branch_2')
+        print('branch_1')
     elif isinstance(value, (list, tuple)) and len(value) >= 4 and isinstance(value[1], Point) and hasattr(value[1], 'x') and isinstance(value[1].x, Point) and hasattr(value[1].x, 'items') and isinstance(value[1].x.items, (list, tuple)) and len(value[1].x.items) >= 1 and hasattr(value[1], 'y') and isinstance(value[1].y, Point) and hasattr(value[1].y, 'items') and isinstance(value[1].y.items, (list, tuple)) and len(value[1].y.items) >= 1 and isinstance(value[2], Point) and hasattr(value[2], 'kind') and value[2].kind == len([None, None]):
-        capture_3_0 = value[1].x.items[0]
-        capture_3_1 = value[1].y.items[0]
-        print('branch_3')
+        capture_2_0 = value[1].x.items[0]
+        capture_2_1 = value[1].y.items[0]
+        print('branch_2')
 ---
 class Point:
     def __init__(self, **attrs):
@@ -2375,39 +2415,36 @@ class Token:
 values = [
     Point(y=[1, 2, object()]),
     Point(y=[object()]),
-    ['blue', 'blue'],
+    ('blue', ['blue', True, False]),
     object(),
 ]
 for value in values:
     if isinstance(value, Point) and hasattr(value, 'y') and isinstance(value.y, (list, tuple)) and len(value.y) >= 2:
         capture_0_0 = value.y[1]
         print('branch_0')
-    elif isinstance(value, (list, tuple)) and len(value) == 2 and (value[0] == 'blue' or value[0] == -1 or value[0] is None or value[0] == 2) and value[1] == 'blue' and bool([None]) and not isinstance(value[1], dict):
+    elif isinstance(value, (list, tuple)) and len(value) == 2 and (value[0] == 'blue' or value[0] == -1 or value[0] is None or value[0] == 2) and isinstance(value[1], (list, tuple)) and len(value[1]) == 3 and value[1][0] == 'blue' and value[1][1] is True and value[1][2] is False and len([None]) == 1 and True:
         print('branch_1')
+    else:
+        print('default')
 ---
 class Point:
     def __init__(self, **attrs):
         self.__dict__.update(attrs)
-
-class Token:
-    def __init__(self, **attrs):
-        self.__dict__.update(attrs)
-
-class Node:
-    def __init__(self, **attrs):
-        self.__dict__.update(attrs)
 values = [
-    'ready',
-    -3.5,
-    [Point(), object()],
+    Point(y=1),
+    Point(y=2),
+    [(object(), object(), Point(x=1)), -3.5, 'ready'],
+    [(object(), object(), Point(x=0)), -3.5, 'ready'],
+    Point(x='ready'),
+    Point(x='miss'),
     object(),
 ]
 for value in values:
-    if value == 'ready':
+    if isinstance(value, Point) and hasattr(value, 'y') and value.y <= 1:
         print('branch_0')
-    elif value == -3.5:
+    elif isinstance(value, (list, tuple)) and len(value) == 3 and isinstance(value[0], (list, tuple)) and len(value[0]) == 3 and isinstance(value[0][2], Point) and hasattr(value[0][2], 'x') and value[0][2].x == len([None]) and value[1] == -3.5 and (value[2] == 'ready' or value[2] is None or value[2] == +3.5 or value[2] is False):
         print('branch_1')
-    elif isinstance(value, (list, tuple)) and len(value) >= 1 and isinstance(value[0], (Point, Token, Node)):
+    elif isinstance(value, Point) and hasattr(value, 'x') and value.x == f'ready':
         print('branch_2')\
 """
     )
