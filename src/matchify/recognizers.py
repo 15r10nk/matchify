@@ -40,7 +40,7 @@ from .sequence_patterns import (
     is_sequence_attribute_component,
     validate_wildcard_constraint,
 )
-from .subject_path import SubjectPath
+from .subject_path import AttributePathPart, SubjectPath, SubjectPathPart
 
 
 class SubjectRecognizer:
@@ -315,20 +315,18 @@ def remove_redundant_hasattr_checks(
         return part
 
     components = flatten_boolean(part, cst.And)
-    checked_attrs = {
-        attr_name
+    checked_paths = {
+        path
         for component in components
-        if (attr_check := extract_attribute_pattern_check(component, subject))
-        is not None
-        for attr_name, _ in (attr_check,)
+        for path in collect_checked_attribute_paths(component, subject)
     }
-    if not checked_attrs:
+    if not checked_paths:
         return part
 
     filtered = [
         component
         for component in components
-        if extract_direct_hasattr_name(component, subject) not in checked_attrs
+        if extract_hasattr_attribute_path(component, subject) not in checked_paths
     ]
     if len(filtered) == len(components):
         return part
@@ -338,14 +336,50 @@ def remove_redundant_hasattr_checks(
     return combined if combined is not None else part
 
 
-def extract_direct_hasattr_name(
+def collect_checked_attribute_paths(
     node: cst.BaseExpression, subject: cst.BaseExpression
-) -> str | None:
+) -> set[tuple[SubjectPathPart, ...]]:
+    if isinstance(node, cst.BooleanOperation) and isinstance(node.operator, cst.Or):
+        parts = [
+            collect_checked_attribute_paths(part, subject)
+            for part in flatten_boolean(node, cst.Or)
+        ]
+        merged = set().union(*parts)
+        return merged if len(merged) == 1 else set()
+
+    if not isinstance(node, cst.Comparison) or len(node.comparisons) != 1:
+        return set()
+
+    path = SubjectPath.from_expression(node.left, subject)
+    if (
+        path is None
+        or not path.parts
+        or not isinstance(path.parts[-1], AttributePathPart)
+    ):
+        return set()
+
+    target = node.comparisons[0]
+    if isinstance(target.operator, cst.Is) and not is_singleton_name(target.comparator):
+        return set()
+    if not isinstance(target.operator, (cst.Equal, cst.Is)):
+        return set()
+    if not is_literal_value(target.comparator):
+        return set()
+
+    return {path.parts}
+
+
+def extract_hasattr_attribute_path(
+    node: cst.BaseExpression, subject: cst.BaseExpression
+) -> tuple[SubjectPathPart, ...] | None:
     if not isinstance(node, cst.Call) or not m.matches(
         node, m.Call(func=m.Name(value="hasattr"))
     ):
         return None
-    if len(node.args) != 2 or not node.args[0].value.deep_equals(subject):
+    if len(node.args) != 2:
+        return None
+    path = SubjectPath.from_expression(node.args[0].value, subject)
+    if path is None:
         return None
     name_arg = node.args[1].value
     if not isinstance(name_arg, cst.SimpleString):
@@ -355,7 +389,9 @@ def extract_direct_hasattr_name(
     except cst.ParserSyntaxError:
         return None
     literal = value.evaluated_value
-    return literal if isinstance(literal, str) else None
+    if not isinstance(literal, str):
+        return None
+    return path.parts + (AttributePathPart(literal),)
 
 
 class ClassPatternRecognizer(BranchPatternRecognizer):

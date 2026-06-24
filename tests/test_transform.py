@@ -2285,6 +2285,39 @@ class TestIfToMatchTransformer:
 
         check_code(source, expected)
 
+    def test_or_pattern_with_sequence_element_redundant_hasattr(self):
+        """Test safe hasattr checks do not block sequence element class patterns."""
+        source = dedent(
+            """
+            class Point:
+                def __init__(self, kind):
+                    self.kind = kind
+
+            value = [None, Point(3), True]
+            if len(value) >= 3 and isinstance(value[1], Point) and hasattr(value[1], "kind") and value[1].kind == 3 and value[2] is True or value == 0:
+                print("match")
+            elif value is None:
+                print("none")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Point:
+                def __init__(self, kind):
+                    self.kind = kind
+
+            value = [None, Point(3), True]
+            match value:
+                case [_, Point(kind=3), True, *_] | 0:
+                    print("match")
+                case None:
+                    print("none")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_or_pattern_with_variable_not_converted(self):
         """Test that OR patterns with variables (non-literals) are not converted."""
         source = dedent(

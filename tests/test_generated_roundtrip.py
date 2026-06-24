@@ -1122,32 +1122,58 @@ def generate_or_literal_pattern(rng: random.Random) -> OrPattern:
 
 
 def generate_or_pattern(rng: random.Random, classes: tuple[str, ...]) -> OrPattern:
-    alternatives: list[GeneratedPattern] = list(
-        generate_or_literal_pattern(rng).alternatives
+    alternatives = tuple(
+        generate_or_safe_pattern(rng, classes, depth=2)
+        for _ in range(rng.randint(2, 4))
     )
-    if classes and rng.choice([True, False]):
-        for class_name in rng.sample(classes, rng.randint(1, len(classes))):
-            alternatives.append(generate_or_class_alternative(rng, class_name))
-    if rng.choice([True, False]):
-        alternatives.append(generate_or_sequence_alternative(rng))
-    rng.shuffle(alternatives)
-    return OrPattern(tuple(alternatives))
+    return OrPattern(alternatives)
 
 
-def generate_or_class_alternative(rng: random.Random, class_name: str) -> ClassPattern:
-    if rng.choice([True, False]):
-        return ClassPattern(class_name)
+def generate_or_safe_pattern(
+    rng: random.Random, classes: tuple[str, ...], depth: int
+) -> GeneratedPattern:
+    choices = ["literal", "singleton", "or_literal"]
+    if classes:
+        choices.append("class")
 
-    attr = rng.choice(["x", "y", "kind"])
-    return ClassPattern(class_name, ((attr, generate_literal_or_singleton(rng)),))
+    kind = rng.choice(choices)
+    if kind == "literal":
+        return LiteralPattern(generate_literal(rng))
+    if kind == "singleton":
+        return SingletonPattern(rng.choice(["None", "True", "False"]))
+    if kind == "or_literal":
+        return generate_or_literal_pattern(rng)
+    if kind == "class":
+        return generate_or_safe_class_pattern(rng, classes, depth=depth)
+    raise AssertionError(f"Unhandled OR-safe pattern kind: {kind}")
 
 
-def generate_or_sequence_alternative(rng: random.Random) -> SequencePattern:
-    return SequencePattern(
-        tuple(generate_literal_or_singleton(rng) for _ in range(rng.randint(1, 3))),
-        bracketed=False,
-        tuple_value=rng.choice([True, False]),
+def generate_or_safe_class_pattern(
+    rng: random.Random, classes: tuple[str, ...], depth: int
+) -> ClassPattern | ClassUnionPattern:
+    attrs = rng.sample(["x", "y", "kind"], rng.randint(0, 2))
+    attr_patterns = tuple(
+        (attr, generate_or_safe_attribute_pattern(rng, classes, depth=depth - 1))
+        for attr in attrs
     )
+    if len(classes) > 1 and rng.choice([True, False]):
+        class_names = tuple(rng.sample(classes, rng.randint(2, len(classes))))
+        return ClassUnionPattern(class_names, attr_patterns)
+    return ClassPattern(rng.choice(classes), attr_patterns)
+
+
+def generate_or_safe_attribute_pattern(
+    rng: random.Random, classes: tuple[str, ...], depth: int
+) -> GeneratedPattern:
+    choices = ["literal", "singleton", "or_literal"]
+    kind = rng.choice(choices)
+    if kind == "literal":
+        return LiteralPattern(generate_literal(rng))
+    if kind == "singleton":
+        return SingletonPattern(rng.choice(["None", "True", "False"]))
+    if kind == "or_literal":
+        return generate_or_literal_pattern(rng)
+    raise AssertionError(f"Unhandled OR-safe attribute kind: {kind}")
 
 
 def generate_literal_or_singleton(
@@ -1872,6 +1898,49 @@ def test_sequence_or_generated_program_survives_matchify(tmp_path: Path):
 
     source = program.to_trace_if_code()
     assert "len(value) == 2" in source
+    assert_matchify_preserves_trace(program, tmp_path)
+
+
+def test_recursive_sequence_or_generated_program_survives_matchify(tmp_path: Path):
+    program = GeneratedProgram(
+        classes=("Point", "Token"),
+        cases=(
+            GeneratedCase(
+                OrPattern(
+                    (
+                        SequencePattern(
+                            (
+                                ClassPattern(
+                                    "Point",
+                                    (
+                                        (
+                                            "items",
+                                            SequencePattern(
+                                                (
+                                                    LiteralPattern("1"),
+                                                    SingletonPattern("None"),
+                                                ),
+                                                bracketed=True,
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                            bracketed=False,
+                        ),
+                        ClassPattern("Token", (("kind", LiteralPattern("'ready'")),)),
+                    )
+                ),
+                "branch_0",
+            ),
+            GeneratedCase(LiteralPattern("3"), "branch_1"),
+            GeneratedCase(WildcardPattern(), "default"),
+        ),
+    )
+
+    source = program.to_trace_if_code()
+    assert "value[0].items[0] == 1" in source
+    assert "value.kind == 'ready'" in source
     assert_matchify_preserves_trace(program, tmp_path)
 
 
