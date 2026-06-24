@@ -1,5 +1,6 @@
 import libcst as cst
 
+from matchify.facts import ValueFact
 from matchify.recognizers import PatternRecognitionEngine
 
 
@@ -14,6 +15,9 @@ def test_normalize_branch_wraps_recognized_pattern():
     facts = normalize("value == 1", "value")
 
     assert facts.pattern is not None
+    assert isinstance(facts.facts[0], ValueFact)
+    assert facts.facts[0].path.is_subject
+    assert cst.Module([]).code_for_node(facts.facts[0].value) == "1"
     assert cst.Module([]).code_for_node(facts.pattern.render()) == "1"
     assert facts.guard is None
 
@@ -22,5 +26,16 @@ def test_normalize_branch_preserves_unrecognized_condition_as_guard():
     facts = normalize("value > 1", "value")
 
     assert facts.pattern is None
+    assert facts.facts == ()
     assert facts.guard is not None
     assert cst.Module([]).code_for_node(facts.guard) == "value > 1"
+
+
+def test_normalize_branch_builds_singleton_value_fact():
+    facts = normalize("value is None", "value")
+
+    assert facts.pattern is not None
+    assert isinstance(facts.facts[0], ValueFact)
+    assert facts.facts[0].path.is_subject
+    assert cst.Module([]).code_for_node(facts.facts[0].value) == "None"
+    assert cst.Module([]).code_for_node(facts.pattern.render()) == "None"

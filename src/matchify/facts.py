@@ -6,19 +6,39 @@ from dataclasses import dataclass
 
 import libcst as cst
 
+from .patterns import build_value_pattern
+from .subject_path import SubjectPath
+
+
+@dataclass(frozen=True)
+class ValueFact:
+    """A subject-path value check that can become a match value pattern."""
+
+    path: SubjectPath
+    value: cst.BaseExpression
+
+
+BranchFact = ValueFact
+
 
 @dataclass(frozen=True)
 class PatternTree:
     """Intermediate pattern node that can render to a LibCST match pattern.
 
-    This currently wraps already-built LibCST patterns so the compiler can move
-    to a fact-first interface before individual recognizers are migrated to real
-    recursive nodes.
+    This can either wrap already-built LibCST patterns for unmigrated recognizers
+    or render simple fact-backed nodes directly.
     """
 
-    pattern: cst.MatchPattern
+    pattern: cst.MatchPattern | None = None
+    value_fact: ValueFact | None = None
 
     def render(self) -> cst.MatchPattern:
+        if self.value_fact is not None:
+            if not self.value_fact.path.is_subject:
+                raise ValueError("Value facts for derived paths need a parent pattern")
+            return build_value_pattern(self.value_fact.value)
+        if self.pattern is None:
+            raise ValueError("PatternTree has no renderable node")
         return self.pattern
 
 
@@ -28,5 +48,6 @@ class BranchFacts:
 
     condition: cst.BaseExpression
     subject: cst.BaseExpression
+    facts: tuple[BranchFact, ...]
     pattern: PatternTree | None
     guard: cst.BaseExpression | None

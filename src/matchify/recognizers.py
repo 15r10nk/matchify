@@ -5,7 +5,7 @@ from __future__ import annotations
 import libcst as cst
 from libcst import matchers as m
 
-from .facts import BranchFacts, PatternTree
+from .facts import BranchFacts, PatternTree, ValueFact
 from .patterns import (
     ClassPatternPart,
     PatternMatch,
@@ -1067,14 +1067,43 @@ class PatternRecognitionEngine:
     def normalize_branch(
         self, condition: cst.BaseExpression, subject: cst.BaseExpression
     ) -> BranchFacts:
+        value_fact = normalize_subject_value_fact(condition, subject)
+        if value_fact is not None:
+            return BranchFacts(
+                condition=condition,
+                subject=subject,
+                facts=(value_fact,),
+                pattern=PatternTree(value_fact=value_fact),
+                guard=None,
+            )
+
         result = self.recognize_branch(condition, subject)
         pattern = None if result.pattern is None else PatternTree(result.pattern)
         return BranchFacts(
             condition=condition,
             subject=subject,
+            facts=(),
             pattern=pattern,
             guard=result.guard,
         )
+
+
+def normalize_subject_value_fact(
+    condition: cst.BaseExpression, subject: cst.BaseExpression
+) -> ValueFact | None:
+    if not isinstance(condition, cst.Comparison) or len(condition.comparisons) != 1:
+        return None
+    if not condition.left.deep_equals(subject):
+        return None
+
+    target = condition.comparisons[0]
+    if isinstance(target.operator, cst.Is):
+        if not is_singleton_name(target.comparator):
+            return None
+        return ValueFact(SubjectPath(()), target.comparator)
+    if isinstance(target.operator, cst.Equal) and is_literal_value(target.comparator):
+        return ValueFact(SubjectPath(()), target.comparator)
+    return None
 
 
 def extract_attribute_literal_check(
