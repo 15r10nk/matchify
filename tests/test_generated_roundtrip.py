@@ -569,14 +569,7 @@ class GeneratedProgram:
 
 def matching_value_codes(pattern: GeneratedPattern) -> list[str]:
     if isinstance(pattern, OrPattern):
-        signatures = [
-            capture_signature(alternative) for alternative in pattern.alternatives
-        ]
-        if (
-            signatures
-            and signatures[0] != ()
-            and all(signature == signatures[0] for signature in signatures[1:])
-        ):
+        if or_alternatives_have_compatible_captures(pattern):
             return [
                 value
                 for alternative in pattern.alternatives
@@ -726,14 +719,7 @@ def fallthrough_value_code(pattern: GeneratedPattern) -> str | None:
 
 def fallthrough_value_codes(pattern: GeneratedPattern) -> list[str]:
     if isinstance(pattern, OrPattern):
-        signatures = [
-            capture_signature(alternative) for alternative in pattern.alternatives
-        ]
-        if (
-            signatures
-            and signatures[0] != ()
-            and all(signature == signatures[0] for signature in signatures[1:])
-        ):
+        if or_alternatives_have_shared_captures(pattern):
             return [
                 value
                 for alternative in pattern.alternatives
@@ -780,6 +766,26 @@ def fallthrough_value_codes(pattern: GeneratedPattern) -> list[str]:
             pattern.elements, append_extra=True, tuple_value=pattern.tuple_value
         )
     return []
+
+
+def or_alternatives_have_compatible_captures(pattern: OrPattern) -> bool:
+    signatures = [
+        capture_signature(alternative) for alternative in pattern.alternatives
+    ]
+    return bool(signatures) and all(
+        signature == signatures[0] for signature in signatures[1:]
+    )
+
+
+def or_alternatives_have_shared_captures(pattern: OrPattern) -> bool:
+    signatures = [
+        capture_signature(alternative) for alternative in pattern.alternatives
+    ]
+    return (
+        bool(signatures)
+        and signatures[0] != ()
+        and all(signature == signatures[0] for signature in signatures[1:])
+    )
 
 
 def class_fallthrough_value_code(
@@ -2559,6 +2565,41 @@ def test_or_sequence_element_generated_program_survives_matchify(tmp_path: Path)
     assert_matchify_preserves_trace(program, tmp_path)
 
 
+def test_or_matching_samples_cover_all_non_capture_alternatives():
+    pattern = OrPattern(
+        (
+            LiteralPattern("'ready'"),
+            ClassPattern("Point", (("kind", LiteralPattern("1")),)),
+            SequencePattern((LiteralPattern("2"), SingletonPattern("None")), False),
+        )
+    )
+
+    assert matching_value_codes(pattern) == snapshot(
+        ["'ready'", "Point(kind=1)", "[2, None]"]
+    )
+
+
+def test_nested_or_matching_samples_cover_all_non_capture_alternatives():
+    pattern = ClassPattern(
+        "Wrapper",
+        (
+            (
+                "inner",
+                OrPattern(
+                    (
+                        ClassPattern("Point", (("kind", LiteralPattern("1")),)),
+                        ClassPattern("Token", (("kind", LiteralPattern("2")),)),
+                    )
+                ),
+            ),
+        ),
+    )
+
+    assert matching_value_codes(pattern) == snapshot(
+        ["Wrapper(inner=Point(kind=1))", "Wrapper(inner=Token(kind=2))"]
+    )
+
+
 def test_class_or_generated_program_survives_matchify(tmp_path: Path):
     program = GeneratedProgram(
         classes=("Point", "Token"),
@@ -3127,6 +3168,7 @@ values = [
     ((Point(y=[1, object()]), object(), object(), Point(items=[1, object()]), object()),),
     ((Point(y=[]), object(), object(), Point(items=[1, object()]), object()),),
     (False, (object(), [Point(y=1), None, object(), False], ([(-1, object(), object()), Point(x=1)], Point(x=Point(y=1)), 'ready'), object()), object(), [Point(kind=(None, 'red', 0), x=Point(x=[Point(x=[1, object()])], y=+1)), False, object()], object(), object()),
+    (False, (object(), [Point(y=1), None, object(), False], ([(-1, object(), object()), Point(x=1)], Point(x=Point(y=1)), 'ready'), object()), object(), [Point(kind=(None, 'red', -1), x=Point(x=[Point(x=[1, object()])], y=+1)), False, object()], object(), object()),
     (False, (object(), [Point(y=0), None, object(), False], ([(-1, object(), object()), Point(x=1)], Point(x=Point(y=1)), 'ready'), object()), object(), [Point(kind=(None, 'red', 0), x=Point(x=[Point(x=[1, object()])], y=+1)), False, object()], object(), object()),
     object(),
 ]
@@ -3148,6 +3190,9 @@ class Token:
         self.__dict__.update(attrs)
 values = [
     ([None, object(), 'blue', object(), object()], object(), ('blue', Token(kind=2), 'ready'), object()),
+    ([None, object(), 'blue', object(), object()], object(), ('ready', Token(kind=2), 'ready'), object()),
+    ([None, object(), 'blue', object(), object()], object(), (2, Token(kind=2), 'ready'), object()),
+    ([None, object(), 'blue', object(), object()], object(), ('red', Token(kind=2), 'ready'), object()),
     ([None, object(), 'blue', object(), object()], object(), ('blue', Token(kind=0), 'ready'), object()),
     (Point(), object()),
     object(),
@@ -3172,6 +3217,9 @@ values = [
     Token(x=[object()]),
     False,
     ['ready', Token(items=[1, object()])],
+    [None, Token(items=[1, object()])],
+    [+3.5, Token(items=[1, object()])],
+    [False, Token(items=[1, object()])],
     ['ready', Token(items=[])],
     Token(y=[1, 2, 3, object()]),
     Token(y=[object(), object()]),
