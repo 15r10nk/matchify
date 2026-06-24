@@ -561,9 +561,7 @@ class GeneratedProgram:
             if isinstance(case.pattern, WildcardPattern):
                 continue
             values.extend(matching_value_codes(case.pattern))
-            fallthrough_value = fallthrough_value_code(case.pattern)
-            if fallthrough_value is not None:
-                values.append(fallthrough_value)
+            values.extend(fallthrough_value_codes(case.pattern))
         values.append("object()")
         return values
 
@@ -593,40 +591,55 @@ def matching_value_codes(pattern: GeneratedPattern) -> list[str]:
 
 
 def fallthrough_value_code(pattern: GeneratedPattern) -> str | None:
+    values = fallthrough_value_codes(pattern)
+    return values[0] if values else None
+
+
+def fallthrough_value_codes(pattern: GeneratedPattern) -> list[str]:
     if isinstance(pattern, AttributeGuardedClassPattern):
-        return (
+        return [
             f"{pattern.class_name}({pattern.attr}={mismatching_literal(pattern.value)})"
-        )
+        ]
     if isinstance(pattern, RelationalGuardedClassPattern):
-        return f"{pattern.class_name}({pattern.attr}={pattern.fallthrough_value})"
+        return [f"{pattern.class_name}({pattern.attr}={pattern.fallthrough_value})"]
     if isinstance(pattern, CaptureClassPattern):
         elements = ", ".join(
             "object()" for _ in range(max(pattern.required_length() - 1, 0))
         )
-        return f"{pattern.class_name}({pattern.attr}=[{elements}])"
+        return [f"{pattern.class_name}({pattern.attr}=[{elements}])"]
     if isinstance(pattern, GuardedPattern):
-        return fallthrough_value_code(pattern.pattern)
+        return fallthrough_value_codes(pattern.pattern)
     if isinstance(pattern, ClassPattern):
-        return class_fallthrough_value_code(pattern.class_name, pattern.attrs)
+        value = class_fallthrough_value_code(pattern.class_name, pattern.attrs)
+        return [value] if value is not None else []
     if isinstance(pattern, ClassUnionPattern):
-        return class_fallthrough_value_code(pattern.class_names[0], pattern.attrs)
+        return [
+            value
+            for class_name in pattern.class_names
+            if (value := class_fallthrough_value_code(class_name, pattern.attrs))
+            is not None
+        ]
     if isinstance(pattern, SequencePattern):
-        return sequence_fallthrough_value_code(
+        value = sequence_fallthrough_value_code(
             pattern.elements, tuple_value=pattern.tuple_value
         )
+        return [value] if value is not None else []
     if isinstance(pattern, GappedSequencePattern):
-        return sequence_fallthrough_value_code(
+        value = sequence_fallthrough_value_code(
             pattern.elements, tuple_value=pattern.tuple_value
         )
+        return [value] if value is not None else []
     if isinstance(pattern, StarSequencePattern):
-        return sequence_fallthrough_value_code(
+        value = sequence_fallthrough_value_code(
             pattern.elements, append_extra=True, tuple_value=pattern.tuple_value
         )
+        return [value] if value is not None else []
     if isinstance(pattern, GappedStarSequencePattern):
-        return sequence_fallthrough_value_code(
+        value = sequence_fallthrough_value_code(
             pattern.elements, append_extra=True, tuple_value=pattern.tuple_value
         )
-    return None
+        return [value] if value is not None else []
+    return []
 
 
 def class_fallthrough_value_code(
@@ -1713,6 +1726,38 @@ def test_generated_class_union_samples_cover_all_classes(tmp_path: Path):
     source = program.to_trace_if_code()
     assert "Point(kind=1)" in source
     assert "Token(kind=1)" in source
+    assert_matchify_preserves_trace(program, tmp_path)
+
+
+def test_generated_class_union_fallthrough_samples_cover_all_classes(tmp_path: Path):
+    program = GeneratedProgram(
+        classes=("Point", "Token"),
+        cases=(
+            GeneratedCase(
+                ClassUnionPattern(
+                    ("Point", "Token"),
+                    (
+                        (
+                            "kind",
+                            AttributeGuardedClassPattern(
+                                "Data", "value", "len([None])", "1"
+                            ),
+                        ),
+                    ),
+                ),
+                "branch_0",
+            ),
+            GeneratedCase(ClassPattern("Point"), "branch_1"),
+            GeneratedCase(ClassPattern("Token"), "branch_2"),
+            GeneratedCase(WildcardPattern(), "default"),
+        ),
+    )
+
+    source = program.to_trace_if_code()
+    assert "Point(kind=Data(value=1))" in source
+    assert "Token(kind=Data(value=1))" in source
+    assert "Point(kind=Data(value=0))" in source
+    assert "Token(kind=Data(value=0))" in source
     assert_matchify_preserves_trace(program, tmp_path)
 
 
