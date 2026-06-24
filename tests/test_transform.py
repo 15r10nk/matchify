@@ -2457,6 +2457,84 @@ class TestIfToMatchTransformer:
 
         check_code(source, expected)
 
+    def test_or_pattern_with_common_simple_guard_is_lifted(self):
+        """Test OR alternatives with the same simple guard share a case guard."""
+        source = dedent(
+            """
+            class Point:
+                def __init__(self, kind):
+                    self.kind = kind
+
+            class Token:
+                def __init__(self, kind):
+                    self.kind = kind
+
+            value = Point(1)
+            if (isinstance(value, Point) and value.kind > 0) or (isinstance(value, Token) and value.kind > 0):
+                print("match")
+            elif value is None:
+                print("none")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Point:
+                def __init__(self, kind):
+                    self.kind = kind
+
+            class Token:
+                def __init__(self, kind):
+                    self.kind = kind
+
+            value = Point(1)
+            match value:
+                case Point() | Token() if value.kind > 0:
+                    print("match")
+                case None:
+                    print("none")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_or_pattern_with_common_call_guard_stays_guard(self):
+        """Test common call guards are not lifted across OR alternatives."""
+        source = dedent(
+            """
+            class Point:
+                pass
+
+            class Token:
+                pass
+
+            value = Point()
+            if (isinstance(value, Point) and is_ready()) or (isinstance(value, Token) and is_ready()):
+                print("match")
+            elif value is None:
+                print("none")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Point:
+                pass
+
+            class Token:
+                pass
+
+            value = Point()
+            match value:
+                case _ if (isinstance(value, Point) and is_ready()) or (isinstance(value, Token) and is_ready()):
+                    print("match")
+                case None:
+                    print("none")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_or_pattern_with_sequence_alternative(self):
         """Test top-level sequence OR alternatives are bracketed correctly."""
         source = dedent(

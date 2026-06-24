@@ -28,9 +28,11 @@ condition is unsupported or ambiguous, the transformer either keeps the original
 - OR patterns support literal/singleton comparisons, plain `isinstance`
   alternatives such as `x == 1 or isinstance(x, Point)`, and alternatives whose
   nested class attribute or sequence checks can be moved fully into patterns.
-- OR alternatives that need their own guards, such as
-  `(isinstance(x, Point) and x.kind > 0) or isinstance(x, Token)`, are not folded
-  into one OR pattern because Python only supports guards for the whole `case`.
+- OR alternatives with the same simple, side-effect-free guard can be folded into
+  one OR pattern with a shared `case ... if ...` guard.
+- OR alternatives that need different guards, a guard only on some alternatives,
+  or guards with calls/assignments are not folded into one OR pattern because
+  Python only supports guards for the whole `case`.
 - OR alternatives with captures are only folded when every alternative binds the
   same names. Python rejects OR patterns where only one side captures a name.
 - Redundant safety checks such as `hasattr(x, "items")` and

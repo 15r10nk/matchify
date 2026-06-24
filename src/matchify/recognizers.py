@@ -247,28 +247,40 @@ class OrPatternRecognizer(BranchPatternRecognizer):
             return None
 
         patterns = []
+        guards: list[cst.BaseExpression | None] = []
         for part in parts:
-            pattern = self._recognize_part_pattern(part, subject)
-            if pattern is None:
+            result = self._recognize_part(part, subject)
+            if result is None:
                 return None
-            extend_or_patterns(patterns, pattern)
+            guards.append(result.guard)
+            extend_or_patterns(patterns, result.pattern)
 
-        return PatternMatch(build_or_pattern(patterns), None)
+        common_guard = common_or_guard(guards)
+        if common_guard is _MIXED_OR_GUARDS:
+            return None
+
+        return PatternMatch(build_or_pattern(patterns), common_guard)
 
     def _recognize_part_pattern(
         self, part: cst.BaseExpression, subject: cst.BaseExpression
     ) -> cst.MatchPattern | None:
+        result = self._recognize_part(part, subject)
+        return None if result is None else result.pattern
+
+    def _recognize_part(
+        self, part: cst.BaseExpression, subject: cst.BaseExpression
+    ) -> PatternMatch | None:
         part = remove_redundant_subject_checks(part, subject)
 
         result = EqualityPatternRecognizer().recognize(part, subject)
         if result is not None and result.guard is None:
-            return result.pattern
+            return result
 
         class_exprs = extract_isinstance_call(
             part, subject, ignore_types_pattern=self.ignore_types_pattern
         )
         if class_exprs is not None:
-            return build_class_pattern(class_exprs)
+            return PatternMatch(build_class_pattern(class_exprs), None)
 
         if not isinstance(part, cst.BooleanOperation) or not isinstance(
             part.operator, cst.And
@@ -282,19 +294,46 @@ class OrPatternRecognizer(BranchPatternRecognizer):
             SequenceAttributePatternRecognizer(self.ignore_types_pattern),
         ):
             part_result = recognizer.recognize(part, subject)
-            if (
-                part_result is not None
-                and part_result.guard is None
-                and part_result.pattern is not None
-            ):
+            if part_result is not None and part_result.pattern is not None:
+                if part_result.guard is not None and not is_liftable_or_guard(
+                    part_result.guard
+                ):
+                    return None
                 if isinstance(part_result.pattern, cst.MatchList):
-                    return part_result.pattern.with_changes(
-                        lbracket=cst.LeftSquareBracket(),
-                        rbracket=cst.RightSquareBracket(),
+                    return PatternMatch(
+                        part_result.pattern.with_changes(
+                            lbracket=cst.LeftSquareBracket(),
+                            rbracket=cst.RightSquareBracket(),
+                        ),
+                        part_result.guard,
                     )
-                return part_result.pattern
+                return part_result
 
         return None
+
+
+_MIXED_OR_GUARDS = object()
+
+
+def common_or_guard(
+    guards: list[cst.BaseExpression | None],
+) -> cst.BaseExpression | None | object:
+    if all(guard is None for guard in guards):
+        return None
+    if any(guard is None for guard in guards):
+        return _MIXED_OR_GUARDS
+
+    first = guards[0]
+    if first is None:
+        return _MIXED_OR_GUARDS
+    if all(guard is not None and guard.deep_equals(first) for guard in guards[1:]):
+        return first
+    return _MIXED_OR_GUARDS
+
+
+def is_liftable_or_guard(guard: cst.BaseExpression) -> bool:
+    unsafe_matcher = m.Call() | m.NamedExpr() | m.Await() | m.Yield()
+    return not m.findall(guard, unsafe_matcher)
 
 
 def extend_or_patterns(
