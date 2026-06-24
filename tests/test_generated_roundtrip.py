@@ -1577,6 +1577,16 @@ def generate_or_safe_gapped_star_sequence_pattern(
 def generate_or_safe_sequence_element_pattern(
     rng: random.Random, classes: tuple[str, ...], depth: int
 ) -> GeneratedPattern:
+    choices = ["or_safe"]
+    if len(classes) > 1:
+        choices.append("or_class")
+        choices.append("or_class_attribute")
+
+    kind = rng.choice(choices)
+    if kind == "or_class":
+        return generate_or_class_pattern(rng, classes)
+    if kind == "or_class_attribute":
+        return generate_or_class_attribute_pattern(rng, classes)
     return generate_or_safe_pattern(rng, classes, depth=depth)
 
 
@@ -2804,6 +2814,47 @@ def test_sequence_or_generated_program_survives_matchify(tmp_path: Path):
 
     source = program.to_trace_if_code()
     assert "len(value) == 2" in source
+    assert_matchify_preserves_trace(program, tmp_path)
+
+
+def test_or_with_class_attribute_or_sequence_element_generated_program_survives_matchify(
+    tmp_path: Path,
+):
+    program = GeneratedProgram(
+        classes=("Point", "Token"),
+        cases=(
+            GeneratedCase(
+                OrPattern(
+                    (
+                        SequencePattern(
+                            (
+                                OrPattern(
+                                    (
+                                        ClassPattern(
+                                            "Point", (("kind", LiteralPattern("1")),)
+                                        ),
+                                        ClassPattern(
+                                            "Token", (("kind", LiteralPattern("2")),)
+                                        ),
+                                    )
+                                ),
+                            ),
+                            bracketed=False,
+                        ),
+                        LiteralPattern("'ready'"),
+                    )
+                ),
+                "branch_0",
+            ),
+            GeneratedCase(SingletonPattern("None"), "branch_1"),
+            GeneratedCase(WildcardPattern(), "default"),
+        ),
+    )
+
+    source = program.to_trace_if_code()
+    assert "isinstance(value[0], Point)" in source
+    assert "isinstance(value[0], Token)" in source
+    assert "value == 'ready'" in source
     assert_matchify_preserves_trace(program, tmp_path)
 
 
