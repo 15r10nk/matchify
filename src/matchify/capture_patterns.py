@@ -230,12 +230,22 @@ class CapturePatternTransformer(cst.CSTTransformer):
                 new_kwds.append(kwd)
                 continue
 
-            # Check if this is the attribute we're looking for
-            if not isinstance(kwd.pattern, cst.MatchSequence):
+            if kwd.key.value != attr_name:
                 new_kwds.append(kwd)
                 continue
 
-            if kwd.key.value != attr_name:
+            # Check if this is the attribute we're looking for
+            if isinstance(kwd.pattern, cst.MatchOr):
+                new_or_pattern = self._add_captures_to_or_pattern(
+                    kwd.pattern, (), captures
+                )
+                if new_or_pattern is None:
+                    return None
+                new_kwds.append(kwd.with_changes(pattern=new_or_pattern))
+                found = True
+                continue
+
+            if not isinstance(kwd.pattern, cst.MatchSequence):
                 new_kwds.append(kwd)
                 continue
 

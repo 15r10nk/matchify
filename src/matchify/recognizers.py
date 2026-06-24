@@ -530,6 +530,7 @@ class ClassPatternRecognizer(BranchPatternRecognizer):
                 extract_len_sequence_attribute(component, subject) is not None
                 or extract_attribute_path_sequence_len_check(component, subject)
                 is not None
+                or extract_sequence_attribute_or_pattern(component, subject) is not None
             ):
                 return None
 
@@ -868,6 +869,14 @@ class SequenceAttributePatternRecognizer(BranchPatternRecognizer):
                 nested_sequence_checks[path] = sequence_subject
                 continue
 
+            sequence_attr_or_check = extract_sequence_attribute_or_pattern(
+                component, subject
+            )
+            if sequence_attr_or_check is not None:
+                attr_name, pattern = sequence_attr_or_check
+                scalar_attrs.append((attr_name, pattern))
+                continue
+
             attr_check = extract_attribute_pattern_check(component, subject)
             if attr_check is not None:
                 scalar_attrs.append(attr_check)
@@ -912,7 +921,9 @@ class SequenceAttributePatternRecognizer(BranchPatternRecognizer):
 
             guards.append(component)
 
-        if class_exprs is None or not (sequence_subjects or nested_sequence_checks):
+        if class_exprs is None or not (
+            sequence_subjects or nested_sequence_checks or scalar_attrs
+        ):
             return None
 
         keyword_patterns: list[tuple[str, cst.MatchPattern]] = []
@@ -1111,6 +1122,38 @@ def extract_attribute_pattern_check(
         elif part_attr_name != attr_name:
             return None
         patterns.append(build_value_pattern(value))
+
+    if attr_name is None:
+        return None
+    return attr_name, build_or_pattern(patterns)
+
+
+def extract_sequence_attribute_or_pattern(
+    node: cst.BaseExpression, subject: cst.BaseExpression
+) -> tuple[str, cst.MatchPattern] | None:
+    parts = flatten_boolean(node, cst.Or)
+    if len(parts) <= 1:
+        return None
+
+    attr_name: str | None = None
+    patterns: list[cst.MatchPattern] = []
+    for part in parts:
+        sequence_subject = find_sequence_subject(part)
+        if sequence_subject is None:
+            return None
+        path = SubjectPath.from_expression(sequence_subject, subject)
+        if path is None or path.direct_attribute_name is None:
+            return None
+        if attr_name is None:
+            attr_name = path.direct_attribute_name
+        elif path.direct_attribute_name != attr_name:
+            return None
+
+        sequence_result = extract_sequence_pattern_for_subject(part, sequence_subject)
+        if sequence_result is None:
+            return None
+        pattern_infos, use_star = sequence_result
+        patterns.append(build_bracketed_sequence_match_list(pattern_infos, use_star))
 
     if attr_name is None:
         return None
