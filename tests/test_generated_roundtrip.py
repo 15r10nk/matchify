@@ -582,12 +582,89 @@ def matching_value_codes(pattern: GeneratedPattern) -> list[str]:
                 for value in matching_value_codes(alternative)
             ]
         return [pattern.to_value_code()]
+    if isinstance(pattern, ClassPattern):
+        return class_matching_value_codes(pattern.class_name, pattern.attrs)
     if isinstance(pattern, ClassUnionPattern):
         return [
-            ClassPattern(class_name, pattern.attrs).to_value_code()
+            value
             for class_name in pattern.class_names
+            for value in class_matching_value_codes(class_name, pattern.attrs)
         ]
+    if isinstance(pattern, SequencePattern):
+        return sequence_matching_value_codes(
+            pattern.elements, tuple_value=pattern.tuple_value
+        )
+    if isinstance(pattern, GappedSequencePattern):
+        return sequence_matching_value_codes(
+            pattern.elements, tuple_value=pattern.tuple_value
+        )
+    if isinstance(pattern, StarSequencePattern):
+        return sequence_matching_value_codes(
+            pattern.elements, append_extra=True, tuple_value=pattern.tuple_value
+        )
+    if isinstance(pattern, GappedStarSequencePattern):
+        return sequence_matching_value_codes(
+            pattern.elements, append_extra=True, tuple_value=pattern.tuple_value
+        )
     return [pattern.to_value_code()]
+
+
+def class_matching_value_codes(
+    class_name: str, attrs: tuple[tuple[str, GeneratedPattern], ...]
+) -> list[str]:
+    attr_values = []
+    for attr, pattern in sorted(attrs, key=class_attr_sort_key):
+        values = matching_value_codes(pattern)
+        if len(values) > 1:
+            return [
+                f"{class_name}({', '.join([*attr_values, f'{attr}={value}', *matching_attrs_after(attrs, attr)])})"
+                for value in values
+            ]
+        attr_values.append(f"{attr}={values[0]}")
+
+    if not attr_values:
+        return [f"{class_name}()"]
+    return [f"{class_name}({', '.join(attr_values)})"]
+
+
+def sequence_matching_value_codes(
+    elements: tuple[GeneratedPattern | None, ...],
+    append_extra: bool = False,
+    tuple_value: bool = False,
+) -> list[str]:
+    element_values = []
+    for element in elements:
+        if element is None:
+            element_values.append("object()")
+            continue
+
+        values = matching_value_codes(element)
+        if len(values) > 1:
+            suffix = [
+                "object()" if suffix_element is None else suffix_element.to_value_code()
+                for suffix_element in elements[len(element_values) + 1 :]
+            ]
+            if append_extra:
+                suffix.append("object()")
+            return [
+                sequence_value_code(
+                    ", ".join([*element_values, value, *suffix]),
+                    tuple_value=tuple_value,
+                    element_count=len(element_values) + 1 + len(suffix),
+                )
+                for value in values
+            ]
+        element_values.append(values[0])
+
+    if append_extra:
+        element_values.append("object()")
+    return [
+        sequence_value_code(
+            ", ".join(element_values),
+            tuple_value=tuple_value,
+            element_count=len(element_values),
+        )
+    ]
 
 
 def fallthrough_value_code(pattern: GeneratedPattern) -> str | None:
@@ -611,6 +688,8 @@ def fallthrough_value_codes(pattern: GeneratedPattern) -> list[str]:
                 for value in fallthrough_value_codes(alternative)
             ]
         return []
+    if isinstance(pattern, LiteralPattern):
+        return [mismatching_literal(pattern.value)]
     if isinstance(pattern, AttributeGuardedClassPattern):
         return [
             f"{pattern.class_name}({pattern.attr}={mismatching_literal(pattern.value)})"
@@ -625,55 +704,70 @@ def fallthrough_value_codes(pattern: GeneratedPattern) -> list[str]:
     if isinstance(pattern, GuardedPattern):
         return fallthrough_value_codes(pattern.pattern)
     if isinstance(pattern, ClassPattern):
-        value = class_fallthrough_value_code(pattern.class_name, pattern.attrs)
-        return [value] if value is not None else []
+        return class_fallthrough_value_codes(pattern.class_name, pattern.attrs)
     if isinstance(pattern, ClassUnionPattern):
         return [
             value
             for class_name in pattern.class_names
-            if (value := class_fallthrough_value_code(class_name, pattern.attrs))
-            is not None
+            for value in class_fallthrough_value_codes(class_name, pattern.attrs)
         ]
     if isinstance(pattern, SequencePattern):
-        value = sequence_fallthrough_value_code(
+        return sequence_fallthrough_value_codes(
             pattern.elements, tuple_value=pattern.tuple_value
         )
-        return [value] if value is not None else []
     if isinstance(pattern, GappedSequencePattern):
-        value = sequence_fallthrough_value_code(
+        return sequence_fallthrough_value_codes(
             pattern.elements, tuple_value=pattern.tuple_value
         )
-        return [value] if value is not None else []
     if isinstance(pattern, StarSequencePattern):
-        value = sequence_fallthrough_value_code(
+        return sequence_fallthrough_value_codes(
             pattern.elements, append_extra=True, tuple_value=pattern.tuple_value
         )
-        return [value] if value is not None else []
     if isinstance(pattern, GappedStarSequencePattern):
-        value = sequence_fallthrough_value_code(
+        return sequence_fallthrough_value_codes(
             pattern.elements, append_extra=True, tuple_value=pattern.tuple_value
         )
-        return [value] if value is not None else []
     return []
 
 
 def class_fallthrough_value_code(
     class_name: str, attrs: tuple[tuple[str, GeneratedPattern], ...]
 ) -> str | None:
+    values = class_fallthrough_value_codes(class_name, attrs)
+    return values[0] if values else None
+
+
+def class_fallthrough_value_codes(
+    class_name: str, attrs: tuple[tuple[str, GeneratedPattern], ...]
+) -> list[str]:
     attr_values = []
-    found_fallthrough = False
     for attr, pattern in sorted(attrs, key=class_attr_sort_key):
-        value = None if found_fallthrough else fallthrough_value_code(pattern)
-        if value is None:
-            value = pattern.to_value_code()
-        else:
-            found_fallthrough = True
-        attr_values.append(f"{attr}={value}")
+        values = fallthrough_value_codes(pattern)
+        if values:
+            return [
+                f"{class_name}({', '.join([*attr_values, f'{attr}={value}', *matching_attrs_after(attrs, attr)])})"
+                for value in values
+            ]
+        attr_values.append(f"{attr}={pattern.to_value_code()}")
 
-    if not found_fallthrough:
-        return None
+    return []
 
-    return f"{class_name}({', '.join(attr_values)})"
+
+def matching_attrs_after(
+    attrs: tuple[tuple[str, GeneratedPattern], ...], current_attr: str
+) -> list[str]:
+    sorted_attrs = sorted(attrs, key=class_attr_sort_key)
+    return [
+        f"{attr}={pattern.to_value_code()}"
+        for attr, pattern in sorted_attrs[
+            next(
+                index
+                for index, (attr, _) in enumerate(sorted_attrs)
+                if attr == current_attr
+            )
+            + 1 :
+        ]
+    ]
 
 
 def sequence_fallthrough_value_code(
@@ -681,31 +775,40 @@ def sequence_fallthrough_value_code(
     append_extra: bool = False,
     tuple_value: bool = False,
 ) -> str | None:
+    values = sequence_fallthrough_value_codes(elements, append_extra, tuple_value)
+    return values[0] if values else None
+
+
+def sequence_fallthrough_value_codes(
+    elements: tuple[GeneratedPattern | None, ...],
+    append_extra: bool = False,
+    tuple_value: bool = False,
+) -> list[str]:
     element_values = []
-    found_fallthrough = False
     for element in elements:
         if element is None:
             element_values.append("object()")
             continue
 
-        value = None if found_fallthrough else fallthrough_value_code(element)
-        if value is None:
-            value = element.to_value_code()
-        else:
-            found_fallthrough = True
-        element_values.append(value)
+        values = fallthrough_value_codes(element)
+        if values:
+            suffix = [
+                "object()" if suffix_element is None else suffix_element.to_value_code()
+                for suffix_element in elements[len(element_values) + 1 :]
+            ]
+            if append_extra:
+                suffix.append("object()")
+            return [
+                sequence_value_code(
+                    ", ".join([*element_values, value, *suffix]),
+                    tuple_value=tuple_value,
+                    element_count=len(element_values) + 1 + len(suffix),
+                )
+                for value in values
+            ]
+        element_values.append(element.to_value_code())
 
-    if append_extra:
-        element_values.append("object()")
-
-    if not found_fallthrough:
-        return None
-
-    return sequence_value_code(
-        ", ".join(element_values),
-        tuple_value=tuple_value,
-        element_count=len(element_values),
-    )
+    return []
 
 
 def mismatching_literal(value: str) -> str:
@@ -1773,6 +1876,71 @@ def test_generated_class_union_fallthrough_samples_cover_all_classes(tmp_path: P
     assert "Token(kind=Data(value=1))" in source
     assert "Point(kind=Data(value=0))" in source
     assert "Token(kind=Data(value=0))" in source
+    assert_matchify_preserves_trace(program, tmp_path)
+
+
+def test_generated_nested_class_union_fallthrough_samples_cover_all_classes(
+    tmp_path: Path,
+):
+    program = GeneratedProgram(
+        classes=("Wrapper", "Point", "Token"),
+        cases=(
+            GeneratedCase(
+                ClassPattern(
+                    "Wrapper",
+                    (
+                        (
+                            "inner",
+                            ClassUnionPattern(
+                                ("Point", "Token"),
+                                (("kind", LiteralPattern("1")),),
+                            ),
+                        ),
+                    ),
+                ),
+                "branch_0",
+            ),
+            GeneratedCase(ClassPattern("Wrapper"), "branch_1"),
+            GeneratedCase(WildcardPattern(), "default"),
+        ),
+    )
+
+    source = program.to_trace_if_code()
+    assert "Wrapper(inner=Point(kind=1))" in source
+    assert "Wrapper(inner=Token(kind=1))" in source
+    assert "Wrapper(inner=Point(kind=0))" in source
+    assert "Wrapper(inner=Token(kind=0))" in source
+    assert_matchify_preserves_trace(program, tmp_path)
+
+
+def test_generated_sequence_union_fallthrough_samples_cover_all_classes(
+    tmp_path: Path,
+):
+    program = GeneratedProgram(
+        classes=("Point", "Token"),
+        cases=(
+            GeneratedCase(
+                SequencePattern(
+                    (
+                        ClassUnionPattern(
+                            ("Point", "Token"),
+                            (("kind", LiteralPattern("1")),),
+                        ),
+                    ),
+                    bracketed=False,
+                ),
+                "branch_0",
+            ),
+            GeneratedCase(SingletonPattern("None"), "branch_1"),
+            GeneratedCase(WildcardPattern(), "default"),
+        ),
+    )
+
+    source = program.to_trace_if_code()
+    assert "[Point(kind=1)]" in source
+    assert "[Token(kind=1)]" in source
+    assert "[Point(kind=0)]" in source
+    assert "[Token(kind=0)]" in source
     assert_matchify_preserves_trace(program, tmp_path)
 
 
