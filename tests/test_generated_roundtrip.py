@@ -1123,7 +1123,7 @@ def generate_or_literal_pattern(rng: random.Random) -> OrPattern:
 
 def generate_or_pattern(rng: random.Random, classes: tuple[str, ...]) -> OrPattern:
     alternatives = tuple(
-        generate_or_safe_pattern(rng, classes, depth=3)
+        generate_or_safe_pattern(rng, classes, depth=4)
         for _ in range(rng.randint(2, 4))
     )
     return OrPattern(alternatives)
@@ -2027,6 +2027,66 @@ def test_deep_nested_class_or_generated_program_survives_matchify(tmp_path: Path
     source = program.to_trace_if_code()
     assert "isinstance(value.x.y, Leaf)" in source
     assert "value.x.y.kind == 1" in source
+    assert_matchify_preserves_trace(program, tmp_path)
+
+
+def test_four_level_nested_class_or_generated_program_survives_matchify(
+    tmp_path: Path,
+):
+    program = GeneratedProgram(
+        classes=("Root", "Point", "Node", "Leaf"),
+        cases=(
+            GeneratedCase(
+                OrPattern(
+                    (
+                        ClassPattern(
+                            "Root",
+                            (
+                                (
+                                    "child",
+                                    ClassPattern(
+                                        "Point",
+                                        (
+                                            (
+                                                "child",
+                                                ClassPattern(
+                                                    "Node",
+                                                    (
+                                                        (
+                                                            "child",
+                                                            ClassPattern(
+                                                                "Leaf",
+                                                                (
+                                                                    (
+                                                                        "kind",
+                                                                        LiteralPattern(
+                                                                            "1"
+                                                                        ),
+                                                                    ),
+                                                                ),
+                                                            ),
+                                                        ),
+                                                    ),
+                                                ),
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                        LiteralPattern("0"),
+                    )
+                ),
+                "branch_0",
+            ),
+            GeneratedCase(SingletonPattern("None"), "branch_1"),
+            GeneratedCase(WildcardPattern(), "default"),
+        ),
+    )
+
+    source = program.to_trace_if_code()
+    assert "isinstance(value.child.child.child, Leaf)" in source
+    assert "value.child.child.child.kind == 1" in source
     assert_matchify_preserves_trace(program, tmp_path)
 
 
