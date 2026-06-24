@@ -584,6 +584,11 @@ def matching_value_codes(pattern: GeneratedPattern) -> list[str]:
                 for value in matching_value_codes(alternative)
             ]
         return [pattern.to_value_code()]
+    if isinstance(pattern, ClassUnionPattern):
+        return [
+            ClassPattern(class_name, pattern.attrs).to_value_code()
+            for class_name in pattern.class_names
+        ]
     return [pattern.to_value_code()]
 
 
@@ -1687,6 +1692,28 @@ def test_generated_class_union_capture_program_survives_matchify(tmp_path: Path)
         f"Trace mismatch\nGenerated if/else:\n{source}\n"
         f"Matchified code:\n{transformed}"
     )
+
+
+def test_generated_class_union_samples_cover_all_classes(tmp_path: Path):
+    program = GeneratedProgram(
+        classes=("Point", "Token"),
+        cases=(
+            GeneratedCase(
+                ClassUnionPattern(
+                    ("Point", "Token"),
+                    (("kind", LiteralPattern("1")),),
+                ),
+                "branch_0",
+            ),
+            GeneratedCase(SingletonPattern("None"), "branch_1"),
+            GeneratedCase(WildcardPattern(), "default"),
+        ),
+    )
+
+    source = program.to_trace_if_code()
+    assert "Point(kind=1)" in source
+    assert "Token(kind=1)" in source
+    assert_matchify_preserves_trace(program, tmp_path)
 
 
 def test_generated_or_capture_program_survives_matchify(tmp_path: Path):
