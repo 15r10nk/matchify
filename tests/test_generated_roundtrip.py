@@ -10,6 +10,8 @@ from inline_snapshot import snapshot
 
 from matchify.cli import convert_file
 
+MAX_SAMPLE_VALUES_PER_CASE = 24
+
 
 @dataclass(frozen=True)
 class LiteralPattern:
@@ -562,10 +564,29 @@ class GeneratedProgram:
         for case in self.cases:
             if isinstance(case.pattern, WildcardPattern):
                 continue
-            values.extend(matching_value_codes(case.pattern))
-            values.extend(fallthrough_value_codes(case.pattern))
+            values.extend(
+                bounded_sample_values(
+                    [
+                        *matching_value_codes(case.pattern),
+                        *fallthrough_value_codes(case.pattern),
+                    ]
+                )
+            )
         values.append("object()")
         return values
+
+
+def bounded_sample_values(values: list[str]) -> list[str]:
+    if len(values) <= MAX_SAMPLE_VALUES_PER_CASE:
+        return values
+    if MAX_SAMPLE_VALUES_PER_CASE <= 1:
+        return values[:MAX_SAMPLE_VALUES_PER_CASE]
+
+    last_index = len(values) - 1
+    return [
+        values[round(index * last_index / (MAX_SAMPLE_VALUES_PER_CASE - 1))]
+        for index in range(MAX_SAMPLE_VALUES_PER_CASE)
+    ]
 
 
 def matching_value_codes(pattern: GeneratedPattern) -> list[str]:
@@ -2177,6 +2198,36 @@ def test_class_matching_samples_cover_attribute_combinations():
             "Wrapper(left=Token(kind=1), right=None)",
         ]
     )
+
+
+def test_generated_program_samples_are_bounded_for_large_combinations():
+    pattern = SequencePattern(
+        (
+            ClassUnionPattern(("A", "B", "C"), (("kind", LiteralPattern("1")),)),
+            ClassUnionPattern(("D", "E", "F"), (("kind", LiteralPattern("2")),)),
+            OrPattern(
+                (
+                    LiteralPattern("'red'"),
+                    LiteralPattern("'blue'"),
+                    LiteralPattern("'ready'"),
+                )
+            ),
+        ),
+        bracketed=False,
+    )
+    all_values = matching_value_codes(pattern)
+    case_values = [*all_values, *fallthrough_value_codes(pattern)]
+    program = GeneratedProgram(
+        classes=("A", "B", "C", "D", "E", "F"),
+        cases=(GeneratedCase(pattern, "branch_0"),),
+    )
+
+    assert len(all_values) == 27
+    assert len(case_values) > MAX_SAMPLE_VALUES_PER_CASE
+    assert len(program.sample_value_codes()) == MAX_SAMPLE_VALUES_PER_CASE + 1
+    assert program.sample_value_codes()[0] == case_values[0]
+    assert program.sample_value_codes()[-2] == case_values[-1]
+    assert program.sample_value_codes()[-1] == "object()"
 
 
 def test_generated_or_capture_program_survives_matchify(tmp_path: Path):
