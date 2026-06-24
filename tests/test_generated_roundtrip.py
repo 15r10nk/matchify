@@ -1646,12 +1646,15 @@ def generate_or_safe_sequence_element_pattern(
     if len(classes) > 1:
         choices.append("or_class")
         choices.append("or_class_attribute")
+        choices.append("class_union")
 
     kind = rng.choice(choices)
     if kind == "or_class":
         return generate_or_class_pattern(rng, classes)
     if kind == "or_class_attribute":
         return generate_or_class_attribute_pattern(rng, classes)
+    if kind == "class_union":
+        return generate_sequence_element_class_union_pattern(rng, classes)
     return generate_or_safe_pattern(rng, classes, depth=depth)
 
 
@@ -2990,6 +2993,41 @@ def test_or_with_class_attribute_or_sequence_element_generated_program_survives_
     assert_matchify_preserves_trace(program, tmp_path)
 
 
+def test_or_with_class_union_sequence_element_generated_program_survives_matchify(
+    tmp_path: Path,
+):
+    program = GeneratedProgram(
+        classes=("Point", "Token"),
+        cases=(
+            GeneratedCase(
+                OrPattern(
+                    (
+                        SequencePattern(
+                            (
+                                ClassUnionPattern(
+                                    ("Point", "Token"),
+                                    (("kind", LiteralPattern("1")),),
+                                ),
+                            ),
+                            bracketed=False,
+                        ),
+                        LiteralPattern("'ready'"),
+                    )
+                ),
+                "branch_0",
+            ),
+            GeneratedCase(SingletonPattern("None"), "branch_1"),
+            GeneratedCase(WildcardPattern(), "default"),
+        ),
+    )
+
+    source = program.to_trace_if_code()
+    assert "isinstance(value[0], (Point, Token))" in source
+    assert "value[0].kind == 1" in source
+    assert "value == 'ready'" in source
+    assert_matchify_preserves_trace(program, tmp_path)
+
+
 def test_recursive_sequence_or_generated_program_survives_matchify(tmp_path: Path):
     program = GeneratedProgram(
         classes=("Point", "Token"),
@@ -3483,26 +3521,47 @@ for value in values:
 class Point:
     def __init__(self, **attrs):
         self.__dict__.update(attrs)
+
+class Token:
+    def __init__(self, **attrs):
+        self.__dict__.update(attrs)
 values = [
-    Point(items=[1, 2, object()]),
-    Point(items=[object()]),
-    [object(), Point(), +1, object(), Point(y=[1, object()])],
-    [object(), Point(), 0, object(), Point(y=[1, object()])],
-    Point(x=0),
-    Point(x='ready'),
-    Point(x=+3.5),
-    Point(x=object()),
+    Point(y=2),
+    Token(y=2),
+    Point(y=0),
+    Token(y=0),
+    -3.5,
+    0,
+    [object(), object(), Token(), Token()],
+    [object(), object(), Point(), Token()],
+    Point(x=[Point(), Point(kind=True)]),
+    Point(x=[Token(), Point(kind=True)]),
+    Token(x=[Point(), Point(kind=True)]),
+    Token(x=[Token(), Point(kind=True)]),
+    (Point(x=False), object()),
+    (Token(x=None), object()),
+    (Token(), Point(y=None), False),
+    (Point(), Point(y=None), False),
+    Point(kind=2),
+    Point(kind=0),
+    Point(x=[1, 2, 3, object()]),
+    Point(x=[object(), object()]),
     object(),
 ]
 for value in values:
-    if isinstance(value, Point) and hasattr(value, 'items') and isinstance(value.items, (list, tuple)) and len(value.items) >= 2:
-        capture_0_0 = value.items[1]
+    if isinstance(value, (Point, Token)) and hasattr(value, 'y') and value.y == 2:
         print('branch_0')
-    elif isinstance(value, (list, tuple)) and len(value) == 5 and isinstance(value[1], Point) and value[2] == +1 and isinstance(value[4], Point) and hasattr(value[4], 'y') and isinstance(value[4].y, (list, tuple)) and len(value[4].y) >= 1:
-        capture_1_0 = value[4].y[0]
+    elif value == -3.5:
         print('branch_1')
-    elif isinstance(value, Point) and hasattr(value, 'x') and (value.x == 0 or value.x == 'ready' or value.x == +3.5):
-        print('branch_2')\
+    elif (isinstance(value, (list, tuple)) and len(value) == 4 and isinstance(value[2], (Token, Point)) and isinstance(value[3], (Token, Point)) or isinstance(value, (Point, Token)) and hasattr(value, 'x') and isinstance(value.x, (list, tuple)) and len(value.x) == 2 and isinstance(value.x[0], (Point, Token)) and isinstance(value.x[1], (Point, Token)) and hasattr(value.x[1], 'kind') and value.x[1].kind is True or isinstance(value, (list, tuple)) and len(value) >= 1 and (isinstance(value[0], Point) and hasattr(value[0], 'x') and value[0].x is False or isinstance(value[0], Token) and hasattr(value[0], 'x') and value[0].x is None) or isinstance(value, (list, tuple)) and len(value) == 3 and (isinstance(value[0], Token) or isinstance(value[0], Point)) and isinstance(value[1], (Point, Token)) and hasattr(value[1], 'y') and value[1].y is None and value[2] is False):
+        print('branch_2')
+    elif isinstance(value, Point) and hasattr(value, 'kind') and value.kind == len([None, None]):
+        print('branch_3')
+    elif isinstance(value, Point) and hasattr(value, 'x') and isinstance(value.x, (list, tuple)) and len(value.x) >= 3:
+        capture_4_0 = value.x[0]
+        capture_4_1 = value.x[1]
+        capture_4_2 = value.x[2]
+        print('branch_4')\
 """
     )
 
