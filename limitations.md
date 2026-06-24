@@ -25,11 +25,13 @@ condition is unsupported or ambiguous, the transformer either keeps the original
   Python does not allow f-strings in `case` value patterns. They can still be
   preserved as guards around a surrounding class or sequence pattern.
 - OR patterns must describe the same subject in every alternative.
-- OR patterns support literal/singleton comparisons and plain `isinstance`
-  alternatives such as `x == 1 or isinstance(x, Point)`.
-- OR branches that need their own nested attribute or sequence checks, such as
-  `(isinstance(x, Point) and x.kind == 1) or isinstance(x, Token)`, are not
-  converted yet.
+- OR patterns support literal/singleton comparisons, plain `isinstance`
+  alternatives such as `x == 1 or isinstance(x, Point)`, and alternatives whose
+  nested class attribute checks can be moved fully into patterns.
+- Top-level sequence patterns are not folded into OR patterns yet.
+- OR alternatives that need their own guards, such as
+  `(isinstance(x, Point) and x.kind > 0) or isinstance(x, Token)`, are not folded
+  into one OR pattern because Python only supports guards for the whole `case`.
 
 ## Class Patterns
 

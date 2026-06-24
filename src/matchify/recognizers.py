@@ -143,6 +143,11 @@ class SubjectRecognizer:
             ):
                 return part.args[0].value
 
+        if isinstance(part, cst.BooleanOperation) and isinstance(
+            part.operator, cst.And
+        ):
+            return self.recognize(part)
+
         return None
 
     def _find_value_subject(
@@ -243,24 +248,54 @@ class OrPatternRecognizer(BranchPatternRecognizer):
 
         patterns = []
         for part in parts:
-            result = EqualityPatternRecognizer().recognize(part, subject)
-            if (
-                result is not None
-                and result.guard is None
-                and result.pattern is not None
-            ):
-                patterns.append(result.pattern)
-                continue
-
-            class_exprs = extract_isinstance_call(
-                part, subject, ignore_types_pattern=self.ignore_types_pattern
-            )
-            if class_exprs is None:
+            pattern = self._recognize_part_pattern(part, subject)
+            if pattern is None:
                 return None
-            for class_expr in class_exprs:
-                patterns.append(build_class_pattern([class_expr]))
+            extend_or_patterns(patterns, pattern)
 
         return PatternMatch(build_or_pattern(patterns), None)
+
+    def _recognize_part_pattern(
+        self, part: cst.BaseExpression, subject: cst.BaseExpression
+    ) -> cst.MatchPattern | None:
+        result = EqualityPatternRecognizer().recognize(part, subject)
+        if result is not None and result.guard is None:
+            return result.pattern
+
+        class_exprs = extract_isinstance_call(
+            part, subject, ignore_types_pattern=self.ignore_types_pattern
+        )
+        if class_exprs is not None:
+            return build_class_pattern(class_exprs)
+
+        if not isinstance(part, cst.BooleanOperation) or not isinstance(
+            part.operator, cst.And
+        ):
+            return None
+
+        for recognizer in (
+            ClassPatternRecognizer(self.ignore_types_pattern),
+            NestedClassPatternRecognizer(self.ignore_types_pattern),
+            SequenceAttributePatternRecognizer(self.ignore_types_pattern),
+        ):
+            part_result = recognizer.recognize(part, subject)
+            if (
+                part_result is not None
+                and part_result.guard is None
+                and part_result.pattern is not None
+            ):
+                return part_result.pattern
+
+        return None
+
+
+def extend_or_patterns(
+    patterns: list[cst.MatchPattern], pattern: cst.MatchPattern
+) -> None:
+    if isinstance(pattern, cst.MatchOr):
+        patterns.extend(element.pattern for element in pattern.patterns)
+        return
+    patterns.append(pattern)
 
 
 class ClassPatternRecognizer(BranchPatternRecognizer):

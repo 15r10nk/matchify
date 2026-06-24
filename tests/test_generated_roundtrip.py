@@ -1127,9 +1127,17 @@ def generate_or_pattern(rng: random.Random, classes: tuple[str, ...]) -> OrPatte
     )
     if classes and rng.choice([True, False]):
         for class_name in rng.sample(classes, rng.randint(1, len(classes))):
-            alternatives.append(ClassPattern(class_name))
+            alternatives.append(generate_or_class_alternative(rng, class_name))
     rng.shuffle(alternatives)
     return OrPattern(tuple(alternatives))
+
+
+def generate_or_class_alternative(rng: random.Random, class_name: str) -> ClassPattern:
+    if rng.choice([True, False]):
+        return ClassPattern(class_name)
+
+    attr = rng.choice(["x", "y", "kind"])
+    return ClassPattern(class_name, ((attr, generate_literal_or_singleton(rng)),))
 
 
 def generate_literal_or_singleton(
@@ -1802,6 +1810,31 @@ def test_class_or_generated_program_survives_matchify(tmp_path: Path):
 
     source = program.to_trace_if_code()
     assert "isinstance(value, Point) or isinstance(value, Token)" in source
+    assert_matchify_preserves_trace(program, tmp_path)
+
+
+def test_class_attribute_or_generated_program_survives_matchify(tmp_path: Path):
+    program = GeneratedProgram(
+        classes=("Point", "Token"),
+        cases=(
+            GeneratedCase(
+                OrPattern(
+                    (
+                        ClassPattern("Point", (("kind", LiteralPattern("1")),)),
+                        ClassPattern("Token"),
+                        SingletonPattern("None"),
+                    )
+                ),
+                "branch_0",
+            ),
+            GeneratedCase(LiteralPattern("2"), "branch_1"),
+            GeneratedCase(WildcardPattern(), "default"),
+        ),
+    )
+
+    source = program.to_trace_if_code()
+    assert "isinstance(value, Point)" in source
+    assert "value.kind == 1" in source
     assert_matchify_preserves_trace(program, tmp_path)
 
 

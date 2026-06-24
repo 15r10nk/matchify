@@ -2104,6 +2104,148 @@ class TestIfToMatchTransformer:
 
         check_code(source, expected)
 
+    def test_or_pattern_with_class_attribute_alternative(self):
+        """Test OR alternatives that contain class attribute patterns."""
+        source = dedent(
+            """
+            class Point:
+                def __init__(self, kind):
+                    self.kind = kind
+
+            class Token:
+                pass
+
+            value = Point(1)
+            if (isinstance(value, Point) and value.kind == 1) or isinstance(value, Token):
+                print("match")
+            elif value is None:
+                print("none")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Point:
+                def __init__(self, kind):
+                    self.kind = kind
+
+            class Token:
+                pass
+
+            value = Point(1)
+            match value:
+                case Point(kind=1) | Token():
+                    print("match")
+                case None:
+                    print("none")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_or_pattern_with_mixed_value_and_class_attribute_alternative(self):
+        """Test OR pattern mixing a literal and a class attribute pattern."""
+        source = dedent(
+            """
+            class Point:
+                def __init__(self, kind):
+                    self.kind = kind
+
+            value = Point(1)
+            if value == "ready" or (isinstance(value, Point) and value.kind == 1):
+                print("ready or point")
+            elif value is None:
+                print("none")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Point:
+                def __init__(self, kind):
+                    self.kind = kind
+
+            value = Point(1)
+            match value:
+                case "ready" | Point(kind=1):
+                    print("ready or point")
+                case None:
+                    print("none")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_or_pattern_with_guarded_alternative_stays_guard(self):
+        """Test OR alternatives with per-branch guards are not folded unsafely."""
+        source = dedent(
+            """
+            class Point:
+                def __init__(self, kind):
+                    self.kind = kind
+
+            class Token:
+                pass
+
+            value = Point(1)
+            if (isinstance(value, Point) and value.kind > 0) or isinstance(value, Token):
+                print("match")
+            elif value is None:
+                print("none")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Point:
+                def __init__(self, kind):
+                    self.kind = kind
+
+            class Token:
+                pass
+
+            value = Point(1)
+            match value:
+                case _ if (isinstance(value, Point) and value.kind > 0) or isinstance(value, Token):
+                    print("match")
+                case None:
+                    print("none")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_or_pattern_with_sequence_alternative_stays_guard(self):
+        """Test top-level sequence OR alternatives are not grouped incorrectly."""
+        source = dedent(
+            """
+            class Token:
+                pass
+
+            value = [1, 2]
+            if (len(value) == 2 and value[0] == 1 and value[1] == 2) or isinstance(value, Token):
+                print("match")
+            elif value is None:
+                print("none")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Token:
+                pass
+
+            value = [1, 2]
+            match value:
+                case _ if (len(value) == 2 and value[0] == 1 and value[1] == 2) or isinstance(value, Token):
+                    print("match")
+                case None:
+                    print("none")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_or_pattern_with_variable_not_converted(self):
         """Test that OR patterns with variables (non-literals) are not converted."""
         source = dedent(
