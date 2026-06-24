@@ -1135,6 +1135,8 @@ def generate_or_safe_pattern(
     choices = ["literal", "singleton", "or_literal"]
     if classes:
         choices.append("class")
+    if depth > 0:
+        choices.extend(["sequence", "gapped_sequence", "star", "gapped_star"])
 
     kind = rng.choice(choices)
     if kind == "literal":
@@ -1145,6 +1147,20 @@ def generate_or_safe_pattern(
         return generate_or_literal_pattern(rng)
     if kind == "class":
         return generate_or_safe_class_pattern(rng, classes, depth=depth)
+    if kind == "sequence":
+        return generate_or_safe_sequence_pattern(
+            rng, classes, depth=depth - 1, bracketed=False
+        )
+    if kind == "gapped_sequence":
+        return generate_or_safe_gapped_sequence_pattern(
+            rng, classes, depth=depth - 1, bracketed=False
+        )
+    if kind == "star":
+        return generate_or_safe_star_sequence_pattern(rng, classes, depth=depth - 1)
+    if kind == "gapped_star":
+        return generate_or_safe_gapped_star_sequence_pattern(
+            rng, classes, depth=depth - 1
+        )
     raise AssertionError(f"Unhandled OR-safe pattern kind: {kind}")
 
 
@@ -1168,6 +1184,8 @@ def generate_or_safe_attribute_pattern(
     choices = ["literal", "singleton", "or_literal"]
     if classes and depth > 0:
         choices.append("class")
+    if depth > 0:
+        choices.extend(["sequence", "gapped_sequence", "star", "gapped_star"])
     kind = rng.choice(choices)
     if kind == "literal":
         return LiteralPattern(generate_literal(rng))
@@ -1177,7 +1195,83 @@ def generate_or_safe_attribute_pattern(
         return generate_or_literal_pattern(rng)
     if kind == "class":
         return generate_or_safe_class_pattern(rng, classes, depth=depth)
+    if kind == "sequence":
+        return generate_or_safe_sequence_pattern(
+            rng, classes, depth=depth - 1, bracketed=True
+        )
+    if kind == "gapped_sequence":
+        return generate_or_safe_gapped_sequence_pattern(
+            rng, classes, depth=depth - 1, bracketed=True
+        )
+    if kind == "star":
+        return generate_or_safe_star_sequence_pattern(rng, classes, depth=depth - 1)
+    if kind == "gapped_star":
+        return generate_or_safe_gapped_star_sequence_pattern(
+            rng, classes, depth=depth - 1
+        )
     raise AssertionError(f"Unhandled OR-safe attribute kind: {kind}")
+
+
+def generate_or_safe_sequence_pattern(
+    rng: random.Random, classes: tuple[str, ...], depth: int, bracketed: bool
+) -> SequencePattern:
+    elements = tuple(
+        generate_or_safe_sequence_element_pattern(rng, classes, depth)
+        for _ in range(rng.randint(1, 3))
+    )
+    return SequencePattern(
+        elements, bracketed=bracketed, tuple_value=rng.choice([True, False])
+    )
+
+
+def generate_or_safe_gapped_sequence_pattern(
+    rng: random.Random, classes: tuple[str, ...], depth: int, bracketed: bool
+) -> GappedSequencePattern:
+    length = rng.randint(2, 5)
+    checked_indices = generate_checked_indices(rng, length)
+    elements = tuple(
+        (
+            generate_or_safe_sequence_element_pattern(rng, classes, depth)
+            if index in checked_indices
+            else None
+        )
+        for index in range(length)
+    )
+    return GappedSequencePattern(
+        elements, bracketed=bracketed, tuple_value=rng.choice([True, False])
+    )
+
+
+def generate_or_safe_star_sequence_pattern(
+    rng: random.Random, classes: tuple[str, ...], depth: int
+) -> StarSequencePattern:
+    elements = tuple(
+        generate_or_safe_sequence_element_pattern(rng, classes, depth)
+        for _ in range(rng.randint(1, 3))
+    )
+    return StarSequencePattern(elements, tuple_value=rng.choice([True, False]))
+
+
+def generate_or_safe_gapped_star_sequence_pattern(
+    rng: random.Random, classes: tuple[str, ...], depth: int
+) -> GappedStarSequencePattern:
+    length = rng.randint(2, 5)
+    checked_indices = generate_checked_indices(rng, length)
+    elements = tuple(
+        (
+            generate_or_safe_sequence_element_pattern(rng, classes, depth)
+            if index in checked_indices
+            else None
+        )
+        for index in range(length)
+    )
+    return GappedStarSequencePattern(elements, tuple_value=rng.choice([True, False]))
+
+
+def generate_or_safe_sequence_element_pattern(
+    rng: random.Random, classes: tuple[str, ...], depth: int
+) -> GeneratedPattern:
+    return generate_or_safe_pattern(rng, classes, depth=depth)
 
 
 def generate_literal_or_singleton(
@@ -2029,6 +2123,47 @@ def test_class_attribute_or_generated_program_survives_matchify(tmp_path: Path):
     source = program.to_trace_if_code()
     assert "isinstance(value, Point)" in source
     assert "value.kind == 1" in source
+    assert_matchify_preserves_trace(program, tmp_path)
+
+
+def test_class_sequence_attribute_or_generated_program_survives_matchify(
+    tmp_path: Path,
+):
+    program = GeneratedProgram(
+        classes=("Point", "Token"),
+        cases=(
+            GeneratedCase(
+                OrPattern(
+                    (
+                        ClassPattern(
+                            "Point",
+                            (
+                                (
+                                    "items",
+                                    SequencePattern(
+                                        (
+                                            LiteralPattern("1"),
+                                            SingletonPattern("None"),
+                                        ),
+                                        bracketed=True,
+                                    ),
+                                ),
+                            ),
+                        ),
+                        ClassPattern("Token"),
+                        LiteralPattern("0"),
+                    )
+                ),
+                "branch_0",
+            ),
+            GeneratedCase(SingletonPattern("False"), "branch_1"),
+            GeneratedCase(WildcardPattern(), "default"),
+        ),
+    )
+
+    source = program.to_trace_if_code()
+    assert "isinstance(value.items, (list, tuple))" in source
+    assert "value.items[0] == 1" in source
     assert_matchify_preserves_trace(program, tmp_path)
 
 

@@ -258,7 +258,7 @@ class OrPatternRecognizer(BranchPatternRecognizer):
     def _recognize_part_pattern(
         self, part: cst.BaseExpression, subject: cst.BaseExpression
     ) -> cst.MatchPattern | None:
-        part = remove_redundant_hasattr_checks(part, subject)
+        part = remove_redundant_subject_checks(part, subject)
 
         result = EqualityPatternRecognizer().recognize(part, subject)
         if result is not None and result.guard is None:
@@ -306,7 +306,7 @@ def extend_or_patterns(
     patterns.append(pattern)
 
 
-def remove_redundant_hasattr_checks(
+def remove_redundant_subject_checks(
     part: cst.BaseExpression, subject: cst.BaseExpression
 ) -> cst.BaseExpression:
     if not isinstance(part, cst.BooleanOperation) or not isinstance(
@@ -327,6 +327,7 @@ def remove_redundant_hasattr_checks(
         component
         for component in components
         if not is_redundant_hasattr(component, subject, checked_paths)
+        and not is_redundant_sequence_type_check(component, subject, checked_paths)
     ]
     if len(filtered) == len(components):
         return part
@@ -348,6 +349,40 @@ def is_redundant_hasattr(
         path == hasattr_path or path[: len(hasattr_path)] == hasattr_path
         for path in checked_paths
     )
+
+
+def is_redundant_sequence_type_check(
+    node: cst.BaseExpression,
+    subject: cst.BaseExpression,
+    checked_paths: set[tuple[SubjectPathPart, ...]],
+) -> bool:
+    sequence_path = extract_list_tuple_isinstance_path(node, subject)
+    return sequence_path is not None and sequence_path in checked_paths
+
+
+def extract_list_tuple_isinstance_path(
+    node: cst.BaseExpression, subject: cst.BaseExpression
+) -> tuple[SubjectPathPart, ...] | None:
+    if not isinstance(node, cst.Call) or not m.matches(
+        node, m.Call(func=m.Name(value="isinstance"))
+    ):
+        return None
+    if len(node.args) != 2:
+        return None
+    path = SubjectPath.from_expression(node.args[0].value, subject)
+    if path is None or not path.parts:
+        return None
+    class_arg = node.args[1].value
+    if not isinstance(class_arg, cst.Tuple):
+        return None
+    class_names = []
+    for element in class_arg.elements:
+        if not isinstance(element, cst.Element) or not isinstance(
+            element.value, cst.Name
+        ):
+            return None
+        class_names.append(element.value.value)
+    return path.parts if set(class_names) == {"list", "tuple"} else None
 
 
 def collect_checked_attribute_paths(
