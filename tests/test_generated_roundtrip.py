@@ -725,6 +725,12 @@ def fallthrough_value_codes(pattern: GeneratedPattern) -> list[str]:
                 for alternative in pattern.alternatives
                 for value in fallthrough_value_codes(alternative)
             ]
+        if or_alternatives_have_disjoint_classes(pattern):
+            return [
+                value
+                for alternative in pattern.alternatives
+                for value in fallthrough_value_codes(alternative)
+            ]
         return []
     if isinstance(pattern, LiteralPattern):
         return [mismatching_literal(pattern.value)]
@@ -786,6 +792,35 @@ def or_alternatives_have_shared_captures(pattern: OrPattern) -> bool:
         and signatures[0] != ()
         and all(signature == signatures[0] for signature in signatures[1:])
     )
+
+
+def or_alternatives_have_disjoint_classes(pattern: OrPattern) -> bool:
+    if any(contains_capture(alternative) for alternative in pattern.alternatives):
+        return False
+
+    class_names = []
+    for alternative in pattern.alternatives:
+        names = pattern_class_names(alternative)
+        if not names:
+            return False
+        class_names.append(names)
+
+    seen: set[str] = set()
+    for names in class_names:
+        if seen & names:
+            return False
+        seen.update(names)
+    return True
+
+
+def pattern_class_names(pattern: GeneratedPattern) -> set[str]:
+    if isinstance(pattern, ClassPattern):
+        return {pattern.class_name}
+    if isinstance(pattern, ClassUnionPattern):
+        return set(pattern.class_names)
+    if isinstance(pattern, GuardedPattern):
+        return pattern_class_names(pattern.pattern)
+    return set()
 
 
 def class_fallthrough_value_code(
@@ -2700,6 +2735,24 @@ def test_nested_or_matching_samples_cover_all_non_capture_alternatives():
     )
 
 
+def test_sequence_or_fallthrough_samples_cover_disjoint_class_alternatives():
+    pattern = SequencePattern(
+        (
+            OrPattern(
+                (
+                    ClassPattern("Point", (("kind", LiteralPattern("1")),)),
+                    ClassPattern("Token", (("kind", LiteralPattern("2")),)),
+                )
+            ),
+        ),
+        bracketed=False,
+    )
+
+    assert fallthrough_value_codes(pattern) == snapshot(
+        ["[Point(kind=0)]", "[Token(kind=0)]"]
+    )
+
+
 def test_class_or_generated_program_survives_matchify(tmp_path: Path):
     program = GeneratedProgram(
         classes=("Point", "Token"),
@@ -3332,6 +3385,7 @@ class Token:
 values = [
     [Token(y=True), object(), Point(), object()],
     [Token(y=True), object(), Token(), object()],
+    [Point(y=0), object(), Point(), object()],
     ((object(), object(), 'ready', object()), -3.5, Point()),
     ((object(), object(), 'miss', object()), -3.5, Point()),
     object(),
