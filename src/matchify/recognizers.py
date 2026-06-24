@@ -1089,6 +1089,22 @@ class PatternRecognitionEngine:
                 guard=None,
             )
 
+        class_attribute_facts = normalize_subject_class_attribute_value_facts(
+            condition, subject, self.ignore_types_pattern
+        )
+        if class_attribute_facts is not None:
+            class_fact, attribute_facts = class_attribute_facts
+            return BranchFacts(
+                condition=condition,
+                subject=subject,
+                facts=(class_fact, *attribute_facts),
+                pattern=PatternTree(
+                    class_fact=class_fact,
+                    attribute_value_facts=attribute_facts,
+                ),
+                guard=None,
+            )
+
         result = self.recognize_branch(condition, subject)
         pattern = None if result.pattern is None else PatternTree(result.pattern)
         return BranchFacts(
@@ -1103,18 +1119,28 @@ class PatternRecognitionEngine:
 def normalize_subject_value_fact(
     condition: cst.BaseExpression, subject: cst.BaseExpression
 ) -> ValueFact | None:
+    value_fact = normalize_value_fact(condition, subject)
+    if value_fact is None or not value_fact.path.is_subject:
+        return None
+    return value_fact
+
+
+def normalize_value_fact(
+    condition: cst.BaseExpression, subject: cst.BaseExpression
+) -> ValueFact | None:
     if not isinstance(condition, cst.Comparison) or len(condition.comparisons) != 1:
         return None
-    if not condition.left.deep_equals(subject):
+    path = SubjectPath.from_expression(condition.left, subject)
+    if path is None:
         return None
 
     target = condition.comparisons[0]
     if isinstance(target.operator, cst.Is):
         if not is_singleton_name(target.comparator):
             return None
-        return ValueFact(SubjectPath(()), target.comparator)
+        return ValueFact(path, target.comparator)
     if isinstance(target.operator, cst.Equal) and is_literal_value(target.comparator):
-        return ValueFact(SubjectPath(()), target.comparator)
+        return ValueFact(path, target.comparator)
     return None
 
 
@@ -1127,6 +1153,45 @@ def normalize_subject_class_fact(
     if class_exprs is None:
         return None
     return ClassFact(SubjectPath(()), tuple(class_exprs))
+
+
+def normalize_subject_class_attribute_value_facts(
+    condition: cst.BaseExpression,
+    subject: cst.BaseExpression,
+    ignore_types_pattern: str | None,
+) -> tuple[ClassFact, tuple[ValueFact, ...]] | None:
+    if not isinstance(condition, cst.BooleanOperation) or not isinstance(
+        condition.operator, cst.And
+    ):
+        return None
+
+    class_fact: ClassFact | None = None
+    value_facts: list[ValueFact] = []
+    seen_attribute_names: set[str] = set()
+    for component in flatten_boolean(condition, cst.And):
+        component_class_fact = normalize_subject_class_fact(
+            component, subject, ignore_types_pattern
+        )
+        if component_class_fact is not None:
+            if class_fact is not None:
+                return None
+            class_fact = component_class_fact
+            continue
+
+        value_fact = normalize_value_fact(component, subject)
+        attr_name = (
+            None if value_fact is None else value_fact.path.direct_attribute_name
+        )
+        if value_fact is None or attr_name is None:
+            return None
+        if attr_name in seen_attribute_names:
+            return None
+        seen_attribute_names.add(attr_name)
+        value_facts.append(value_fact)
+
+    if class_fact is None or not value_facts:
+        return None
+    return class_fact, tuple(value_facts)
 
 
 def extract_attribute_literal_check(

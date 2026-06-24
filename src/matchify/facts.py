@@ -40,6 +40,7 @@ class PatternTree:
     pattern: cst.MatchPattern | None = None
     value_fact: ValueFact | None = None
     class_fact: ClassFact | None = None
+    attribute_value_facts: tuple[ValueFact, ...] = ()
 
     def render(self) -> cst.MatchPattern:
         if self.value_fact is not None:
@@ -49,7 +50,15 @@ class PatternTree:
         if self.class_fact is not None:
             if not self.class_fact.path.is_subject:
                 raise ValueError("Class facts for derived paths need a parent pattern")
-            return build_class_pattern(list(self.class_fact.classes))
+            keyword_patterns = []
+            for fact in self.attribute_value_facts:
+                attr_name = fact.path.direct_attribute_name
+                if attr_name is None:
+                    raise ValueError(
+                        "Only direct attribute value facts can render here"
+                    )
+                keyword_patterns.append((attr_name, build_value_pattern(fact.value)))
+            return build_class_pattern(list(self.class_fact.classes), keyword_patterns)
         if self.pattern is None:
             raise ValueError("PatternTree has no renderable node")
         return self.pattern

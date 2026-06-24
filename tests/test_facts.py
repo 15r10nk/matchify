@@ -64,3 +64,28 @@ def test_normalize_branch_builds_class_union_fact():
         "Token",
     ]
     assert cst.Module([]).code_for_node(facts.pattern.render()) == "Point() | Token()"
+
+
+def test_normalize_branch_builds_class_attribute_value_facts():
+    facts = normalize("isinstance(value, Point) and value.x == 1", "value")
+
+    assert facts.pattern is not None
+    assert isinstance(facts.facts[0], ClassFact)
+    assert isinstance(facts.facts[1], ValueFact)
+    assert facts.facts[1].path.direct_attribute_name == "x"
+    assert cst.Module([]).code_for_node(facts.facts[1].value) == "1"
+    assert cst.Module([]).code_for_node(facts.pattern.render()) == "Point(x=1)"
+
+
+def test_normalize_branch_builds_class_union_attribute_value_facts():
+    facts = normalize(
+        "isinstance(value, (Point, Token)) and value.kind is None", "value"
+    )
+
+    assert facts.pattern is not None
+    assert isinstance(facts.facts[0], ClassFact)
+    assert isinstance(facts.facts[1], ValueFact)
+    assert facts.facts[1].path.direct_attribute_name == "kind"
+    assert cst.Module([]).code_for_node(facts.pattern.render()) == (
+        "Point(kind=None) | Token(kind=None)"
+    )
