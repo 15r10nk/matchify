@@ -2850,6 +2850,43 @@ class TestIfToMatchTransformer:
 
         check_code(source, expected)
 
+    def test_duplicate_capture_index_keeps_assignments(self):
+        """Test duplicate captures for the same source index are not converted."""
+        source = dedent(
+            """
+            class Point:
+                def __init__(self, x):
+                    self.x = x
+
+            n = Point([1, 2, 3])
+            if isinstance(n, Point) and len(n.x) >= 1:
+                first = n.x[0]
+                again = n.x[0]
+                print(first, again)
+            elif isinstance(n, Point):
+                print("empty")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Point:
+                def __init__(self, x):
+                    self.x = x
+
+            n = Point([1, 2, 3])
+            match n:
+                case Point(x=[_, *_]):
+                    first = n.x[0]
+                    again = n.x[0]
+                    print(first, again)
+                case Point():
+                    print("empty")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_capture_pattern_multiple_values(self):
         """Test multiple capture pattern with consecutive assignments.
 
