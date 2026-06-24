@@ -214,13 +214,6 @@ class CapturePatternTransformer(cst.CSTTransformer):
 
         attr_name = first_part.name
 
-        # Get indices and sort captures by index
-        indices = [idx for _, _, idx in captures]
-        sorted_captures = sorted(captures, key=lambda c: c[2])
-
-        # Get max index
-        max_index = max(indices)
-
         # Find the attribute in the pattern
         new_kwds = []
         found = False
@@ -249,51 +242,9 @@ class CapturePatternTransformer(cst.CSTTransformer):
                 new_kwds.append(kwd)
                 continue
 
-            # Found it! Build new sequence with captures (supporting non-consecutive indices)
-            seq_pattern = kwd.pattern
-            elements = list(seq_pattern.patterns)
-
-            # Build pattern elements from 0 to max_index
-            # For each position: either a capture or a wildcard
-            capture_map = {idx: var_name for var_name, _, idx in sorted_captures}
-
-            new_elements = []
-            for i in range(max_index + 1):
-                if i in capture_map:
-                    # This index has a capture
-                    capture_elem = cst.MatchSequenceElement(
-                        value=cst.MatchAs(pattern=None, name=cst.Name(capture_map[i])),
-                        comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" ")),
-                    )
-                    new_elements.append(capture_elem)
-                else:
-                    # This index doesn't have a capture, use wildcard
-                    wildcard_elem = cst.MatchSequenceElement(
-                        value=cst.MatchAs(pattern=None, name=None),
-                        comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" ")),
-                    )
-                    new_elements.append(wildcard_elem)
-
-            # Check if original pattern has wildcards or if we need to add star
-            all_wildcards = all(
-                isinstance(el.value, cst.MatchAs)
-                and el.value.pattern is None
-                and el.value.name is None
-                for el in elements
+            new_seq_pattern = self._add_captures_to_sequence_pattern(
+                kwd.pattern, captures
             )
-
-            # Add star pattern at the end to match remaining elements
-            if all_wildcards or len(elements) > len(new_elements):
-                star_element = cst.MatchSequenceElement(
-                    value=cst.MatchStar(name=cst.Name("_"))
-                )
-                new_elements.append(star_element)
-            else:
-                # Keep any remaining elements from original pattern
-                remaining_elements = elements[len(new_elements) :]
-                new_elements.extend(remaining_elements)
-
-            new_seq_pattern = seq_pattern.with_changes(patterns=new_elements)
             new_kwd = kwd.with_changes(pattern=new_seq_pattern)
             new_kwds.append(new_kwd)
             found = True
@@ -345,7 +296,32 @@ class CapturePatternTransformer(cst.CSTTransformer):
                 value=cst.MatchAs(pattern=None, name=cst.Name(var_name))
             )
 
+        star_index = next(
+            (
+                index
+                for index, element in enumerate(elements)
+                if isinstance(element.value, cst.MatchStar)
+            ),
+            None,
+        )
+        if star_index is not None:
+            last_required_index = max_index
+            for index, element in enumerate(elements[:star_index]):
+                if not self._is_wildcard_sequence_element(element):
+                    last_required_index = max(last_required_index, index)
+            elements = [
+                *elements[: last_required_index + 1],
+                *elements[star_index:],
+            ]
+
         return pattern.with_changes(patterns=elements)
+
+    def _is_wildcard_sequence_element(self, element: cst.MatchSequenceElement) -> bool:
+        return (
+            isinstance(element.value, cst.MatchAs)
+            and element.value.pattern is None
+            and element.value.name is None
+        )
 
     def _add_subscript_captures_to_pattern(
         self,
@@ -391,7 +367,7 @@ class CapturePatternTransformer(cst.CSTTransformer):
                 new_kwds.append(kwd)
                 continue
 
-            if not isinstance(kwd.pattern, cst.MatchClass):
+            if not isinstance(kwd.pattern, (cst.MatchClass, cst.MatchOr)):
                 new_kwds.append(kwd)
                 continue
 

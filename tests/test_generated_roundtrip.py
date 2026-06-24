@@ -1132,6 +1132,7 @@ def generate_pattern(
         choices.append("common_guarded_or")
         choices.append("common_guarded_or_capture")
         choices.append("or_capture")
+        choices.append("class_union_sequence_capture")
         if depth > 0:
             choices.append("nested_or_capture")
     if depth > 0:
@@ -1150,6 +1151,8 @@ def generate_pattern(
         return generate_common_guarded_or_capture_pattern(rng, classes)
     if kind == "or_capture":
         return generate_or_capture_pattern(rng, classes)
+    if kind == "class_union_sequence_capture":
+        return generate_class_union_sequence_capture_pattern(rng, classes)
     if kind == "nested_or_capture":
         return generate_nested_or_capture_pattern(rng, classes, depth=depth)
     if kind == "class":
@@ -1308,6 +1311,28 @@ def generate_class_attribute_or_sequence_capture_pattern(
     return ClassPattern(
         rng.choice(classes),
         ((rng.choice(["x", "y", "items"]), generate_or_sequence_capture_pattern(rng)),),
+    )
+
+
+def generate_class_union_sequence_capture_pattern(
+    rng: random.Random, classes: tuple[str, ...]
+) -> ClassPattern:
+    return ClassPattern(
+        rng.choice(classes),
+        (
+            (
+                rng.choice(["x", "y", "items"]),
+                ClassUnionPattern(
+                    tuple(rng.sample(classes, rng.randint(2, len(classes)))),
+                    (
+                        (
+                            rng.choice(["x", "y", "items"]),
+                            generate_sequence_capture_pattern(rng),
+                        ),
+                    ),
+                ),
+            ),
+        ),
     )
 
 
@@ -3186,6 +3211,60 @@ def test_generated_attribute_or_direct_sequence_capture_program_survives_matchif
     )
 
 
+def test_generated_nested_class_union_sequence_capture_program_survives_matchify(
+    tmp_path: Path,
+):
+    pattern = ClassPattern(
+        "Outer",
+        (
+            (
+                "child",
+                ClassUnionPattern(
+                    ("Point", "Token"),
+                    (
+                        (
+                            "items",
+                            SequenceCapturePattern(
+                                checked_index=1,
+                                checked_pattern=LiteralPattern("2"),
+                                capture_indices=(0,),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    )
+    program = GeneratedProgram(
+        classes=("Outer", "Point", "Token"),
+        cases=(
+            GeneratedCase(pattern, "branch_0"),
+            GeneratedCase(SingletonPattern("None"), "branch_1"),
+            GeneratedCase(WildcardPattern(), "default"),
+        ),
+    )
+    source = program.to_trace_if_code()
+    path = tmp_path / "generated_nested_class_union_sequence_capture.py"
+    path.write_text(source, encoding="utf-8")
+    expected_trace = execute_result(source)
+
+    converted_path, changed, error = convert_file(path)
+
+    assert converted_path == path
+    assert changed is True
+    assert error is None
+    transformed = path.read_text(encoding="utf-8")
+    assert (
+        "case Outer(child=Point(items=[capture_0_0, 2, *_]) | "
+        "Token(items=[capture_0_0, 2, *_]))"
+    ) in transformed
+    assert "capture_0_0 = value.child.items[0]" not in transformed
+    assert execute_result(transformed) == expected_trace, (
+        f"Trace mismatch\nGenerated if/else:\n{source}\n"
+        f"Matchified code:\n{transformed}"
+    )
+
+
 def test_generated_guarded_capture_program_survives_matchify(tmp_path: Path):
     program = GeneratedProgram(
         classes=("Point",),
@@ -4583,23 +4662,34 @@ class Token:
     def __init__(self, **attrs):
         self.__dict__.update(attrs)
 values = [
-    Token(x=1),
-    Token(x=0),
-    [object(), 2, 'blue'],
-    [object(), 2, 2],
-    [object(), 2, -1],
-    [object(), 2, -3.5],
-    [object(), object()],
-    [object(), object()],
-    [object(), object()],
-    [object(), object()],
+    ((Token(), 'blue', object(), +3.5),),
+    ((Token(), 'blue', object(), 'blue'),),
+    ((Token(), 'blue', object(), 'ready'),),
+    ((Token(), 'blue', object(), -3.5),),
+    ((Point(), 'blue', object(), +3.5),),
+    ((Point(), 'blue', object(), 'blue'),),
+    ((Point(), 'blue', object(), 'ready'),),
+    ((Point(), 'blue', object(), -3.5),),
+    ((Token(), 0, object(), +3.5),),
+    ((-1, Token(y=[1, 2, 3, object()]), Token(), object()), object(), object(), object()),
+    ((-1, Token(y=[1, 2, 3, object()]), Point(), object()), object(), object(), object()),
+    ((-1, Point(y=[1, 2, 3, object()]), Token(), object()), object(), object(), object()),
+    ((-1, Point(y=[1, 2, 3, object()]), Point(), object()), object(), object(), object()),
+    ((+3.5, Token(y=[1, 2, 3, object()]), Token(), object()), object(), object(), object()),
+    ((+3.5, Token(y=[1, 2, 3, object()]), Point(), object()), object(), object(), object()),
+    ((+3.5, Point(y=[1, 2, 3, object()]), Token(), object()), object(), object(), object()),
+    ((+3.5, Point(y=[1, 2, 3, object()]), Point(), object()), object(), object(), object()),
+    ((object(), Token(y=[1, 2, 3, object()]), Token(), object()), object(), object(), object()),
     object(),
 ]
 for value in values:
-    if isinstance(value, Token) and hasattr(value, 'x') and value.x == len([None]):
+    if isinstance(value, (list, tuple)) and len(value) == 1 and isinstance(value[0], (list, tuple)) and len(value[0]) == 4 and (isinstance(value[0][0], Token) or isinstance(value[0][0], Point)) and value[0][1] == 'blue' and (value[0][3] == +3.5 or value[0][3] == 'blue' or value[0][3] == 'ready' or value[0][3] == -3.5):
         print('branch_0')
-    elif (isinstance(value, (list, tuple)) and len(value) >= 3 and value[2] == 'blue' or isinstance(value, (list, tuple)) and len(value) >= 3 and value[2] == 2 or isinstance(value, (list, tuple)) and len(value) >= 3 and value[2] == -1 or isinstance(value, (list, tuple)) and len(value) >= 3 and value[2] == -3.5):
-        capture_1_0 = value[1]
+    elif isinstance(value, (list, tuple)) and len(value) >= 3 and isinstance(value[0], (list, tuple)) and len(value[0]) >= 3 and (value[0][0] == -1 or value[0][0] == +3.5) and (isinstance(value[0][1], Token) and hasattr(value[0][1], 'y') and isinstance(value[0][1].y, (list, tuple)) and len(value[0][1].y) >= 3 or isinstance(value[0][1], Point) and hasattr(value[0][1], 'y') and isinstance(value[0][1].y, (list, tuple)) and len(value[0][1].y) >= 3) and (isinstance(value[0][2], Token) or isinstance(value[0][2], Point)):
+        capture_1_0 = value[0][1].y[0]
+        capture_1_1 = value[0][1].y[1]
+        capture_1_2 = value[0][1].y[0]
+        capture_1_3 = value[0][1].y[2]
         print('branch_1')
     else:
         print('default')
@@ -4611,99 +4701,77 @@ class Point:
 class Token:
     def __init__(self, **attrs):
         self.__dict__.update(attrs)
-
-class Node:
-    def __init__(self, **attrs):
-        self.__dict__.update(attrs)
 values = [
-    Point(kind=+3.5),
-    (Point(y='red'), Point(x=0), Point(y=Point(x=None)), Node(x=Token(y=True)), object()),
-    [1, None, 3],
-    [object(), object()],
-    [1, object(), 2],
-    [1, object(), 'red'],
-    [1, object(), -3.5],
-    [object(), object()],
-    [object(), object()],
-    [object(), object()],
-    Token(x='blue', y=False),
-    Token(x=0, y=False),
+    (Point(kind=True), object()),
+    (Token(kind=True), object()),
+    (True, 2, 3),
+    (object(), object()),
     object(),
 ]
 for value in values:
-    if (isinstance(value, (Point, Token)) and hasattr(value, 'kind') and (value.kind == +3.5 or value.kind == 2) and True or isinstance(value, (list, tuple)) and len(value) >= 4 and isinstance(value[0], (Point, Node, Token)) and hasattr(value[0], 'y') and value[0].y == 'red' and (isinstance(value[1], Point) and hasattr(value[1], 'x') and value[1].x == 0 or isinstance(value[1], Token) and hasattr(value[1], 'x') and value[1].x == 'ready') and isinstance(value[2], (Point, Node)) and hasattr(value[2], 'y') and isinstance(value[2].y, Point) and hasattr(value[2].y, 'x') and value[2].y.x is None and isinstance(value[3], (Node, Token, Point)) and hasattr(value[3], 'x') and isinstance(value[3].x, Token) and hasattr(value[3].x, 'y') and value[3].x.y is True and True):
+    if isinstance(value, (list, tuple)) and len(value) >= 1 and isinstance(value[0], (Point, Token)) and hasattr(value[0], 'kind') and value[0].kind is True:
         print('branch_0')
-    elif isinstance(value, (list, tuple)) and len(value) >= 3 and value[1] is None:
-        capture_1_0 = value[2]
-        capture_1_1 = value[0]
+    elif isinstance(value, (list, tuple)) and len(value) >= 3 and value[0] is True:
+        capture_1_0 = value[1]
+        capture_1_1 = value[2]
         print('branch_1')
-    elif (isinstance(value, (list, tuple)) and len(value) >= 3 and value[2] == 2 or isinstance(value, (list, tuple)) and len(value) >= 3 and value[2] == 'red' or isinstance(value, (list, tuple)) and len(value) >= 3 and value[2] == -3.5):
-        capture_2_0 = value[0]
-        print('branch_2')
-    elif isinstance(value, Token) and hasattr(value, 'x') and value.x == 'blue' and hasattr(value, 'y') and value.y is False:
-        print('branch_3')
-    else:
-        print('default')
 ---
 class Point:
     def __init__(self, **attrs):
         self.__dict__.update(attrs)
 values = [
-    [None, Point(y=2)],
-    [None, Point(y=0)],
-    (1, None, 3),
-    (1, -3.5, 3),
-    (object(), object()),
-    (object(), object()),
-    +1,
-    0,
-    object(),
-]
-for value in values:
-    if isinstance(value, (list, tuple)) and len(value) == 2 and value[0] is None and isinstance(value[1], Point) and hasattr(value[1], 'y') and value[1].y == len([None, None]):
-        print('branch_0')
-    elif (isinstance(value, (list, tuple)) and len(value) >= 3 and value[1] is None or isinstance(value, (list, tuple)) and len(value) >= 3 and value[1] == -3.5):
-        capture_1_0 = value[2]
-        capture_1_1 = value[0]
-        print('branch_1')
-    elif value == +1:
-        print('branch_2')
-    else:
-        print('default')
----
-class Point:
-    def __init__(self, **attrs):
-        self.__dict__.update(attrs)
-values = [
-    [1, None, 3],
-    [object(), object()],
     None,
-    (object(), object(), (Point(), object())),
-    0,
-    [[Point(y=1), None, Point(y=[1, 2, 3, object()])], ((1, 2, True), object()), Point(y=1)],
-    [[Point(y=2), None, Point(y=[1, 2, 3, object()])], ((1, 2, True), object()), Point(y=1)],
-    [Point(items=[1, object()])],
-    [Point(items=[])],
+    (object(), Point(x=Point(kind=(True, object(), object(), -3.5, 'red', object()))), [(False, False, Point()), (object(), -1, +3.5, [object(), False, object()], object()), object(), Point(kind=[-1, False, object()], y=(object(), +1)), object(), object()], object()),
+    (object(), Point(x=Point(kind=(True, object(), object(), -3.5, 'red', object()))), [(False, False, Point()), (object(), -1, 'ready', [object(), False, object()], object()), object(), Point(kind=[-1, +1, object()], y=(object(), +1)), object(), object()], object()),
+    (object(), Point(x=Point(kind=(True, object(), object(), -3.5, 'red', object()))), [(False, False, Point()), (object(), +1, +3.5, [object(), False, object()], object()), object(), Point(kind=[-1, False, object()], y=(object(), +1)), object(), object()], object()),
+    (object(), Point(x=Point(kind=(True, object(), object(), -3.5, 'red', object()))), [(False, False, Point()), (object(), +1, 'ready', [object(), False, object()], object()), object(), Point(kind=[-1, +1, object()], y=(object(), +1)), object(), object()], object()),
+    (object(), Point(x=Point(kind=(True, object(), object(), -3.5, 'red', object()))), [(False, False, Point()), (object(), -3.5, +3.5, [object(), False, object()], object()), object(), Point(kind=[-1, -3.5, object()], y=(object(), +1)), object(), object()], object()),
+    (object(), Point(x=Point(kind=(True, object(), object(), -3.5, 'red', object()))), [(False, False, Point()), (object(), -3.5, 'ready', [object(), False, object()], object()), object(), Point(kind=[-1, +1, object()], y=(object(), +1)), object(), object()], object()),
+    (object(), Point(x=Point(kind=(True, object(), object(), -3.5, -3.5, object()))), [(False, False, Point()), (object(), -1, +3.5, [object(), False, object()], object()), object(), Point(kind=[-1, -3.5, object()], y=(object(), +1)), object(), object()], object()),
+    (object(), Point(x=Point(kind=(True, object(), object(), -3.5, -3.5, object()))), [(False, False, Point()), (object(), -1, -1, [object(), False, object()], object()), object(), Point(kind=[-1, False, object()], y=(object(), +1)), object(), object()], object()),
+    (object(), Point(x=Point(kind=(True, object(), object(), -3.5, -3.5, object()))), [(False, False, Point()), (object(), +1, +3.5, [object(), False, object()], object()), object(), Point(kind=[-1, +1, object()], y=(object(), +1)), object(), object()], object()),
+    (object(), Point(x=Point(kind=(True, object(), object(), -3.5, -3.5, object()))), [(False, False, Point()), (object(), +1, -1, [object(), False, object()], object()), object(), Point(kind=[-1, False, object()], y=(object(), +1)), object(), object()], object()),
+    (object(), Point(x=Point(kind=(True, object(), object(), -3.5, -3.5, object()))), [(False, False, Point()), (object(), -3.5, +3.5, [object(), False, object()], object()), object(), Point(kind=[-1, +1, object()], y=(object(), +1)), object(), object()], object()),
+    (object(), Point(x=Point(kind=(True, object(), object(), -3.5, -3.5, object()))), [(False, False, Point()), (object(), -3.5, -1, [object(), False, object()], object()), object(), Point(kind=[-1, -3.5, object()], y=(object(), +1)), object(), object()], object()),
+    (object(), Point(x=Point(kind=(True, object(), object(), 0, 'red', object()))), [(False, False, Point()), (object(), -1, +3.5, [object(), False, object()], object()), object(), Point(kind=[-1, +1, object()], y=(object(), +1)), object(), object()], object()),
+    (object(), Point(x=Point(kind=(True, object(), object(), 0, 'red', object()))), [(False, False, Point()), (object(), -1, -1, [object(), False, object()], object()), object(), Point(kind=[-1, -3.5, object()], y=(object(), +1)), object(), object()], object()),
+    (object(), Point(x=Point(kind=(True, object(), object(), 0, 'red', object()))), [(False, False, Point()), (object(), +1, 'ready', [object(), False, object()], object()), object(), Point(kind=[-1, False, object()], y=(object(), +1)), object(), object()], object()),
+    (object(), Point(x=Point(kind=(True, object(), object(), 0, 'red', object()))), [(False, False, Point()), (object(), +1, -1, [object(), False, object()], object()), object(), Point(kind=[-1, -3.5, object()], y=(object(), +1)), object(), object()], object()),
+    (object(), Point(x=Point(kind=(True, object(), object(), 0, 'red', object()))), [(False, False, Point()), (object(), -3.5, 'ready', [object(), False, object()], object()), object(), Point(kind=[-1, False, object()], y=(object(), +1)), object(), object()], object()),
+    (object(), Point(x=Point(kind=(True, object(), object(), 0, 'red', object()))), [(False, False, Point()), (object(), -3.5, -1, [object(), False, object()], object()), object(), Point(kind=[-1, +1, object()], y=(object(), +1)), object(), object()], object()),
+    (object(), Point(x=Point(kind=(True, object(), object(), 0, -3.5, object()))), [(False, False, Point()), (object(), -1, 'ready', [object(), False, object()], object()), object(), Point(kind=[-1, -3.5, object()], y=(object(), +1)), object(), object()], object()),
+    (object(), Point(x=Point(kind=(True, object(), object(), 0, -3.5, object()))), [(False, False, Point()), (object(), -1, -1, [object(), False, object()], object()), object(), Point(kind=[-1, +1, object()], y=(object(), +1)), object(), object()], object()),
+    (object(), Point(x=Point(kind=(True, object(), object(), 0, -3.5, object()))), [(False, False, Point()), (object(), +1, 'ready', [object(), False, object()], object()), object(), Point(kind=[-1, -3.5, object()], y=(object(), +1)), object(), object()], object()),
+    (object(), Point(x=Point(kind=(True, object(), object(), 0, -3.5, object()))), [(False, False, Point()), (object(), -3.5, +3.5, [object(), False, object()], object()), object(), Point(kind=[-1, False, object()], y=(object(), +1)), object(), object()], object()),
+    (object(), Point(x=Point(kind=(True, object(), object(), 0, -3.5, object()))), [(False, False, Point()), (object(), -3.5, 'ready', [object(), False, object()], object()), object(), Point(kind=[-1, -3.5, object()], y=(object(), +1)), object(), object()], object()),
+    +3.5,
     object(),
 ]
 for value in values:
-    if isinstance(value, (list, tuple)) and len(value) >= 3 and value[1] is None:
-        capture_0_0 = value[2]
-        capture_0_1 = value[0]
-        capture_0_2 = value[2]
+    if value is None:
         print('branch_0')
-    elif (value is None or isinstance(value, (list, tuple)) and len(value) == 3 and isinstance(value[2], (list, tuple)) and len(value[2]) >= 1 and isinstance(value[2][0], Point) or value == 0):
+    elif (isinstance(value, (list, tuple)) and len(value) == 4 and isinstance(value[1], Point) and hasattr(value[1], 'x') and isinstance(value[1].x, Point) and hasattr(value[1].x, 'kind') and isinstance(value[1].x.kind, (list, tuple)) and len(value[1].x.kind) >= 5 and value[1].x.kind[0] is True and (value[1].x.kind[3] == -3.5 or value[1].x.kind[3] == 0) and (value[1].x.kind[4] == 'red' or value[1].x.kind[4] == -3.5) and isinstance(value[2], (list, tuple)) and len(value[2]) >= 5 and isinstance(value[2][0], (list, tuple)) and len(value[2][0]) == 3 and value[2][0][0] is False and value[2][0][1] is False and isinstance(value[2][0][2], Point) and isinstance(value[2][1], (list, tuple)) and len(value[2][1]) >= 4 and (value[2][1][1] == -1 or value[2][1][1] == +1 or value[2][1][1] == -3.5) and (value[2][1][2] == +3.5 or value[2][1][2] == 'ready' or value[2][1][2] == -1) and isinstance(value[2][1][3], (list, tuple)) and len(value[2][1][3]) >= 2 and value[2][1][3][1] is False and isinstance(value[2][3], Point) and hasattr(value[2][3], 'kind') and isinstance(value[2][3].kind, (list, tuple)) and len(value[2][3].kind) >= 2 and value[2][3].kind[0] == -1 and (value[2][3].kind[1] is False or value[2][3].kind[1] == -3.5 or value[2][3].kind[1] == +1) and hasattr(value[2][3], 'y') and isinstance(value[2][3].y, (list, tuple)) and len(value[2][3].y) == 2 and value[2][3].y[1] == +1 or value == +3.5):
         print('branch_1')
-    elif isinstance(value, (list, tuple)) and len(value) == 3 and isinstance(value[0], (list, tuple)) and len(value[0]) == 3 and isinstance(value[0][0], Point) and hasattr(value[0][0], 'y') and value[0][0].y < 2 and value[0][1] is None and not isinstance(value[0][1], dict) and isinstance(value[0][2], Point) and hasattr(value[0][2], 'y') and isinstance(value[0][2].y, (list, tuple)) and len(value[0][2].y) >= 3 and isinstance(value[1], (list, tuple)) and len(value[1]) >= 1 and isinstance(value[1][0], (list, tuple)) and len(value[1][0]) >= 3 and value[1][0][2] is True and isinstance(value[2], Point) and hasattr(value[2], 'y') and value[2].y > 0 and (True or False):
-        capture_2_0 = value[0][2].y[2]
-        capture_2_1 = value[1][0][0]
-        capture_2_2 = value[1][0][1]
-        capture_2_3 = value[1][0][1]
-        print('branch_2')
-    elif isinstance(value, (list, tuple)) and len(value) == 1 and isinstance(value[0], Point) and hasattr(value[0], 'items') and isinstance(value[0].items, (list, tuple)) and len(value[0].items) >= 1 and True:
-        capture_3_0 = value[0].items[0]
-        capture_3_1 = value[0].items[0]
-        print('branch_3')
+---
+class Point:
+    def __init__(self, **attrs):
+        self.__dict__.update(attrs)
+values = [
+    Point(x=1),
+    Point(x=0),
+    Point(kind=(((False, 2, 3), object()), 'ready', object()), y=(None, [Point(x=[1, 2, 3, object()]), object()], object(), object(), Point(y=1), object())),
+    Point(kind=(((object(), object()), object()), 'ready', object()), y=(None, [Point(x=[1, 2, 3, object()]), object()], object(), object(), Point(y=1), object())),
+    object(),
+]
+for value in values:
+    if isinstance(value, Point) and hasattr(value, 'x') and value.x > 0:
+        print('branch_0')
+    elif isinstance(value, Point) and hasattr(value, 'kind') and isinstance(value.kind, (list, tuple)) and len(value.kind) >= 2 and isinstance(value.kind[0], (list, tuple)) and len(value.kind[0]) >= 1 and isinstance(value.kind[0][0], (list, tuple)) and len(value.kind[0][0]) >= 3 and value.kind[0][0][0] is False and value.kind[1] == 'ready' and hasattr(value, 'y') and isinstance(value.y, (list, tuple)) and len(value.y) >= 5 and (value.y[0] is None or value.y[0] == -3.5) and (1 < 2 and 'x'.islower()) and isinstance(value.y[1], (list, tuple)) and len(value.y[1]) >= 1 and isinstance(value.y[1][0], Point) and hasattr(value.y[1][0], 'x') and isinstance(value.y[1][0].x, (list, tuple)) and len(value.y[1][0].x) >= 3 and isinstance(value.y[4], Point) and hasattr(value.y[4], 'y') and value.y[4].y <= 1 and True:
+        capture_1_0 = value.kind[0][0][1]
+        capture_1_1 = value.kind[0][0][2]
+        capture_1_2 = value.y[1][0].x[0]
+        capture_1_3 = value.y[1][0].x[2]
+        print('branch_1')
     else:
         print('default')\
 """

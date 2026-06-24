@@ -80,6 +80,8 @@ condition is unsupported or ambiguous, the transformer either keeps the original
 - Capture patterns are only detected from simple assignments that immediately
   read the checked sequence subject itself or checked direct/nested sequence
   attributes, including attributes on matched sequence elements.
+- Captures can be inserted through class-union alternatives when every
+  alternative exposes the same checked sequence path.
 - Duplicate captures for the same source index reuse the first pattern capture
   and keep later names as alias assignments in the case body.
 - Capture extraction is conservative when body statements or index usage become
