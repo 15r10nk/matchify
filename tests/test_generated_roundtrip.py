@@ -596,6 +596,21 @@ def fallthrough_value_code(pattern: GeneratedPattern) -> str | None:
 
 
 def fallthrough_value_codes(pattern: GeneratedPattern) -> list[str]:
+    if isinstance(pattern, OrPattern):
+        signatures = [
+            capture_signature(alternative) for alternative in pattern.alternatives
+        ]
+        if (
+            signatures
+            and signatures[0] != ()
+            and all(signature == signatures[0] for signature in signatures[1:])
+        ):
+            return [
+                value
+                for alternative in pattern.alternatives
+                for value in fallthrough_value_codes(alternative)
+            ]
+        return []
     if isinstance(pattern, AttributeGuardedClassPattern):
         return [
             f"{pattern.class_name}({pattern.attr}={mismatching_literal(pattern.value)})"
@@ -1778,15 +1793,11 @@ def test_generated_or_capture_program_survives_matchify(tmp_path: Path):
             GeneratedCase(WildcardPattern(), "default"),
         ),
     )
-    source = program.to_trace_if_code(
-        [
-            "Point(items=[1, 2, 3, object()])",
-            "Token(items=[4, 5, 6, object()])",
-            "Point(items=[])",
-            "None",
-            "object()",
-        ]
-    )
+    source = program.to_trace_if_code()
+    assert "Point(items=[1, 2, 3, object()])" in source
+    assert "Token(items=[1, 2, 3, object()])" in source
+    assert "Point(items=[object(), object()])" in source
+    assert "Token(items=[object(), object()])" in source
     path = tmp_path / "generated_or_capture.py"
     path.write_text(source, encoding="utf-8")
     expected_trace = execute_result(source)
@@ -2892,6 +2903,8 @@ class Token:
 values = [
     Point(y=[1, object()]),
     Token(y=[1, object()]),
+    Point(y=[]),
+    Token(y=[]),
     Token(x=False),
     Token(),
     object(),
