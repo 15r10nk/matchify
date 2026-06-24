@@ -273,6 +273,27 @@ class SequencePatternCollector:
                 cst.SubscriptElement(slice=cst.Index(value=cst.Integer(str(index))))
             ],
         )
+        if any(
+            extract_attribute_path_isinstance_check(component, element_subject)
+            is not None
+            for component in components
+        ):
+            if all(
+                component is isinstance_component
+                or extract_direct_attribute_check(component, element_subject)
+                is not None
+                or extract_attribute_path_isinstance_check(component, element_subject)
+                is not None
+                or extract_attribute_path_pattern_check(component, element_subject)
+                is not None
+                for component in components
+            ):
+                nested_pattern = build_sequence_element_class_pattern(
+                    node, element_subject, classes
+                )
+                if nested_pattern is not None:
+                    return index, nested_pattern
+
         attrs: list[tuple[str, cst.MatchPattern]] = []
         seen_attrs: set[str] = set()
         hasattr_attrs: set[str] = set()

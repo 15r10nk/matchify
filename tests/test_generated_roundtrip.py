@@ -3133,6 +3133,48 @@ def test_or_with_class_attribute_or_sequence_element_generated_program_survives_
     assert_matchify_preserves_trace(program, tmp_path)
 
 
+def test_sequence_or_with_nested_class_attribute_generated_program_survives_matchify(
+    tmp_path: Path,
+):
+    program = GeneratedProgram(
+        classes=("Point", "Token", "Node"),
+        cases=(
+            GeneratedCase(
+                SequencePattern(
+                    (
+                        OrPattern(
+                            (
+                                ClassPattern(
+                                    "Point",
+                                    (
+                                        (
+                                            "node",
+                                            ClassPattern(
+                                                "Node",
+                                                (("kind", LiteralPattern("1")),),
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                                ClassPattern("Token"),
+                            )
+                        ),
+                    ),
+                    bracketed=False,
+                ),
+                "branch_0",
+            ),
+            GeneratedCase(SingletonPattern("None"), "branch_1"),
+            GeneratedCase(WildcardPattern(), "default"),
+        ),
+    )
+
+    source = program.to_trace_if_code()
+    assert "isinstance(value[0].node, Node)" in source
+    assert "value[0].node.kind == 1" in source
+    assert_matchify_preserves_trace(program, tmp_path)
+
+
 def test_or_with_class_union_sequence_element_generated_program_survives_matchify(
     tmp_path: Path,
 ):
