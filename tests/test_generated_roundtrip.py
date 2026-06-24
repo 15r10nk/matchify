@@ -1256,6 +1256,7 @@ def generate_guard_expression(rng: random.Random) -> str:
             "len([None]) == 1",
             "bool([None])",
             "(1 < 2 and 'x'.islower())",
+            "((guard_value := 1) == 1)",
             "{subject} is not None",
             "not isinstance({subject}, dict)",
             "False",
@@ -1272,6 +1273,7 @@ def generate_reachable_guard_expression(rng: random.Random) -> str:
             "len([None]) == 1",
             "bool([None])",
             "(1 < 2 and 'x'.islower())",
+            "((guard_value := 1) == 1)",
             "not isinstance({subject}, dict)",
             "hasattr({subject}, '__class__')",
         ]
@@ -2941,6 +2943,24 @@ def test_generated_guarded_capture_program_survives_matchify(tmp_path: Path):
     )
 
 
+def test_generated_walrus_guard_program_survives_matchify(tmp_path: Path):
+    program = GeneratedProgram(
+        classes=("Point",),
+        cases=(
+            GeneratedCase(
+                GuardedPattern(ClassPattern("Point"), "((guard_value := 1) == 1)"),
+                "branch_0",
+            ),
+            GeneratedCase(SingletonPattern("None"), "branch_1"),
+            GeneratedCase(WildcardPattern(), "default"),
+        ),
+    )
+
+    source = program.to_trace_if_code()
+    assert "guard_value := 1" in source
+    assert_matchify_preserves_trace(program, tmp_path)
+
+
 def test_generated_guarded_or_capture_program_survives_matchify(tmp_path: Path):
     program = GeneratedProgram(
         classes=("Point", "Token"),
@@ -4408,7 +4428,7 @@ for value in values:
     elif isinstance(value, Point) and hasattr(value, 'y') and isinstance(value.y, (list, tuple)) and len(value.y) >= 1:
         capture_1_0 = value.y[0]
         print('branch_1')
-    elif isinstance(value, (list, tuple)) and len(value) >= 4 and (value[1] == 'ready' or value[1] == +3.5 or value[1] == 'red' or value[1] == 0) and isinstance(value[2], Point) and hasattr(value[2], 'y') and isinstance(value[2].y, Point) and hasattr(value[2].y, 'x') and value[2].y.x == f'ready' and value is not None:
+    elif isinstance(value, (list, tuple)) and len(value) >= 4 and (value[1] == 'ready' or value[1] == +3.5 or value[1] == 'red' or value[1] == 0) and isinstance(value[2], Point) and hasattr(value[2], 'y') and isinstance(value[2].y, Point) and hasattr(value[2].y, 'x') and value[2].y.x == f'ready' and ((guard_value := 1) == 1):
         print('branch_2')
     else:
         print('default')\

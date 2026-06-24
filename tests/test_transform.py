@@ -2535,6 +2535,49 @@ class TestIfToMatchTransformer:
 
         check_code(source, expected)
 
+    def test_walrus_guard_is_preserved(self):
+        """Test walrus checks outside the subject stay as case guards."""
+        source = dedent(
+            """
+            class CallExpr:
+                pass
+
+            class CallableType:
+                pass
+
+            def get_type(obj):
+                return CallableType()
+
+            obj = CallExpr()
+            if isinstance(obj, CallExpr) and isinstance((call_tp := get_type(obj)), CallableType):
+                print("callable")
+            elif obj is None:
+                print("none")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class CallExpr:
+                pass
+
+            class CallableType:
+                pass
+
+            def get_type(obj):
+                return CallableType()
+
+            obj = CallExpr()
+            match obj:
+                case CallExpr() if isinstance((call_tp := get_type(obj)), CallableType):
+                    print("callable")
+                case None:
+                    print("none")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_or_pattern_with_sequence_alternative(self):
         """Test top-level sequence OR alternatives are bracketed correctly."""
         source = dedent(
