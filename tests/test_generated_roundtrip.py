@@ -1433,7 +1433,9 @@ def generate_sequence_element_pattern(
     if kind == "class_union":
         return generate_sequence_element_class_union_pattern(rng, classes)
     if kind == "nested_class_union":
-        return generate_sequence_element_nested_class_union_pattern(rng, classes)
+        return generate_sequence_element_nested_class_union_pattern(
+            rng, classes, depth=depth - 1
+        )
     if kind == "class":
         return generate_class_pattern(rng, classes, depth=depth - 1)
     if kind == "attribute_guarded_class":
@@ -1572,11 +1574,16 @@ def generate_sequence_element_class_union_pattern(
 
 
 def generate_sequence_element_nested_class_union_pattern(
-    rng: random.Random, classes: tuple[str, ...]
+    rng: random.Random, classes: tuple[str, ...], depth: int
 ) -> ClassUnionPattern:
     class_names = tuple(rng.sample(classes, rng.randint(2, len(classes))))
     attr = rng.choice(["x", "y", "kind"])
     nested_attr = rng.choice(["x", "y", "kind"])
+    nested_pattern: GeneratedPattern = generate_literal_or_singleton(rng)
+    if depth > 0:
+        nested_pattern = generate_or_safe_attribute_pattern(
+            rng, classes, depth=depth - 1
+        )
     return ClassUnionPattern(
         class_names,
         (
@@ -1584,7 +1591,7 @@ def generate_sequence_element_nested_class_union_pattern(
                 attr,
                 ClassPattern(
                     rng.choice(classes),
-                    ((nested_attr, generate_literal_or_singleton(rng)),),
+                    ((nested_attr, nested_pattern),),
                 ),
             ),
         ),
@@ -1768,7 +1775,9 @@ def generate_or_safe_sequence_element_pattern(
     if kind == "class_union":
         return generate_sequence_element_class_union_pattern(rng, classes)
     if kind == "nested_class_union":
-        return generate_sequence_element_nested_class_union_pattern(rng, classes)
+        return generate_sequence_element_nested_class_union_pattern(
+            rng, classes, depth=depth - 1
+        )
     return generate_or_safe_pattern(rng, classes, depth=depth)
 
 
@@ -2988,6 +2997,33 @@ def test_nested_class_union_sequence_element_generated_program_survives_matchify
     assert_matchify_preserves_trace(program, tmp_path)
 
 
+def test_recursive_nested_class_union_sequence_element_generated_program_survives_matchify(
+    tmp_path: Path,
+):
+    pattern = SequencePattern(
+        (
+            generate_sequence_element_nested_class_union_pattern(
+                random.Random(0), ("Point", "Token", "Node"), depth=3
+            ),
+        ),
+        bracketed=False,
+    )
+    program = GeneratedProgram(
+        classes=("Point", "Token", "Node"),
+        cases=(
+            GeneratedCase(pattern, "branch_0"),
+            GeneratedCase(SingletonPattern("None"), "branch_1"),
+            GeneratedCase(WildcardPattern(), "default"),
+        ),
+    )
+
+    source = program.to_trace_if_code()
+    assert "isinstance(value[0], (Token, Point, Node))" in source
+    assert "isinstance(value[0].kind.y, (list, tuple))" in source
+    assert "value[0].kind.y[0][0].kind.x is True" in source
+    assert_matchify_preserves_trace(program, tmp_path)
+
+
 def test_or_matching_samples_cover_all_non_capture_alternatives():
     pattern = OrPattern(
         (
@@ -3803,75 +3839,58 @@ class Token:
     def __init__(self, **attrs):
         self.__dict__.update(attrs)
 values = [
-    [[[object(), Point(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Token(kind=True)], (object(), Token(), object(), Token(), object()), object()], object(), Point(kind=Point(y=True)), object()],
-    [[[object(), Point(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Token(kind=True)], (object(), Token(), object(), Token(), object()), object()], object(), Token(kind=Point(y=True)), object()],
-    [[[object(), Point(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Token(kind=True)], (object(), Token(), object(), Point(), object()), object()], object(), Token(kind=Point(y=True)), object()],
-    [[[object(), Point(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Token(kind=True)], (object(), Point(), object(), Token(), object()), object()], object(), Point(kind=Point(y=True)), object()],
-    [[[object(), Point(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Token(kind=True)], (object(), Point(), object(), Point(), object()), object()], object(), Point(kind=Point(y=True)), object()],
-    [[[object(), Point(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Token(kind=True)], (object(), Point(), object(), Point(), object()), object()], object(), Token(kind=Point(y=True)), object()],
-    [[[object(), Point(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Point(kind=True)], (object(), Token(), object(), Token(), object()), object()], object(), Point(kind=Point(y=True)), object()],
-    [[[object(), Point(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Point(kind=True)], (object(), Token(), object(), Point(), object()), object()], object(), Point(kind=Point(y=True)), object()],
-    [[[object(), Point(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Point(kind=True)], (object(), Token(), object(), Point(), object()), object()], object(), Token(kind=Point(y=True)), object()],
-    [[[object(), Point(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Point(kind=True)], (object(), Point(), object(), Token(), object()), object()], object(), Token(kind=Point(y=True)), object()],
-    [[[object(), Point(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Point(kind=True)], (object(), Point(), object(), Point(), object()), object()], object(), Point(kind=Point(y=True)), object()],
-    [[[object(), Point(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Point(kind=True)], (object(), Point(), object(), Point(), object()), object()], object(), Token(kind=Point(y=True)), object()],
-    [[[object(), Token(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Token(kind=True)], (object(), Token(), object(), Token(), object()), object()], object(), Token(kind=Point(y=True)), object()],
-    [[[object(), Token(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Token(kind=True)], (object(), Token(), object(), Point(), object()), object()], object(), Point(kind=Point(y=True)), object()],
-    [[[object(), Token(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Token(kind=True)], (object(), Token(), object(), Point(), object()), object()], object(), Token(kind=Point(y=True)), object()],
-    [[[object(), Token(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Token(kind=True)], (object(), Point(), object(), Token(), object()), object()], object(), Token(kind=Point(y=True)), object()],
-    [[[object(), Token(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Token(kind=True)], (object(), Point(), object(), Point(), object()), object()], object(), Point(kind=Point(y=True)), object()],
-    [[[object(), Token(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Point(kind=True)], (object(), Token(), object(), Token(), object()), object()], object(), Point(kind=Point(y=True)), object()],
-    [[[object(), Token(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Point(kind=True)], (object(), Token(), object(), Token(), object()), object()], object(), Token(kind=Point(y=True)), object()],
-    [[[object(), Token(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Point(kind=True)], (object(), Token(), object(), Point(), object()), object()], object(), Point(kind=Point(y=True)), object()],
-    [[[object(), Token(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Point(kind=True)], (object(), Point(), object(), Token(), object()), object()], object(), Point(kind=Point(y=True)), object()],
-    [[[object(), Token(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Point(kind=True)], (object(), Point(), object(), Token(), object()), object()], object(), Token(kind=Point(y=True)), object()],
-    [[[object(), Token(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Point(kind=True)], (object(), Point(), object(), Point(), object()), object()], object(), Token(kind=Point(y=True)), object()],
-    [[[object(), Point(x=Token(x=False)), object()], [[0, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Token(kind=True)], (object(), Token(), object(), Token(), object()), object()], object(), Point(kind=Point(y=True)), object()],
-    Point(y=(object(), Point(x=False), object()), x=Point(y='ready')),
-    Point(y=(object(), Token(x=None), object()), x=Point(y='ready')),
-    Token(y=(object(), Point(x=False), object()), x=Point(y='ready')),
-    Token(y=(object(), Token(x=None), object()), x=Point(y='ready')),
-    Point(y=(object(), Point(x=False), object()), x=Point(y='miss')),
-    Token(y=(object(), Point(x=False), object()), x=Point(y='miss')),
+    [[[object(), Point(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Token(kind=True)], (object(), Token(), object(), Token(), object()), object()], object(), Point(kind=Token(y=(Point(kind='red'), (Token(x=Point(x=None)),), object()))), object()],
+    [[[object(), Point(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Token(kind=True)], (object(), Token(), object(), Token(), object()), object()], object(), Token(kind=Token(y=(Token(kind='red'), (Token(x=Point(x=None)),), object()))), object()],
+    [[[object(), Point(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Token(kind=True)], (object(), Token(), object(), Point(), object()), object()], object(), Point(kind=Token(y=(Token(kind='red'), (Point(x=Point(x=-3.5)),), object()))), object()],
+    [[[object(), Point(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Token(kind=True)], (object(), Point(), object(), Token(), object()), object()], object(), Point(kind=Token(y=(Point(kind='red'), (Point(x=Point(x=-3.5)),), object()))), object()],
+    [[[object(), Point(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Token(kind=True)], (object(), Point(), object(), Token(), object()), object()], object(), Token(kind=Token(y=(Token(kind='red'), (Token(x=Point(x=None)),), object()))), object()],
+    [[[object(), Point(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Token(kind=True)], (object(), Point(), object(), Point(), object()), object()], object(), Token(kind=Token(y=(Point(kind='red'), (Token(x=Point(x=None)),), object()))), object()],
+    [[[object(), Point(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Point(kind=True)], (object(), Token(), object(), Token(), object()), object()], object(), Point(kind=Token(y=(Point(kind='red'), (Point(x=Point(x=-3.5)),), object()))), object()],
+    [[[object(), Point(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Point(kind=True)], (object(), Token(), object(), Token(), object()), object()], object(), Token(kind=Token(y=(Token(kind='red'), (Point(x=Point(x=-3.5)),), object()))), object()],
+    [[[object(), Point(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Point(kind=True)], (object(), Token(), object(), Point(), object()), object()], object(), Token(kind=Token(y=(Point(kind='red'), (Point(x=Point(x=-3.5)),), object()))), object()],
+    [[[object(), Point(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Point(kind=True)], (object(), Point(), object(), Token(), object()), object()], object(), Point(kind=Token(y=(Token(kind='red'), (Token(x=Point(x=None)),), object()))), object()],
+    [[[object(), Point(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Point(kind=True)], (object(), Point(), object(), Point(), object()), object()], object(), Point(kind=Token(y=(Point(kind='red'), (Token(x=Point(x=None)),), object()))), object()],
+    [[[object(), Point(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Point(kind=True)], (object(), Point(), object(), Point(), object()), object()], object(), Token(kind=Token(y=(Point(kind='red'), (Point(x=Point(x=-3.5)),), object()))), object()],
+    [[[object(), Token(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Token(kind=True)], (object(), Token(), object(), Token(), object()), object()], object(), Point(kind=Token(y=(Token(kind='red'), (Point(x=Point(x=-3.5)),), object()))), object()],
+    [[[object(), Token(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Token(kind=True)], (object(), Token(), object(), Point(), object()), object()], object(), Point(kind=Token(y=(Point(kind='red'), (Token(x=Point(x=None)),), object()))), object()],
+    [[[object(), Token(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Token(kind=True)], (object(), Token(), object(), Point(), object()), object()], object(), Token(kind=Token(y=(Token(kind='red'), (Token(x=Point(x=None)),), object()))), object()],
+    [[[object(), Token(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Token(kind=True)], (object(), Point(), object(), Token(), object()), object()], object(), Point(kind=Token(y=(Token(kind='red'), (Point(x=Point(x=-3.5)),), object()))), object()],
+    [[[object(), Token(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Token(kind=True)], (object(), Point(), object(), Point(), object()), object()], object(), Point(kind=Token(y=(Point(kind='red'), (Point(x=Point(x=-3.5)),), object()))), object()],
+    [[[object(), Token(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Token(kind=True)], (object(), Point(), object(), Point(), object()), object()], object(), Token(kind=Token(y=(Token(kind='red'), (Point(x=Point(x=-3.5)),), object()))), object()],
+    [[[object(), Token(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Point(kind=True)], (object(), Token(), object(), Token(), object()), object()], object(), Token(kind=Token(y=(Point(kind='red'), (Token(x=Point(x=None)),), object()))), object()],
+    [[[object(), Token(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Point(kind=True)], (object(), Token(), object(), Point(), object()), object()], object(), Point(kind=Token(y=(Token(kind='red'), (Token(x=Point(x=None)),), object()))), object()],
+    [[[object(), Token(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Point(kind=True)], (object(), Token(), object(), Point(), object()), object()], object(), Token(kind=Token(y=(Token(kind='red'), (Point(x=Point(x=-3.5)),), object()))), object()],
+    [[[object(), Token(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Point(kind=True)], (object(), Point(), object(), Token(), object()), object()], object(), Token(kind=Token(y=(Point(kind='red'), (Point(x=Point(x=-3.5)),), object()))), object()],
+    [[[object(), Token(x=Token(x=False)), object()], [[+1, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Point(kind=True)], (object(), Point(), object(), Point(), object()), object()], object(), Point(kind=Token(y=(Token(kind='red'), (Token(x=Point(x=None)),), object()))), object()],
+    [[[object(), Point(x=Token(x=False)), object()], [[0, ((False, None), object(), [None], object()), Point(x=Point(y=-1))], Token(kind=True)], (object(), Token(), object(), Token(), object()), object()], object(), Point(kind=Token(y=(Point(kind='red'), (Token(x=Point(x=None)),), object()))), object()],
+    Point(),
+    Token(),
     object(),
 ]
 for value in values:
-    if isinstance(value, (list, tuple)) and len(value) >= 3 and isinstance(value[0], (list, tuple)) and len(value[0]) >= 3 and isinstance(value[0][0], (list, tuple)) and len(value[0][0]) == 3 and (isinstance(value[0][0][1], Point) and hasattr(value[0][0][1], 'x') and isinstance(value[0][0][1].x, Token) and hasattr(value[0][0][1].x, 'x') and value[0][0][1].x.x is False or isinstance(value[0][0][1], Token) and hasattr(value[0][0][1], 'x') and isinstance(value[0][0][1].x, Token) and hasattr(value[0][0][1].x, 'x') and value[0][0][1].x.x is False) and isinstance(value[0][1], (list, tuple)) and len(value[0][1]) == 2 and isinstance(value[0][1][0], (list, tuple)) and len(value[0][1][0]) == 3 and value[0][1][0][0] == +1 and isinstance(value[0][1][0][1], (list, tuple)) and len(value[0][1][0][1]) >= 3 and isinstance(value[0][1][0][1][0], (list, tuple)) and len(value[0][1][0][1][0]) == 2 and value[0][1][0][1][0][0] is False and value[0][1][0][1][0][1] is None and isinstance(value[0][1][0][1][2], (list, tuple)) and len(value[0][1][0][1][2]) == 1 and value[0][1][0][1][2][0] is None and (isinstance(value[0][1][0][2], Point) and hasattr(value[0][1][0][2], 'x') and isinstance(value[0][1][0][2].x, Point) and hasattr(value[0][1][0][2].x, 'y') and value[0][1][0][2].x.y == -1 or isinstance(value[0][1][0][2], Token) and hasattr(value[0][1][0][2], 'x') and isinstance(value[0][1][0][2].x, Point) and hasattr(value[0][1][0][2].x, 'y') and value[0][1][0][2].x.y == -3.5) and (True or False) and isinstance(value[0][1][1], (Token, Point)) and hasattr(value[0][1][1], 'kind') and value[0][1][1].kind is True and isinstance(value[0][2], (list, tuple)) and len(value[0][2]) == 5 and (isinstance(value[0][2][1], Token) or isinstance(value[0][2][1], Point)) and (isinstance(value[0][2][3], Token) or isinstance(value[0][2][3], Point)) and isinstance(value[2], (Point, Token)) and hasattr(value[2], 'kind') and isinstance(value[2].kind, Point) and hasattr(value[2].kind, 'y') and value[2].kind.y is True:
+    if isinstance(value, (list, tuple)) and len(value) >= 3 and isinstance(value[0], (list, tuple)) and len(value[0]) >= 3 and isinstance(value[0][0], (list, tuple)) and len(value[0][0]) == 3 and (isinstance(value[0][0][1], Point) and hasattr(value[0][0][1], 'x') and isinstance(value[0][0][1].x, Token) and hasattr(value[0][0][1].x, 'x') and value[0][0][1].x.x is False or isinstance(value[0][0][1], Token) and hasattr(value[0][0][1], 'x') and isinstance(value[0][0][1].x, Token) and hasattr(value[0][0][1].x, 'x') and value[0][0][1].x.x is False) and isinstance(value[0][1], (list, tuple)) and len(value[0][1]) == 2 and isinstance(value[0][1][0], (list, tuple)) and len(value[0][1][0]) == 3 and value[0][1][0][0] == +1 and isinstance(value[0][1][0][1], (list, tuple)) and len(value[0][1][0][1]) >= 3 and isinstance(value[0][1][0][1][0], (list, tuple)) and len(value[0][1][0][1][0]) == 2 and value[0][1][0][1][0][0] is False and value[0][1][0][1][0][1] is None and isinstance(value[0][1][0][1][2], (list, tuple)) and len(value[0][1][0][1][2]) == 1 and value[0][1][0][1][2][0] is None and (isinstance(value[0][1][0][2], Point) and hasattr(value[0][1][0][2], 'x') and isinstance(value[0][1][0][2].x, Point) and hasattr(value[0][1][0][2].x, 'y') and value[0][1][0][2].x.y == -1 or isinstance(value[0][1][0][2], Token) and hasattr(value[0][1][0][2], 'x') and isinstance(value[0][1][0][2].x, Point) and hasattr(value[0][1][0][2].x, 'y') and value[0][1][0][2].x.y == -3.5) and (True or False) and isinstance(value[0][1][1], (Token, Point)) and hasattr(value[0][1][1], 'kind') and value[0][1][1].kind is True and isinstance(value[0][2], (list, tuple)) and len(value[0][2]) == 5 and (isinstance(value[0][2][1], Token) or isinstance(value[0][2][1], Point)) and (isinstance(value[0][2][3], Token) or isinstance(value[0][2][3], Point)) and isinstance(value[2], (Point, Token)) and hasattr(value[2], 'kind') and isinstance(value[2].kind, Token) and hasattr(value[2].kind, 'y') and isinstance(value[2].kind.y, (list, tuple)) and len(value[2].kind.y) >= 2 and isinstance(value[2].kind.y[0], (Point, Token)) and hasattr(value[2].kind.y[0], 'kind') and value[2].kind.y[0].kind == 'red' and isinstance(value[2].kind.y[1], (list, tuple)) and len(value[2].kind.y[1]) == 1 and (isinstance(value[2].kind.y[1][0], Token) and hasattr(value[2].kind.y[1][0], 'x') and isinstance(value[2].kind.y[1][0].x, Point) and hasattr(value[2].kind.y[1][0].x, 'x') and value[2].kind.y[1][0].x.x is None or isinstance(value[2].kind.y[1][0], Point) and hasattr(value[2].kind.y[1][0], 'x') and isinstance(value[2].kind.y[1][0].x, Point) and hasattr(value[2].kind.y[1][0].x, 'x') and value[2].kind.y[1][0].x.x == -3.5):
         print('branch_0')
-    elif isinstance(value, (Point, Token)) and hasattr(value, 'y') and isinstance(value.y, (list, tuple)) and len(value.y) >= 2 and (isinstance(value.y[1], Point) and hasattr(value.y[1], 'x') and value.y[1].x is False or isinstance(value.y[1], Token) and hasattr(value.y[1], 'x') and value.y[1].x is None) and hasattr(value, 'x') and isinstance(value.x, Point) and hasattr(value.x, 'y') and value.x.y == f'ready':
+    elif isinstance(value, (Point, Token)):
         print('branch_1')
-    else:
-        print('default')
 ---
 class Point:
     def __init__(self, **attrs):
         self.__dict__.update(attrs)
-
-class Token:
-    def __init__(self, **attrs):
-        self.__dict__.update(attrs)
-
-class Node:
-    def __init__(self, **attrs):
-        self.__dict__.update(attrs)
 values = [
-    Node(y=[1, 2, 3, object()]),
-    Point(y=[1, 2, 3, object()]),
-    Node(y=[object(), object()]),
-    Point(y=[object(), object()]),
-    Node(kind=2),
-    Node(kind=0),
+    [Point(items=[1, 2, object()]), [object(), Point(), +1, object(), Point(y=[1, object()])]],
+    [Point(items=[object()]), [object(), Point(), +1, object(), Point(y=[1, object()])]],
+    Point(x=[1, object()]),
+    Point(x=[]),
     object(),
 ]
 for value in values:
-    if (isinstance(value, Node) and hasattr(value, 'y') and isinstance(value.y, (list, tuple)) and len(value.y) >= 3 or isinstance(value, Point) and hasattr(value, 'y') and isinstance(value.y, (list, tuple)) and len(value.y) >= 3):
-        capture_0_0 = value.y[1]
-        capture_0_1 = value.y[2]
+    if isinstance(value, (list, tuple)) and len(value) == 2 and isinstance(value[0], Point) and hasattr(value[0], 'items') and isinstance(value[0].items, (list, tuple)) and len(value[0].items) >= 2 and isinstance(value[1], (list, tuple)) and len(value[1]) == 5 and isinstance(value[1][1], Point) and value[1][2] == +1 and isinstance(value[1][4], Point) and hasattr(value[1][4], 'y') and isinstance(value[1][4].y, (list, tuple)) and len(value[1][4].y) >= 1:
+        capture_0_0 = value[0].items[1]
+        capture_0_1 = value[1][4].y[0]
         print('branch_0')
-    elif isinstance(value, Node) and hasattr(value, 'kind') and value.kind == len([None, None]):
-        print('branch_1')
-    else:
-        print('default')\
+    elif isinstance(value, Point) and hasattr(value, 'x') and isinstance(value.x, (list, tuple)) and len(value.x) >= 1:
+        capture_1_0 = value.x[0]
+        print('branch_1')\
 """
     )
 
