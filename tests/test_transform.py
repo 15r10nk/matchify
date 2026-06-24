@@ -1296,6 +1296,74 @@ class TestIfToMatchTransformer:
 
         check_code(source, expected)
 
+    def test_sequence_pattern_with_class_or_element(self):
+        """Test class OR patterns inside a sequence element."""
+        source = dedent(
+            """
+            class Point:
+                pass
+
+            class Token:
+                pass
+
+            value = [Point()]
+            if len(value) == 1 and (isinstance(value[0], Point) or isinstance(value[0], Token)):
+                print("point or token")
+            elif value is None:
+                print("none")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Point:
+                pass
+
+            class Token:
+                pass
+
+            value = [Point()]
+            match value:
+                case Point() | Token(),:
+                    print("point or token")
+                case None:
+                    print("none")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_sequence_pattern_with_mixed_or_element(self):
+        """Test mixed value and class OR patterns inside a sequence element."""
+        source = dedent(
+            """
+            class Point:
+                pass
+
+            value = [Point()]
+            if len(value) == 1 and (value[0] == 1 or isinstance(value[0], Point)):
+                print("one or point")
+            elif value is None:
+                print("none")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Point:
+                pass
+
+            value = [Point()]
+            match value:
+                case 1 | Point(),:
+                    print("one or point")
+                case None:
+                    print("none")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_sequence_pattern_with_isinstance_and_is_none(self):
         """Test sequence pattern with isinstance and 'is None' checks.
 

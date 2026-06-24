@@ -66,6 +66,15 @@ SequenceElementPattern = (
 )
 
 
+def extend_sequence_or_patterns(
+    patterns: list[cst.MatchPattern], pattern: cst.MatchPattern
+) -> None:
+    if isinstance(pattern, cst.MatchOr):
+        patterns.extend(element.pattern for element in pattern.patterns)
+        return
+    patterns.append(pattern)
+
+
 class SequencePatternCollector:
     """Helper class to collect sequence pattern information in a single AST pass."""
 
@@ -193,21 +202,38 @@ class SequencePatternCollector:
         index: int | None = None
         patterns: list[cst.MatchPattern] = []
         for part in parts:
-            if not self._is_subscript_literal_check(part):
+            part_pattern = self._extract_subscript_part_pattern(part)
+            if part_pattern is None:
                 return None
-            part_index = self._extract_subscript_index(part)
-            value = self._extract_comparison_value(part)
-            if part_index is None or value is None:
-                return None
+            part_index, pattern = part_pattern
             if index is None:
                 index = part_index
             elif part_index != index:
                 return None
-            patterns.append(build_value_pattern(value))
+            extend_sequence_or_patterns(patterns, pattern)
 
         if index is None:
             return None
         return index, build_or_pattern(patterns)
+
+    def _extract_subscript_part_pattern(
+        self, node: cst.BaseExpression
+    ) -> tuple[int, cst.MatchPattern] | None:
+        if self._is_subscript_literal_check(node):
+            index = self._extract_subscript_index(node)
+            value = self._extract_comparison_value(node)
+            if index is None or value is None:
+                return None
+            return index, build_value_pattern(value)
+
+        if self._is_subscript_isinstance_check(node):
+            index = self._extract_subscript_index(node)
+            classes = self._extract_isinstance_classes(node)
+            if index is None or classes is None:
+                return None
+            return index, build_class_pattern(classes)
+
+        return None
 
     def _is_subscript_literal_check(self, node: cst.BaseExpression) -> bool:
         """Check if node is subject[idx] == value or subject[idx] is value"""
