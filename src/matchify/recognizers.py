@@ -592,6 +592,7 @@ class SequencePatternRecognizer(BranchPatternRecognizer):
                 if nested_pattern is not None:
                     pattern_info = RawElementPattern(nested_pattern)
             pattern_infos.append(pattern_info)
+        guards = remove_redundant_sequence_guards(guards, components, subject)
         return PatternMatch(
             build_sequence_match_list(pattern_infos, use_star),
             combine_guards(guards),
@@ -650,6 +651,26 @@ def is_sequence_subject_guard_component(
         return not isinstance(target.operator, (cst.Equal, cst.Is))
 
     return not isinstance(target.operator, (cst.Equal, cst.Is))
+
+
+def remove_redundant_sequence_guards(
+    guards: list[cst.BaseExpression],
+    components: list[cst.BaseExpression],
+    subject: cst.BaseExpression,
+) -> list[cst.BaseExpression]:
+    checked_paths = {
+        path
+        for component in components
+        for path in collect_checked_attribute_paths(component, subject)
+    }
+    if not checked_paths:
+        return guards
+    return [
+        guard
+        for guard in guards
+        if not is_redundant_hasattr(guard, subject, checked_paths)
+        and not is_redundant_sequence_type_check(guard, subject, checked_paths)
+    ]
 
 
 class NestedClassPatternRecognizer(BranchPatternRecognizer):

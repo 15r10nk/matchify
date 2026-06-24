@@ -3197,6 +3197,49 @@ class TestIfToMatchTransformer:
 
         check_code(source, expected)
 
+    def test_sequence_element_class_union_nested_attribute_redundant_hasattr(self):
+        """Test redundant hasattr checks with nested sequence element class unions."""
+        source = dedent(
+            """
+            class Point:
+                pass
+
+            class Token:
+                pass
+
+            class Node:
+                pass
+
+            value = [Point()]
+            if len(value) == 1 and isinstance(value[0], (Point, Token)) and hasattr(value[0], "node") and isinstance(value[0].node, Node) and hasattr(value[0].node, "kind") and value[0].node.kind == 1:
+                print("match")
+            elif value is None:
+                print("none")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Point:
+                pass
+
+            class Token:
+                pass
+
+            class Node:
+                pass
+
+            value = [Point()]
+            match value:
+                case Point(node=Node(kind=1)) | Token(node=Node(kind=1)),:
+                    print("match")
+                case None:
+                    print("none")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_mixed_pattern_types_in_chain(self):
         """Test that all pattern types can be mixed in a single if/elif chain.
 
