@@ -8,14 +8,17 @@ import libcst as cst
 
 from .patterns import build_class_pattern, build_or_pattern, build_value_pattern
 from .sequence_patterns import (
-    LiteralElementPattern,
     RawElementPattern,
     SequenceElementPattern,
     WildcardElementPattern,
     build_sequence_match_list,
     validate_wildcard_constraint,
 )
-from .subject_path import AttributePathPart, SubjectPath, SubscriptPathPart
+from .subject_path import (
+    AttributePathPart,
+    SubjectPath,
+    SubscriptPathPart,
+)
 
 
 @dataclass(frozen=True)
@@ -64,28 +67,140 @@ PathFact = ValueFact | ClassFact | SequenceFact | OrFact
 BranchFact = PathFact
 
 
+class PatternNode:
+    """Base class for explicit recursive match-pattern IR nodes."""
+
+    def render(self) -> cst.MatchPattern:
+        raise NotImplementedError
+
+    def insert(self, path: SubjectPath, node: PatternNode) -> PatternNode:
+        return insert_node(self, path, node)
+
+
+@dataclass(frozen=True)
+class WildcardNode(PatternNode):
+    """Wildcard placeholder used when a path creates an intermediate child."""
+
+    def render(self) -> cst.MatchPattern:
+        return cst.MatchAs(pattern=None, name=None)
+
+
+@dataclass(frozen=True)
+class ValueNode(PatternNode):
+    """A literal or singleton value pattern."""
+
+    value: cst.BaseExpression
+
+    def render(self) -> cst.MatchPattern:
+        return build_value_pattern(self.value)
+
+
+@dataclass(frozen=True)
+class CaptureNode(PatternNode):
+    """A capture pattern that binds one sequence element."""
+
+    name: str
+
+    def render(self) -> cst.MatchPattern:
+        return cst.MatchAs(pattern=None, name=cst.Name(self.name))
+
+
+@dataclass(frozen=True)
+class ClassNode(PatternNode):
+    """A class pattern with recursively nested attribute children."""
+
+    classes: tuple[cst.BaseExpression, ...]
+    attributes: tuple[tuple[str, PatternNode], ...] = ()
+
+    def render(self) -> cst.MatchPattern:
+        if not self.classes:
+            raise ValueError("Class pattern nodes need class expressions before render")
+        return build_class_pattern(
+            list(self.classes),
+            [(name, render_child_node(node)) for name, node in self.attributes],
+        )
+
+    def insert_attribute(
+        self, name: str, path: SubjectPath, node: PatternNode
+    ) -> ClassNode:
+        attributes = dict(self.attributes)
+        child = attributes.get(name, WildcardNode())
+        attributes[name] = child.insert(path, node)
+        return ClassNode(self.classes, tuple(attributes.items()))
+
+
+@dataclass(frozen=True)
+class SequenceNode(PatternNode):
+    """A sequence pattern with recursively nested element children."""
+
+    length: int
+    use_star: bool = False
+    elements: tuple[tuple[int, PatternNode], ...] = ()
+
+    def render(self) -> cst.MatchPattern:
+        elements = dict(self.elements)
+        required_len = self.length
+        if self.use_star and elements:
+            required_len = max(elements) + 1
+
+        if not self.use_star and elements and max(elements) >= required_len:
+            raise ValueError("Sequence element facts exceed the checked length")
+        if not self.use_star and not validate_wildcard_constraint(
+            {
+                index: RawElementPattern(node.render())
+                for index, node in elements.items()
+            },
+            required_len,
+        ):
+            raise ValueError("Sequence fact would produce too many wildcards")
+
+        pattern_infos: list[SequenceElementPattern] = [
+            (
+                RawElementPattern(render_child_node(elements[index]))
+                if index in elements
+                else WildcardElementPattern()
+            )
+            for index in range(required_len)
+        ]
+        return build_sequence_match_list(pattern_infos, use_star=self.use_star)
+
+    def insert_element(
+        self, index: int, path: SubjectPath, node: PatternNode
+    ) -> SequenceNode:
+        elements = dict(self.elements)
+        child = elements.get(index, WildcardNode())
+        elements[index] = child.insert(path, node)
+        return SequenceNode(self.length, self.use_star, tuple(elements.items()))
+
+
+@dataclass(frozen=True)
+class OrNode(PatternNode):
+    """An OR pattern with recursive alternatives."""
+
+    alternatives: tuple[PatternNode, ...]
+
+    def render(self) -> cst.MatchPattern:
+        return build_or_pattern(
+            [bracket_or_sequence_pattern(node.render()) for node in self.alternatives]
+        )
+
+    def insert(self, path: SubjectPath, node: PatternNode) -> PatternNode:
+        if path.is_subject:
+            return merge_nodes(self, node)
+        return OrNode(
+            tuple(alternative.insert(path, node) for alternative in self.alternatives)
+        )
+
+
 @dataclass(frozen=True)
 class PatternTree:
-    """Intermediate pattern node that can render to a LibCST match pattern."""
+    """Small wrapper around the explicit recursive pattern-node IR."""
 
-    value_fact: ValueFact | None = None
-    class_fact: ClassFact | None = None
-    sequence_fact: SequenceFact | None = None
-    attribute_value_facts: tuple[ValueFact, ...] = ()
-    attribute_class_facts: tuple[ClassFact, ...] = ()
-    attribute_sequence_facts: tuple[SequenceFact, ...] = ()
-    attribute_or_facts: tuple[OrFact, ...] = ()
-    attribute_capture_facts: tuple[CaptureFact, ...] = ()
-    sequence_value_facts: tuple[ValueFact, ...] = ()
-    sequence_class_facts: tuple[ClassFact, ...] = ()
-    sequence_sequence_facts: tuple[SequenceFact, ...] = ()
-    sequence_or_facts: tuple[OrFact, ...] = ()
-    sequence_capture_facts: tuple[CaptureFact, ...] = ()
-    or_patterns: tuple[PatternTree, ...] = ()
+    node: PatternNode
 
     @classmethod
     def from_value_fact(cls, fact: ValueFact) -> PatternTree:
-        return cls(value_fact=fact)
+        return cls.from_facts((fact,))
 
     @classmethod
     def from_class_fact(
@@ -98,13 +213,9 @@ class PatternTree:
         or_facts: tuple[OrFact, ...] = (),
         capture_facts: tuple[CaptureFact, ...] = (),
     ) -> PatternTree:
-        return cls(
-            class_fact=fact,
-            attribute_value_facts=value_facts,
-            attribute_class_facts=class_facts,
-            attribute_sequence_facts=sequence_facts,
-            attribute_or_facts=or_facts,
-            attribute_capture_facts=capture_facts,
+        return cls.from_facts(
+            (fact, *sequence_facts, *or_facts, *value_facts, *class_facts),
+            capture_facts=capture_facts,
         )
 
     @classmethod
@@ -118,91 +229,52 @@ class PatternTree:
         or_facts: tuple[OrFact, ...] = (),
         capture_facts: tuple[CaptureFact, ...] = (),
     ) -> PatternTree:
-        return cls(
-            sequence_fact=fact,
-            sequence_value_facts=value_facts,
-            sequence_class_facts=class_facts,
-            sequence_sequence_facts=sequence_facts,
-            sequence_or_facts=or_facts,
-            sequence_capture_facts=capture_facts,
+        return cls.from_facts(
+            (fact, *or_facts, *sequence_facts, *value_facts, *class_facts),
+            capture_facts=capture_facts,
         )
 
     @classmethod
     def from_or_patterns(cls, patterns: tuple[PatternTree, ...]) -> PatternTree:
-        return cls(or_patterns=patterns)
+        return cls(OrNode(tuple(pattern.node for pattern in patterns)))
+
+    @classmethod
+    def from_facts(
+        cls,
+        facts: tuple[PathFact, ...],
+        *,
+        capture_facts: tuple[CaptureFact, ...] = (),
+    ) -> PatternTree:
+        if not facts:
+            raise ValueError("PatternTree needs at least one fact")
+
+        root: PatternNode | None = None
+        for fact in facts:
+            root = insert_fact(root, fact)
+
+        if root is None:
+            raise ValueError("PatternTree has no renderable node")
+
+        tree = cls(root)
+        return tree.with_captures(capture_facts)
+
+    def insert(self, path: SubjectPath, node: PatternNode) -> PatternTree:
+        return PatternTree(self.node.insert(path, node))
 
     def with_captures(self, capture_facts: tuple[CaptureFact, ...]) -> PatternTree:
-        if not capture_facts:
-            return self
-        if self.or_patterns:
-            return PatternTree(
-                or_patterns=tuple(
-                    pattern.with_captures(capture_facts) for pattern in self.or_patterns
+        tree = self
+        for fact in capture_facts:
+            tree = PatternTree(
+                insert_capture_node(
+                    tree.node,
+                    capture_path(fact),
+                    CaptureNode(fact.name),
                 )
             )
-        if self.class_fact is not None:
-            return PatternTree(
-                class_fact=self.class_fact,
-                attribute_value_facts=self.attribute_value_facts,
-                attribute_class_facts=self.attribute_class_facts,
-                attribute_sequence_facts=self.attribute_sequence_facts,
-                attribute_or_facts=self.attribute_or_facts,
-                attribute_capture_facts=(
-                    *self.attribute_capture_facts,
-                    *capture_facts,
-                ),
-            )
-        if self.sequence_fact is not None:
-            return PatternTree(
-                sequence_fact=self.sequence_fact,
-                sequence_value_facts=self.sequence_value_facts,
-                sequence_class_facts=self.sequence_class_facts,
-                sequence_sequence_facts=self.sequence_sequence_facts,
-                sequence_or_facts=self.sequence_or_facts,
-                sequence_capture_facts=(
-                    *self.sequence_capture_facts,
-                    *capture_facts,
-                ),
-            )
-        return self
+        return tree
 
     def render(self) -> cst.MatchPattern:
-        if self.or_patterns:
-            return build_or_pattern(
-                [
-                    bracket_or_sequence_pattern(pattern.render())
-                    for pattern in self.or_patterns
-                ]
-            )
-        if self.value_fact is not None:
-            if not self.value_fact.path.is_subject:
-                raise ValueError("Value facts for derived paths need a parent pattern")
-            return build_value_pattern(self.value_fact.value)
-        if self.class_fact is not None:
-            if not self.class_fact.path.is_subject:
-                raise ValueError("Class facts for derived paths need a parent pattern")
-            return render_class_fact(
-                self.class_fact,
-                self.attribute_value_facts,
-                self.attribute_class_facts,
-                self.attribute_sequence_facts,
-                self.attribute_or_facts,
-                self.attribute_capture_facts,
-            )
-        if self.sequence_fact is not None:
-            if not self.sequence_fact.path.is_subject:
-                raise ValueError(
-                    "Sequence facts for derived paths need a parent pattern"
-                )
-            return render_sequence_fact(
-                self.sequence_fact,
-                self.sequence_value_facts,
-                self.sequence_class_facts,
-                self.sequence_sequence_facts,
-                self.sequence_or_facts,
-                self.sequence_capture_facts,
-            )
-        raise ValueError("PatternTree has no renderable node")
+        return self.node.render()
 
 
 @dataclass(frozen=True)
@@ -318,313 +390,148 @@ class BranchFacts:
         )
 
 
-def render_class_fact(
-    class_fact: ClassFact,
-    value_facts: tuple[ValueFact, ...],
-    class_facts: tuple[ClassFact, ...],
-    sequence_facts: tuple[SequenceFact, ...],
-    or_facts: tuple[OrFact, ...],
-    capture_facts: tuple[CaptureFact, ...] = (),
-) -> cst.MatchPattern:
-    keyword_patterns: list[tuple[str, cst.MatchPattern]] = []
-    seen_attributes: set[str] = set()
-    direct_pattern_attributes = {
-        attr_name
-        for fact in (*class_facts, *sequence_facts, *or_facts)
-        for attr_name in (direct_attribute_name(fact.path),)
-        if attr_name is not None
-    }
+def insert_fact(root: PatternNode | None, fact: PathFact) -> PatternNode:
+    node = node_from_fact(fact)
+    if root is None:
+        if not fact.path.is_subject:
+            raise ValueError("First pattern fact must describe the subject")
+        return node
+    return root.insert(fact.path, node)
 
-    for fact in or_facts:
-        attr_name = direct_attribute_name(fact.path)
-        if attr_name is None:
-            continue
-        if attr_name in seen_attributes:
-            raise ValueError("Duplicate attribute facts cannot render here")
-        seen_attributes.add(attr_name)
-        keyword_patterns.append(
-            (
-                attr_name,
-                render_or_fact(fact, strip_capture_prefix(attr_name, capture_facts)),
-            )
+
+def node_from_fact(fact: PathFact) -> PatternNode:
+    if isinstance(fact, ValueFact):
+        return ValueNode(fact.value)
+    if isinstance(fact, ClassFact):
+        return ClassNode(fact.classes)
+    if isinstance(fact, SequenceFact):
+        return SequenceNode(fact.length, fact.use_star)
+    return OrNode(
+        tuple(
+            node_from_or_alternative(alternative) for alternative in fact.alternatives
         )
-
-    for fact in sequence_facts:
-        attr_name = direct_attribute_name(fact.path)
-        if attr_name is None:
-            continue
-        if attr_name in seen_attributes:
-            raise ValueError("Duplicate attribute facts cannot render here")
-        seen_attributes.add(attr_name)
-        keyword_patterns.append(
-            (
-                attr_name,
-                bracket_sequence_pattern(
-                    render_sequence_fact(
-                        SequenceFact(SubjectPath(()), fact.length, fact.use_star),
-                        strip_fact_prefix(attr_name, value_facts),
-                        strip_fact_prefix(attr_name, class_facts),
-                        strip_fact_prefix(attr_name, sequence_facts),
-                        strip_fact_prefix(attr_name, or_facts),
-                        strip_capture_prefix(attr_name, capture_facts),
-                    )
-                ),
-            )
-        )
-
-    for fact in value_facts:
-        names = fact.path.attribute_names
-        if (
-            names is None
-            and first_attribute_name(fact.path) in direct_pattern_attributes
-        ):
-            continue
-        if names is None or not names:
-            raise ValueError("Value facts for class patterns need attribute paths")
-        if len(names) > 1:
-            continue
-        attr_name = names[0]
-        if attr_name in seen_attributes or has_nested_fact(
-            attr_name, value_facts, class_facts, sequence_facts, or_facts
-        ):
-            raise ValueError("Duplicate attribute facts cannot render here")
-        seen_attributes.add(attr_name)
-        keyword_patterns.append((attr_name, build_value_pattern(fact.value)))
-
-    for fact in class_facts:
-        names = fact.path.attribute_names
-        if (
-            names is None
-            and first_attribute_name(fact.path) in direct_pattern_attributes
-        ):
-            continue
-        if names is None or not names:
-            raise ValueError("Class facts for class patterns need attribute paths")
-        if len(names) > 1:
-            continue
-        attr_name = names[0]
-        if attr_name in seen_attributes:
-            raise ValueError("Duplicate attribute facts cannot render here")
-        seen_attributes.add(attr_name)
-        keyword_patterns.append(
-            (
-                attr_name,
-                render_class_fact(
-                    ClassFact(SubjectPath(()), fact.classes),
-                    strip_fact_prefix(attr_name, value_facts),
-                    strip_fact_prefix(attr_name, class_facts),
-                    strip_fact_prefix(attr_name, sequence_facts),
-                    strip_fact_prefix(attr_name, or_facts),
-                    strip_capture_prefix(attr_name, capture_facts),
-                ),
-            )
-        )
-
-    nested_pattern_attributes = {
-        names[0]
-        for fact in (*class_facts, *sequence_facts, *or_facts)
-        for names in (fact.path.attribute_names,)
-        if names is not None and len(names) == 1
-    }
-    unused_value_facts = [
-        fact
-        for fact in value_facts
-        if (names := fact.path.attribute_names) is not None
-        and len(names) > 1
-        and names[0] not in nested_pattern_attributes
-    ]
-    unused_class_facts = [
-        fact
-        for fact in class_facts
-        if (names := fact.path.attribute_names) is not None
-        and len(names) > 1
-        and names[0] not in nested_pattern_attributes
-    ]
-    unused_sequence_facts = [
-        fact
-        for fact in sequence_facts
-        if (names := fact.path.attribute_names) is not None
-        and len(names) > 1
-        and names[0] not in nested_pattern_attributes
-    ]
-    unused_or_facts = [
-        fact
-        for fact in or_facts
-        if (names := fact.path.attribute_names) is not None
-        and len(names) > 1
-        and names[0] not in nested_pattern_attributes
-    ]
-    if (
-        unused_value_facts
-        or unused_class_facts
-        or unused_sequence_facts
-        or unused_or_facts
-    ):
-        raise ValueError("Nested facts need an enclosing class fact")
-
-    return build_class_pattern(list(class_fact.classes), keyword_patterns)
-
-
-def has_nested_fact(
-    attr_name: str,
-    value_facts: tuple[ValueFact, ...],
-    class_facts: tuple[ClassFact, ...],
-    sequence_facts: tuple[SequenceFact, ...],
-    or_facts: tuple[OrFact, ...],
-) -> bool:
-    return any(
-        names is not None and len(names) > 1 and names[0] == attr_name
-        for fact in (*value_facts, *class_facts, *sequence_facts, *or_facts)
-        for names in (fact.path.attribute_names,)
     )
 
 
-def strip_fact_prefix(
-    attr_name: str,
-    facts: tuple[PathFact, ...],
-) -> tuple[PathFact, ...]:
-    stripped: list[PathFact] = []
-    for fact in facts:
-        if len(fact.path.parts) <= 1 or fact.path.first_part != AttributePathPart(
-            attr_name
-        ):
-            continue
-        path = fact.path.tail()
-        stripped.append(replace_fact_path(fact, path))
-    return tuple(stripped)
+def node_from_or_alternative(
+    alternative: ValueFact | ClassFact | PatternTree,
+) -> PatternNode:
+    if isinstance(alternative, ValueFact):
+        return ValueNode(alternative.value)
+    if isinstance(alternative, ClassFact):
+        return ClassNode(alternative.classes)
+    return alternative.node
 
 
-def strip_capture_prefix(
-    attr_name: str,
-    facts: tuple[CaptureFact, ...],
-) -> tuple[CaptureFact, ...]:
-    stripped: list[CaptureFact] = []
-    for fact in facts:
-        if fact.path.first_part != AttributePathPart(attr_name):
-            continue
-        stripped.append(CaptureFact(fact.name, fact.path.tail(), fact.index))
-    return tuple(stripped)
+def insert_node(root: PatternNode, path: SubjectPath, node: PatternNode) -> PatternNode:
+    if path.is_subject:
+        return merge_nodes(root, node)
+
+    first_part = path.first_part
+    if isinstance(first_part, AttributePathPart):
+        if isinstance(root, WildcardNode):
+            root = ClassNode(())
+        if not isinstance(root, ClassNode):
+            raise ValueError("Attribute paths need a class pattern parent")
+        return root.insert_attribute(first_part.name, path.tail(), node)
+    if isinstance(first_part, SubscriptPathPart):
+        if isinstance(root, WildcardNode):
+            root = SequenceNode(0, use_star=True)
+        if not isinstance(root, SequenceNode):
+            raise ValueError("Subscript paths need a sequence pattern parent")
+        return root.insert_element(first_part.index, path.tail(), node)
+    raise ValueError("Unsupported subject path part")
 
 
-def direct_attribute_name(path: SubjectPath) -> str | None:
-    if len(path.parts) != 1 or not isinstance(path.first_part, AttributePathPart):
-        return None
-    return path.first_part.name
+def merge_nodes(existing: PatternNode, incoming: PatternNode) -> PatternNode:
+    if isinstance(existing, WildcardNode):
+        return incoming
+    if isinstance(incoming, WildcardNode):
+        return existing
+    if isinstance(existing, CaptureNode) or isinstance(incoming, CaptureNode):
+        return incoming
+    if isinstance(existing, ValueNode) or isinstance(incoming, ValueNode):
+        return incoming
+    if isinstance(existing, ClassNode) and isinstance(incoming, ClassNode):
+        return merge_class_nodes(existing, incoming)
+    if isinstance(existing, SequenceNode) and isinstance(incoming, SequenceNode):
+        return merge_sequence_nodes(existing, incoming)
+    if isinstance(existing, OrNode) and isinstance(incoming, OrNode):
+        return incoming
+    return incoming
 
 
-def first_attribute_name(path: SubjectPath) -> str | None:
-    if not isinstance(path.first_part, AttributePathPart):
-        return None
-    return path.first_part.name
+def merge_class_nodes(existing: ClassNode, incoming: ClassNode) -> ClassNode:
+    attributes = dict(existing.attributes)
+    for name, incoming_child in incoming.attributes:
+        if name in attributes:
+            attributes[name] = merge_nodes(attributes[name], incoming_child)
+        else:
+            attributes[name] = incoming_child
+    return ClassNode(incoming.classes, tuple(attributes.items()))
 
 
-def render_sequence_fact(
-    sequence_fact: SequenceFact,
-    value_facts: tuple[ValueFact, ...],
-    class_facts: tuple[ClassFact, ...],
-    sequence_facts: tuple[SequenceFact, ...] = (),
-    or_facts: tuple[OrFact, ...] = (),
-    capture_facts: tuple[CaptureFact, ...] = (),
-) -> cst.MatchPattern:
-    elements: dict[int, SequenceElementPattern] = {}
-    direct_sequence_indices = {
-        index
-        for fact in sequence_facts
-        for index in (sequence_element_index(fact.path),)
-        if index is not None
-    }
-    direct_class_indices = {
-        index
-        for fact in class_facts
-        for index in (sequence_element_index(fact.path),)
-        if index is not None
-    }
+def merge_sequence_nodes(
+    existing: SequenceNode, incoming: SequenceNode
+) -> SequenceNode:
+    elements = dict(existing.elements)
+    for index, incoming_child in incoming.elements:
+        if index in elements:
+            elements[index] = merge_nodes(elements[index], incoming_child)
+        else:
+            elements[index] = incoming_child
+    return SequenceNode(incoming.length, incoming.use_star, tuple(elements.items()))
 
-    for fact in value_facts:
-        index = sequence_element_index(fact.path)
-        if index is None and first_sequence_index(fact.path) in (
-            direct_sequence_indices | direct_class_indices
-        ):
-            continue
-        if index is None or index in elements:
-            raise ValueError("Invalid sequence value fact")
-        elements[index] = LiteralElementPattern(fact.value)
 
-    for fact in class_facts:
-        index = sequence_element_index(fact.path)
-        if index is None and first_sequence_index(fact.path) in (
-            direct_sequence_indices | direct_class_indices
-        ):
-            continue
-        if index is None or index in elements:
-            raise ValueError("Invalid sequence class fact")
-        elements[index] = RawElementPattern(
-            render_class_fact(
-                ClassFact(SubjectPath(()), fact.classes),
-                strip_sequence_fact_prefix(index, value_facts),
-                strip_sequence_fact_prefix(index, class_facts),
-                strip_sequence_fact_prefix(index, sequence_facts),
-                strip_sequence_fact_prefix(index, or_facts),
-                strip_sequence_capture_prefix(index, capture_facts),
+def capture_path(fact: CaptureFact) -> SubjectPath:
+    return SubjectPath((*fact.path.parts, SubscriptPathPart(fact.index)))
+
+
+def insert_capture_node(
+    root: PatternNode, path: SubjectPath, node: CaptureNode
+) -> PatternNode:
+    if path.is_subject:
+        return merge_nodes(root, node)
+    if isinstance(root, OrNode):
+        return OrNode(
+            tuple(
+                insert_capture_node(alternative, path, node)
+                for alternative in root.alternatives
             )
         )
 
-    for fact in sequence_facts:
-        index = sequence_element_index(fact.path)
-        if index is None and first_sequence_index(fact.path) in (
-            direct_sequence_indices | direct_class_indices
-        ):
-            continue
-        if index is None or index in elements:
-            raise ValueError("Invalid nested sequence fact")
-        elements[index] = RawElementPattern(
-            bracket_sequence_pattern(
-                render_sequence_fact(
-                    SequenceFact(SubjectPath(()), fact.length, fact.use_star),
-                    strip_sequence_fact_prefix(index, value_facts),
-                    strip_sequence_fact_prefix(index, class_facts),
-                    strip_sequence_fact_prefix(index, sequence_facts),
-                    strip_sequence_fact_prefix(index, or_facts),
-                    strip_sequence_capture_prefix(index, capture_facts),
-                )
-            )
-        )
+    first_part = path.first_part
+    if isinstance(first_part, AttributePathPart):
+        if not isinstance(root, ClassNode):
+            return root
+        attributes = dict(root.attributes)
+        child = attributes.get(first_part.name)
+        if child is None:
+            return root
+        attributes[first_part.name] = insert_capture_node(child, path.tail(), node)
+        return ClassNode(root.classes, tuple(attributes.items()))
 
-    for fact in or_facts:
-        index = sequence_element_index(fact.path)
-        if index is None and first_sequence_index(fact.path) in (
-            direct_sequence_indices | direct_class_indices
-        ):
-            continue
-        if index is None or index in elements:
-            raise ValueError("Invalid sequence OR fact")
-        elements[index] = RawElementPattern(
-            render_or_fact(fact, strip_sequence_capture_prefix(index, capture_facts))
-        )
+    if isinstance(first_part, SubscriptPathPart):
+        if not isinstance(root, SequenceNode):
+            return root
+        elements = dict(root.elements)
+        child = elements.get(first_part.index)
+        if child is None:
+            if not path.tail().is_subject:
+                return root
+            elements[first_part.index] = node
+        else:
+            elements[first_part.index] = insert_capture_node(child, path.tail(), node)
+        return SequenceNode(root.length, root.use_star, tuple(elements.items()))
 
-    for fact in capture_facts:
-        index = capture_element_index(fact)
-        if index is None:
-            continue
-        elements[index] = RawElementPattern(
-            cst.MatchAs(pattern=None, name=cst.Name(fact.name))
-        )
+    return root
 
-    required_len = sequence_fact.length
-    if sequence_fact.use_star and elements:
-        required_len = max(elements) + 1
 
-    if not sequence_fact.use_star and elements and max(elements) >= required_len:
-        raise ValueError("Sequence element facts exceed the checked length")
-    if not sequence_fact.use_star and not validate_wildcard_constraint(
-        elements, required_len
-    ):
-        raise ValueError("Sequence fact would produce too many wildcards")
-
-    pattern_infos = [
-        elements.get(index, WildcardElementPattern()) for index in range(required_len)
-    ]
-    return build_sequence_match_list(pattern_infos, use_star=sequence_fact.use_star)
+def render_child_node(node: PatternNode) -> cst.MatchPattern:
+    pattern = node.render()
+    if isinstance(node, SequenceNode) and isinstance(pattern, cst.MatchList):
+        return bracket_sequence_pattern(pattern)
+    return pattern
 
 
 def bracket_or_sequence_pattern(pattern: cst.MatchPattern) -> cst.MatchPattern:
@@ -643,69 +550,6 @@ def bracket_sequence_pattern(pattern: cst.MatchList) -> cst.MatchList:
         lbracket=cst.LeftSquareBracket(),
         rbracket=cst.RightSquareBracket(),
     )
-
-
-def sequence_element_index(path: SubjectPath) -> int | None:
-    if len(path.parts) != 1 or not isinstance(path.first_part, SubscriptPathPart):
-        return None
-    return path.first_part.index
-
-
-def first_sequence_index(path: SubjectPath) -> int | None:
-    if not isinstance(path.first_part, SubscriptPathPart):
-        return None
-    return path.first_part.index
-
-
-def capture_element_index(fact: CaptureFact) -> int | None:
-    if fact.path.is_subject:
-        return fact.index
-    return None
-
-
-def strip_sequence_fact_prefix(
-    index: int,
-    facts: tuple[PathFact, ...],
-) -> tuple[PathFact, ...]:
-    stripped: list[PathFact] = []
-    prefix = SubscriptPathPart(index)
-    for fact in facts:
-        if len(fact.path.parts) <= 1 or fact.path.first_part != prefix:
-            continue
-        path = fact.path.tail()
-        stripped.append(replace_fact_path(fact, path))
-    return tuple(stripped)
-
-
-def strip_sequence_capture_prefix(
-    index: int,
-    facts: tuple[CaptureFact, ...],
-) -> tuple[CaptureFact, ...]:
-    stripped: list[CaptureFact] = []
-    prefix = SubscriptPathPart(index)
-    for fact in facts:
-        if fact.path.first_part != prefix:
-            continue
-        stripped.append(CaptureFact(fact.name, fact.path.tail(), fact.index))
-    return tuple(stripped)
-
-
-def render_or_fact(
-    fact: OrFact, capture_facts: tuple[CaptureFact, ...] = ()
-) -> cst.MatchPattern:
-    patterns = []
-    for alternative in fact.alternatives:
-        if isinstance(alternative, ValueFact):
-            patterns.append(build_value_pattern(alternative.value))
-        elif isinstance(alternative, ClassFact):
-            patterns.append(build_class_pattern(list(alternative.classes)))
-        else:
-            patterns.append(
-                bracket_or_sequence_pattern(
-                    alternative.with_captures(capture_facts).render()
-                )
-            )
-    return build_or_pattern(patterns)
 
 
 def strip_or_alternative_prefix(
