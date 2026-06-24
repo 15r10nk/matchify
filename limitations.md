@@ -31,8 +31,8 @@ condition is unsupported or ambiguous, the transformer either keeps the original
 - OR alternatives that need their own guards, such as
   `(isinstance(x, Point) and x.kind > 0) or isinstance(x, Token)`, are not folded
   into one OR pattern because Python only supports guards for the whole `case`.
-- OR alternatives with captures are not folded unless every alternative can bind
-  the same names. Python rejects OR patterns where only one side captures a name.
+- OR alternatives with captures are only folded when every alternative binds the
+  same names. Python rejects OR patterns where only one side captures a name.
 - Redundant safety checks such as `hasattr(x, "items")` and
   `isinstance(x.items, (list, tuple))` can be ignored inside an OR alternative
   when the same path is fully described by a generated class or sequence pattern.

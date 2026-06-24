@@ -360,6 +360,19 @@ def collect_capture_assignments(
 ) -> list[str]:
     if isinstance(pattern, CaptureClassPattern):
         return pattern.capture_assignments(subject, case_index, names)
+    if isinstance(pattern, OrPattern):
+        signatures = [
+            capture_signature(alternative) for alternative in pattern.alternatives
+        ]
+        if (
+            not signatures
+            or signatures[0] == ()
+            or any(signature != signatures[0] for signature in signatures[1:])
+        ):
+            return []
+        return collect_capture_assignments(
+            pattern.alternatives[0], subject, case_index, names
+        )
     if isinstance(pattern, GuardedPattern):
         return collect_capture_assignments(pattern.pattern, subject, case_index, names)
     if isinstance(pattern, (ClassPattern, ClassUnionPattern)):
@@ -412,9 +425,58 @@ def collect_capture_assignments(
     return []
 
 
+CaptureSignature = tuple[tuple[tuple[str, ...], tuple[int, ...]], ...]
+
+
+def capture_signature(pattern: GeneratedPattern) -> CaptureSignature:
+    if isinstance(pattern, CaptureClassPattern):
+        return (((pattern.attr,), pattern.capture_indices),)
+    if isinstance(pattern, GuardedPattern):
+        return capture_signature(pattern.pattern)
+    if isinstance(pattern, (ClassPattern, ClassUnionPattern)):
+        signatures = []
+        for attr, attr_pattern in sorted(pattern.attrs, key=class_attr_sort_key):
+            signatures.extend(
+                ((attr, *path), indices)
+                for path, indices in capture_signature(attr_pattern)
+            )
+        return tuple(signatures)
+    if isinstance(pattern, SequencePattern):
+        return tuple(
+            ((f"[{index}]", *path), indices)
+            for index, element in enumerate(pattern.elements)
+            for path, indices in capture_signature(element)
+        )
+    if isinstance(pattern, GappedSequencePattern):
+        return tuple(
+            ((f"[{index}]", *path), indices)
+            for index, element in enumerate(pattern.elements)
+            if element is not None
+            for path, indices in capture_signature(element)
+        )
+    if isinstance(pattern, StarSequencePattern):
+        return tuple(
+            ((f"[{index}]", *path), indices)
+            for index, element in enumerate(pattern.elements)
+            for path, indices in capture_signature(element)
+        )
+    if isinstance(pattern, GappedStarSequencePattern):
+        return tuple(
+            ((f"[{index}]", *path), indices)
+            for index, element in enumerate(pattern.elements)
+            if element is not None
+            for path, indices in capture_signature(element)
+        )
+    return ()
+
+
 def contains_capture(pattern: GeneratedPattern) -> bool:
     if isinstance(pattern, CaptureClassPattern):
         return True
+    if isinstance(pattern, OrPattern):
+        return any(
+            contains_capture(alternative) for alternative in pattern.alternatives
+        )
     if isinstance(pattern, GuardedPattern):
         return contains_capture(pattern.pattern)
     if isinstance(pattern, (ClassPattern, ClassUnionPattern)):
@@ -695,6 +757,8 @@ def generate_pattern(
         "star",
         "gapped_star",
     ]
+    if len(classes) > 1:
+        choices.append("or_capture")
     if depth > 0:
         choices.extend(["nested_class", "nested_sequence"])
     kind = rng.choice(choices)
@@ -705,6 +769,8 @@ def generate_pattern(
         return SingletonPattern(rng.choice(["None", "True", "False"]))
     if kind == "or_literal":
         return generate_or_pattern(rng, classes)
+    if kind == "or_capture":
+        return generate_or_capture_pattern(rng, classes)
     if kind == "class":
         return generate_class_pattern(rng, classes, depth=0)
     if kind == "attribute_guarded_class":
@@ -1125,6 +1191,23 @@ def generate_or_pattern(rng: random.Random, classes: tuple[str, ...]) -> OrPatte
     alternatives = tuple(
         generate_or_safe_pattern(rng, classes, depth=4)
         for _ in range(rng.randint(2, 4))
+    )
+    return OrPattern(alternatives)
+
+
+def generate_or_capture_pattern(
+    rng: random.Random, classes: tuple[str, ...]
+) -> OrPattern:
+    attr = rng.choice(["x", "y", "items"])
+    length = rng.randint(1, 3)
+    capture_indices = tuple(
+        index for index in range(length) if rng.choice([True, False])
+    )
+    if not capture_indices:
+        capture_indices = (rng.randrange(length),)
+    alternatives = tuple(
+        CaptureClassPattern(class_name, attr, capture_indices)
+        for class_name in rng.sample(classes, rng.randint(2, len(classes)))
     )
     return OrPattern(alternatives)
 
@@ -1581,6 +1664,54 @@ def test_generated_class_union_capture_program_survives_matchify(tmp_path: Path)
     ) in transformed
     assert "capture_0_0 = value.items.values[0]" not in transformed
     assert "capture_0_1 = value.items.values[2]" not in transformed
+    assert execute_result(transformed) == expected_trace, (
+        f"Trace mismatch\nGenerated if/else:\n{source}\n"
+        f"Matchified code:\n{transformed}"
+    )
+
+
+def test_generated_or_capture_program_survives_matchify(tmp_path: Path):
+    program = GeneratedProgram(
+        classes=("Point", "Token"),
+        cases=(
+            GeneratedCase(
+                OrPattern(
+                    (
+                        CaptureClassPattern("Point", "items", (0, 2)),
+                        CaptureClassPattern("Token", "items", (0, 2)),
+                    )
+                ),
+                "branch_0",
+            ),
+            GeneratedCase(SingletonPattern("None"), "branch_1"),
+            GeneratedCase(WildcardPattern(), "default"),
+        ),
+    )
+    source = program.to_trace_if_code(
+        [
+            "Point(items=[1, 2, 3, object()])",
+            "Token(items=[4, 5, 6, object()])",
+            "Point(items=[])",
+            "None",
+            "object()",
+        ]
+    )
+    path = tmp_path / "generated_or_capture.py"
+    path.write_text(source, encoding="utf-8")
+    expected_trace = execute_result(source)
+
+    converted_path, changed, error = convert_file(path)
+
+    assert converted_path == path
+    assert changed is True
+    assert error is None
+    transformed = path.read_text(encoding="utf-8")
+    assert (
+        "case Point(items=[capture_0_0, _, capture_0_1, *_]) | "
+        "Token(items=[capture_0_0, _, capture_0_1, *_])"
+    ) in transformed
+    assert "capture_0_0 = value.items[0]" not in transformed
+    assert "capture_0_1 = value.items[2]" not in transformed
     assert execute_result(transformed) == expected_trace, (
         f"Trace mismatch\nGenerated if/else:\n{source}\n"
         f"Matchified code:\n{transformed}"
@@ -2614,6 +2745,30 @@ for value in values:
 class Point:
     def __init__(self, **attrs):
         self.__dict__.update(attrs)
+
+class Token:
+    def __init__(self, **attrs):
+        self.__dict__.update(attrs)
+values = [
+    Point(y=[1, object()]),
+    Token(x=False),
+    Token(),
+    object(),
+]
+for value in values:
+    if (isinstance(value, Point) and hasattr(value, 'y') and isinstance(value.y, (list, tuple)) and len(value.y) >= 1 or isinstance(value, Token) and hasattr(value, 'y') and isinstance(value.y, (list, tuple)) and len(value.y) >= 1):
+        capture_0_0 = value.y[0]
+        print('branch_0')
+    elif isinstance(value, Token) and hasattr(value, 'x') and value.x is False:
+        print('branch_1')
+    elif isinstance(value, Token):
+        print('branch_2')
+    else:
+        print('default')
+---
+class Point:
+    def __init__(self, **attrs):
+        self.__dict__.update(attrs)
 values = [
     ((Point(y=[1, object()]), object(), object(), Point(items=[1, object()]), object()),),
     ((Point(y=[]), object(), object(), Point(items=[1, object()]), object()),),
@@ -2682,35 +2837,7 @@ for value in values:
         print('branch_3')
     elif isinstance(value, Token) and hasattr(value, 'y') and isinstance(value.y, (list, tuple)) and len(value.y) >= 3:
         capture_4_0 = value.y[2]
-        print('branch_4')
----
-class Point:
-    def __init__(self, **attrs):
-        self.__dict__.update(attrs)
-
-class Token:
-    def __init__(self, **attrs):
-        self.__dict__.update(attrs)
-
-class Node:
-    def __init__(self, **attrs):
-        self.__dict__.update(attrs)
-values = [
-    ((Point(y=2), Token(y=1), +3.5), [object(), Node(y=2), object()]),
-    ((Point(y=0), Token(y=1), +3.5), [object(), Node(y=2), object()]),
-    [object(), [[(Node(), [False, object()], object()), [(None, -1, 2, object()), [object(), 0, 'red'], [False, False, object()], (object(), -3.5, -3.5, object(), 'red'), object()], Token(y=1)], object(), Point(x=[1, object()]), Point(x=[1, object()])], object()],
-    [object(), [[(Node(), [False, object()], object()), [(None, -1, 2, object()), [object(), 0, 'red'], [False, False, object()], (object(), -3.5, -3.5, object(), 'red'), object()], Token(y=0)], object(), Point(x=[1, object()]), Point(x=[1, object()])], object()],
-    object(),
-]
-for value in values:
-    if isinstance(value, (list, tuple)) and len(value) == 2 and isinstance(value[0], (list, tuple)) and len(value[0]) == 3 and isinstance(value[0][0], Point) and hasattr(value[0][0], 'y') and value[0][0].y == len([None, None]) and isinstance(value[0][1], Token) and hasattr(value[0][1], 'y') and value[0][1].y == len([None]) and (value[0][2] == +3.5 or value[0][2] is None or value[0][2] == 'red' or value[0][2] == 'ready') and isinstance(value[1], (list, tuple)) and len(value[1]) == 3 and isinstance(value[1][1], Node) and hasattr(value[1][1], 'y') and value[1][1].y == len([None, None]):
-        print('branch_0')
-    elif isinstance(value, (list, tuple)) and len(value) >= 2 and isinstance(value[1], (list, tuple)) and len(value[1]) == 4 and isinstance(value[1][0], (list, tuple)) and len(value[1][0]) == 3 and isinstance(value[1][0][0], (list, tuple)) and len(value[1][0][0]) >= 2 and isinstance(value[1][0][0][0], Node) and isinstance(value[1][0][0][1], (list, tuple)) and len(value[1][0][0][1]) >= 1 and value[1][0][0][1][0] is False and isinstance(value[1][0][1], (list, tuple)) and len(value[1][0][1]) == 5 and isinstance(value[1][0][1][0], (list, tuple)) and len(value[1][0][1][0]) >= 3 and value[1][0][1][0][0] is None and value[1][0][1][0][1] == -1 and value[1][0][1][0][2] == 2 and isinstance(value[1][0][1][1], (list, tuple)) and len(value[1][0][1][1]) == 3 and value[1][0][1][1][1] == 0 and value[1][0][1][1][2] == 'red' and isinstance(value[1][0][1][2], (list, tuple)) and len(value[1][0][1][2]) >= 2 and value[1][0][1][2][0] is False and value[1][0][1][2][1] is False and isinstance(value[1][0][1][3], (list, tuple)) and len(value[1][0][1][3]) == 5 and value[1][0][1][3][1] == -3.5 and value[1][0][1][3][2] == -3.5 and value[1][0][1][3][4] == 'red' and isinstance(value[1][0][2], Token) and hasattr(value[1][0][2], 'y') and value[1][0][2].y == len([None]) and bool([None]) and isinstance(value[1][2], Point) and hasattr(value[1][2], 'x') and isinstance(value[1][2].x, (list, tuple)) and len(value[1][2].x) >= 1 and isinstance(value[1][3], Point) and hasattr(value[1][3], 'x') and isinstance(value[1][3].x, (list, tuple)) and len(value[1][3].x) >= 1:
-        capture_1_0 = value[1][2].x[0]
-        capture_1_1 = value[1][3].x[0]
-        print('branch_1')
-    else:
-        print('default')\
+        print('branch_4')\
 """
     )
 
