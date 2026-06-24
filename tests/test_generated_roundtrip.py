@@ -3170,7 +3170,14 @@ def test_sequence_or_with_nested_class_attribute_generated_program_survives_matc
     )
 
     source = program.to_trace_if_code()
+    assert (
+        'hasattr(value[0], "node")' in source or "hasattr(value[0], 'node')" in source
+    )
     assert "isinstance(value[0].node, Node)" in source
+    assert (
+        'hasattr(value[0].node, "kind")' in source
+        or "hasattr(value[0].node, 'kind')" in source
+    )
     assert "value[0].node.kind == 1" in source
     assert_matchify_preserves_trace(program, tmp_path)
 

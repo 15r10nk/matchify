@@ -17,6 +17,7 @@ from .patterns import (
     is_singleton_name,
 )
 from .subject_path import (
+    AttributePathPart,
     SubjectPath,
     SubscriptPathPart,
     extract_integer_subscript_index,
@@ -278,6 +279,9 @@ class SequencePatternCollector:
             is not None
             for component in components
         ):
+            checked_paths = collect_checked_sequence_element_attribute_paths(
+                components, element_subject, isinstance_component
+            )
             if all(
                 component is isinstance_component
                 or extract_direct_attribute_check(component, element_subject)
@@ -286,6 +290,9 @@ class SequencePatternCollector:
                 is not None
                 or extract_attribute_path_pattern_check(component, element_subject)
                 is not None
+                or is_redundant_attribute_path_hasattr_check(
+                    component, element_subject, checked_paths
+                )
                 for component in components
             ):
                 nested_pattern = build_sequence_element_class_pattern(
@@ -974,6 +981,88 @@ def extract_direct_hasattr_check(
         return None
     literal = value.evaluated_value
     return literal if isinstance(literal, str) else None
+
+
+def collect_checked_sequence_element_attribute_paths(
+    components: list[cst.BaseExpression],
+    subject: cst.BaseExpression,
+    isinstance_component: cst.BaseExpression,
+) -> set[tuple[str, ...]]:
+    checked_paths: set[tuple[str, ...]] = set()
+    for component in components:
+        if component is isinstance_component:
+            continue
+        attr_check = extract_direct_attribute_check(component, subject)
+        if attr_check is not None:
+            attr_name, _pattern = attr_check
+            checked_paths.add((attr_name,))
+            continue
+
+        nested_isinstance = extract_attribute_path_isinstance_check(component, subject)
+        if nested_isinstance is not None:
+            path, _classes = nested_isinstance
+            checked_paths.add(path)
+            continue
+
+        nested_pattern = extract_attribute_path_pattern_check(component, subject)
+        if nested_pattern is not None:
+            path, _pattern = nested_pattern
+            checked_paths.add(path)
+            continue
+
+        nested_sequence = extract_attribute_path_sequence_len_check(component, subject)
+        if nested_sequence is not None:
+            path, _sequence_subject = nested_sequence
+            checked_paths.add(path)
+            continue
+
+    return checked_paths
+
+
+def is_redundant_attribute_path_hasattr_check(
+    node: cst.BaseExpression,
+    subject: cst.BaseExpression,
+    checked_paths: set[tuple[str, ...]],
+) -> bool:
+    hasattr_path = extract_attribute_path_hasattr_check(node, subject)
+    if hasattr_path is None:
+        return False
+    return any(
+        path == hasattr_path or path[: len(hasattr_path)] == hasattr_path
+        for path in checked_paths
+    )
+
+
+def extract_attribute_path_hasattr_check(
+    node: cst.BaseExpression, subject: cst.BaseExpression
+) -> tuple[str, ...] | None:
+    if not isinstance(node, cst.Call) or not m.matches(
+        node, m.Call(func=m.Name(value="hasattr"))
+    ):
+        return None
+    if len(node.args) != 2:
+        return None
+    path = SubjectPath.from_expression(node.args[0].value, subject)
+    if path is None:
+        return None
+
+    attr_names: list[str] = []
+    for part in path.parts:
+        if not isinstance(part, AttributePathPart):
+            return None
+        attr_names.append(part.name)
+
+    name_arg = node.args[1].value
+    if not isinstance(name_arg, cst.SimpleString):
+        return None
+    try:
+        value = cst.ensure_type(cst.parse_expression(name_arg.value), cst.SimpleString)
+    except cst.ParserSyntaxError:
+        return None
+    literal = value.evaluated_value
+    if not isinstance(literal, str):
+        return None
+    return (*attr_names, literal)
 
 
 def extract_attribute_path_pattern_check(
