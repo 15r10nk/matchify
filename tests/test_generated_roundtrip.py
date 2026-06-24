@@ -1173,21 +1173,24 @@ def generate_capture_class_pattern(
 def generate_guarded_pattern(
     rng: random.Random, classes: tuple[str, ...], depth: int
 ) -> GuardedPattern:
-    kind = rng.choice(
-        [
-            "literal",
-            "singleton",
-            "or_literal",
-            "class",
-            "attribute_guarded_class",
-            "relational_guarded_class",
-            "capture_class",
-            "sequence",
-            "gapped_sequence",
-            "star",
-            "gapped_star",
-        ]
-    )
+    choices = [
+        "literal",
+        "singleton",
+        "or_literal",
+        "class",
+        "attribute_guarded_class",
+        "relational_guarded_class",
+        "capture_class",
+        "sequence",
+        "gapped_sequence",
+        "star",
+        "gapped_star",
+    ]
+    if len(classes) > 1:
+        choices.append("or_capture")
+        if depth > 1:
+            choices.append("nested_or_capture")
+    kind = rng.choice(choices)
     if kind == "literal":
         pattern: GeneratedPattern = LiteralPattern(generate_literal(rng))
     elif kind == "singleton":
@@ -1202,6 +1205,10 @@ def generate_guarded_pattern(
         pattern = generate_relational_guarded_class_pattern(rng, classes)
     elif kind == "capture_class":
         pattern = generate_capture_class_pattern(rng, classes)
+    elif kind == "or_capture":
+        pattern = generate_or_capture_pattern(rng, classes)
+    elif kind == "nested_or_capture":
+        pattern = generate_nested_or_capture_pattern(rng, classes)
     elif kind == "gapped_sequence":
         pattern = generate_gapped_sequence_pattern(
             rng, classes, depth=depth, bracketed=False
@@ -2627,6 +2634,34 @@ def test_generated_guarded_capture_program_survives_matchify(tmp_path: Path):
         f"Trace mismatch\nGenerated if/else:\n{source}\n"
         f"Matchified code:\n{transformed}"
     )
+
+
+def test_generated_guarded_or_capture_program_survives_matchify(tmp_path: Path):
+    program = GeneratedProgram(
+        classes=("Point", "Token"),
+        cases=(
+            GeneratedCase(
+                GuardedPattern(
+                    OrPattern(
+                        (
+                            CaptureClassPattern("Point", "items", (0, 2)),
+                            CaptureClassPattern("Token", "items", (0, 2)),
+                        )
+                    ),
+                    "not False",
+                ),
+                "branch_0",
+            ),
+            GeneratedCase(SingletonPattern("None"), "branch_1"),
+            GeneratedCase(WildcardPattern(), "default"),
+        ),
+    )
+
+    source = program.to_trace_if_code()
+    assert "and not False" in source
+    assert "capture_0_0 = value.items[0]" in source
+    assert "capture_0_1 = value.items[2]" in source
+    assert_matchify_preserves_trace(program, tmp_path)
 
 
 def test_generated_false_guarded_capture_program_falls_through(tmp_path: Path):
