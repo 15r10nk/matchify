@@ -47,6 +47,8 @@ class CapturePatternTransformer(cst.CSTTransformer):
                 new_cases.append(case)
                 continue
 
+            captures, aliases = self._normalize_duplicate_captures(captures)
+
             # Group captures by attribute
             captures_by_path = {}
             for var_name, capture_path, index in captures:
@@ -67,8 +69,11 @@ class CapturePatternTransformer(cst.CSTTransformer):
                 new_cases.append(case)
                 continue
 
-            # Remove the assignment statements from the body
-            new_body = self._remove_statements(case.body, len(captures))
+            # Remove the original assignment statements from the body and keep
+            # duplicate reads as aliases to the first captured name.
+            new_body = self._remove_statements(case.body, len(captures) + len(aliases))
+            if aliases:
+                new_body = self._prepend_aliases(new_body, aliases)
 
             # Create new case with capture pattern and updated body
             new_case = case.with_changes(pattern=new_pattern, body=new_body)
@@ -104,6 +109,24 @@ class CapturePatternTransformer(cst.CSTTransformer):
             captures.append(capture_info)
 
         return captures
+
+    def _normalize_duplicate_captures(
+        self, captures: list[tuple[str, CapturePath, int]]
+    ) -> tuple[list[tuple[str, CapturePath, int]], list[tuple[str, str]]]:
+        """Keep one pattern capture per source index and alias later duplicates."""
+        seen: dict[tuple[CapturePath, int], str] = {}
+        unique_captures = []
+        aliases = []
+
+        for var_name, capture_path, index in captures:
+            key = (capture_path, index)
+            if key in seen:
+                aliases.append((var_name, seen[key]))
+                continue
+            seen[key] = var_name
+            unique_captures.append((var_name, capture_path, index))
+
+        return unique_captures, aliases
 
     def _detect_capture_assignment(
         self, assign: cst.Assign, subject: cst.BaseExpression
@@ -196,11 +219,6 @@ class CapturePatternTransformer(cst.CSTTransformer):
         # Get indices and sort captures by index
         indices = [idx for _, _, idx in captures]
         sorted_captures = sorted(captures, key=lambda c: c[2])
-
-        # Validate no duplicate indices
-        if len(indices) != len(set(indices)):
-            # Duplicate indices
-            return None
 
         # Get max index
         max_index = max(indices)
@@ -367,3 +385,28 @@ class CapturePatternTransformer(cst.CSTTransformer):
         else:
             # Remove first N statements
             return body.with_changes(body=body.body[count:])
+
+    def _prepend_aliases(
+        self, body: cst.IndentedBlock, aliases: list[tuple[str, str]]
+    ) -> cst.IndentedBlock:
+        alias_statements = [
+            cst.SimpleStatementLine(
+                body=[
+                    cst.Assign(
+                        targets=[cst.AssignTarget(target=cst.Name(alias_name))],
+                        value=cst.Name(source_name),
+                    )
+                ]
+            )
+            for alias_name, source_name in aliases
+        ]
+
+        if (
+            len(body.body) == 1
+            and isinstance(body.body[0], cst.SimpleStatementLine)
+            and len(body.body[0].body) == 1
+            and isinstance(body.body[0].body[0], cst.Pass)
+        ):
+            return body.with_changes(body=alias_statements)
+
+        return body.with_changes(body=[*alias_statements, *body.body])

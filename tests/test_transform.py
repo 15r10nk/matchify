@@ -2850,8 +2850,8 @@ class TestIfToMatchTransformer:
 
         check_code(source, expected)
 
-    def test_duplicate_capture_index_keeps_assignments(self):
-        """Test duplicate captures for the same source index are not converted."""
+    def test_duplicate_capture_index_uses_alias_assignment(self):
+        """Test duplicate captures for the same source index keep an alias."""
         source = dedent(
             """
             class Point:
@@ -2876,9 +2876,8 @@ class TestIfToMatchTransformer:
 
             n = Point([1, 2, 3])
             match n:
-                case Point(x=[_, *_]):
-                    first = n.x[0]
-                    again = n.x[0]
+                case Point(x=[first, *_]):
+                    again = first
                     print(first, again)
                 case Point():
                     print("empty")
