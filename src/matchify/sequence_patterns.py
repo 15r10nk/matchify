@@ -233,7 +233,70 @@ class SequencePatternCollector:
                 return None
             return index, build_class_pattern(classes)
 
+        class_pattern = self._extract_subscript_class_attribute_pattern(node)
+        if class_pattern is not None:
+            return class_pattern
+
         return None
+
+    def _extract_subscript_class_attribute_pattern(
+        self, node: cst.BaseExpression
+    ) -> tuple[int, cst.MatchPattern] | None:
+        if not isinstance(node, cst.BooleanOperation) or not isinstance(
+            node.operator, cst.And
+        ):
+            return None
+
+        components = flatten_boolean(node, cst.And)
+        index: int | None = None
+        classes: list[cst.BaseExpression] | None = None
+        isinstance_component: cst.BaseExpression | None = None
+        for component in components:
+            if not self._is_subscript_isinstance_check(component):
+                continue
+            part_index = self._extract_subscript_index(component)
+            part_classes = self._extract_isinstance_classes(component)
+            if part_index is None or part_classes is None:
+                return None
+            if index is not None:
+                return None
+            index = part_index
+            classes = part_classes
+            isinstance_component = component
+
+        if index is None or classes is None or isinstance_component is None:
+            return None
+
+        element_subject = cst.Subscript(
+            value=self.subject,
+            slice=[
+                cst.SubscriptElement(slice=cst.Index(value=cst.Integer(str(index))))
+            ],
+        )
+        attrs: list[tuple[str, cst.MatchPattern]] = []
+        seen_attrs: set[str] = set()
+        hasattr_attrs: set[str] = set()
+        for component in components:
+            if component is isinstance_component:
+                continue
+            hasattr_attr = extract_direct_hasattr_check(component, element_subject)
+            if hasattr_attr is not None:
+                hasattr_attrs.add(hasattr_attr)
+                continue
+            attr_check = extract_direct_attribute_check(component, element_subject)
+            if attr_check is None:
+                return None
+            attr_name, pattern = attr_check
+            if attr_name in seen_attrs:
+                return None
+            attrs.append((attr_name, pattern))
+            seen_attrs.add(attr_name)
+
+        if not attrs:
+            return None
+        if not hasattr_attrs <= seen_attrs:
+            return None
+        return index, build_class_pattern(classes, attrs)
 
     def _is_subscript_literal_check(self, node: cst.BaseExpression) -> bool:
         """Check if node is subject[idx] == value or subject[idx] is value"""
@@ -867,6 +930,29 @@ def extract_direct_attribute_check(
         return None
 
     return node.left.attr.value, build_value_pattern(target.comparator)
+
+
+def extract_direct_hasattr_check(
+    node: cst.BaseExpression, subject: cst.BaseExpression
+) -> str | None:
+    if not isinstance(node, cst.Call) or not m.matches(
+        node, m.Call(func=m.Name(value="hasattr"))
+    ):
+        return None
+    if len(node.args) != 2:
+        return None
+    if not node.args[0].value.deep_equals(subject):
+        return None
+
+    name_arg = node.args[1].value
+    if not isinstance(name_arg, cst.SimpleString):
+        return None
+    try:
+        value = cst.ensure_type(cst.parse_expression(name_arg.value), cst.SimpleString)
+    except cst.ParserSyntaxError:
+        return None
+    literal = value.evaluated_value
+    return literal if isinstance(literal, str) else None
 
 
 def extract_attribute_path_pattern_check(

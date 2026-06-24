@@ -1364,6 +1364,47 @@ class TestIfToMatchTransformer:
 
         check_code(source, expected)
 
+    def test_sequence_pattern_with_class_attribute_or_element(self):
+        """Test class attribute OR patterns inside a sequence element."""
+        source = dedent(
+            """
+            class Point:
+                def __init__(self, kind):
+                    self.kind = kind
+
+            class Token:
+                def __init__(self, kind):
+                    self.kind = kind
+
+            value = [Point(1)]
+            if len(value) == 1 and ((isinstance(value[0], Point) and value[0].kind == 1) or (isinstance(value[0], Token) and value[0].kind == 2)):
+                print("match")
+            elif value is None:
+                print("none")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Point:
+                def __init__(self, kind):
+                    self.kind = kind
+
+            class Token:
+                def __init__(self, kind):
+                    self.kind = kind
+
+            value = [Point(1)]
+            match value:
+                case Point(kind=1) | Token(kind=2),:
+                    print("match")
+                case None:
+                    print("none")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_sequence_pattern_with_isinstance_and_is_none(self):
         """Test sequence pattern with isinstance and 'is None' checks.
 
