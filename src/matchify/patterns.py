@@ -74,14 +74,13 @@ def extract_isinstance_classes(
     if is_ignored_type_expr(class_arg, ignore_types_pattern):
         return None
     if isinstance(class_arg, cst.Tuple):
-        classes = []
-        for element in class_arg.elements:
-            if isinstance(element, cst.StarredElement):
-                return None
-            if is_ignored_type_expr(element.value, ignore_types_pattern):
-                return None
-            classes.append(element.value)
-        return tuple(classes) or None
+        if any(
+            isinstance(element, cst.StarredElement)
+            or is_ignored_type_expr(element.value, ignore_types_pattern)
+            for element in class_arg.elements
+        ):
+            return None
+        return tuple(element.value for element in class_arg.elements) or None
     return (class_arg,)
 
 
