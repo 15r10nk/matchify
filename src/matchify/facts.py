@@ -389,9 +389,11 @@ def insert_capture_node(
 
 def render_child_node(node: PatternNode) -> cst.MatchPattern:
     pattern = node.render()
-    if isinstance(node, SequenceNode) and isinstance(pattern, cst.MatchList):
-        return bracket_sequence_pattern(pattern)
-    return pattern
+    return (
+        bracket_sequence_pattern(pattern)
+        if isinstance(node, SequenceNode) and isinstance(pattern, cst.MatchList)
+        else pattern
+    )
 
 
 def bracket_sequence_pattern(pattern: cst.MatchList) -> cst.MatchList:
