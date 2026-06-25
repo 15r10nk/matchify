@@ -129,13 +129,8 @@ def build_or_pattern(expr: OrExpr) -> PatternBuildResult:
         return PatternBuildResult((), expr)
 
     common_path = common_alternative_path(alternatives)
-    # Current alternatives share a normalized SubjectPath; this fallback keeps
-    # future alternative shapes conservative.
-    if common_path is None:  # pragma: no cover
-        return PatternBuildResult(
-            (OrFact(SubjectPath(()), tuple(alternatives)),),
-            residual,
-        )
+    if common_path is None:
+        return PatternBuildResult((), expr)
 
     stripped = tuple(
         strip_alternative_prefix(common_path, facts) for facts in alternatives
