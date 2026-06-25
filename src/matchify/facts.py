@@ -8,9 +8,7 @@ import libcst as cst
 
 from .patterns import build_class_pattern, build_or_pattern, build_value_pattern
 from .sequence_patterns import (
-    RawElementPattern,
     SequenceElementPattern,
-    WildcardElementPattern,
     build_sequence_match_list,
     validate_wildcard_constraint,
 )
@@ -130,20 +128,13 @@ class SequenceNode:
         if not self.use_star and elements and max(elements) >= required_len:
             raise ValueError("Sequence element facts exceed the checked length")
         if not self.use_star and not validate_wildcard_constraint(
-            {
-                index: RawElementPattern(node.render())
-                for index, node in elements.items()
-            },
+            {index: node.render() for index, node in elements.items()},
             required_len,
         ):
             raise ValueError("Sequence fact would produce too many wildcards")
 
         pattern_infos: list[SequenceElementPattern] = [
-            (
-                RawElementPattern(render_child_node(elements[index]))
-                if index in elements
-                else WildcardElementPattern()
-            )
+            (render_child_node(elements[index]) if index in elements else None)
             for index in range(required_len)
         ]
         return build_sequence_match_list(pattern_infos, use_star=self.use_star)

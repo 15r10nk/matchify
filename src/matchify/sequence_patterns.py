@@ -1,27 +1,12 @@
 """Sequence-pattern recognition and construction."""
 
-from dataclasses import dataclass
-
 import libcst as cst
 from libcst import matchers as m
 
 from .patterns import flatten_boolean
 from .subject_path import SubjectPath
 
-
-@dataclass(frozen=True)
-class WildcardElementPattern:
-    """Sequence element with no constraint."""
-
-
-@dataclass(frozen=True)
-class RawElementPattern:
-    """Already-built LibCST pattern used when another recognizer did the work."""
-
-    pattern: cst.MatchPattern
-
-
-SequenceElementPattern = WildcardElementPattern | RawElementPattern
+SequenceElementPattern = cst.MatchPattern | None
 
 
 def find_sequence_subject(test: cst.BaseExpression) -> cst.BaseExpression | None:
@@ -84,8 +69,8 @@ def build_sequence_match_list(
         cst.MatchSequenceElement(
             value=(
                 cst.MatchAs(pattern=None, name=None)
-                if isinstance(pattern_info, WildcardElementPattern)
-                else pattern_info.pattern
+                if pattern_info is None
+                else pattern_info
             ),
             comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" ")),
         )
