@@ -70,10 +70,6 @@ class IfToMatchTransformer(cst.CSTTransformer):
         return SubjectRecognizer(self.ignore_types_pattern).recognize(test)
 
 
-# Compatibility alias for users who tried the prototype-era class name.
-IfToMatchTransformerV2 = IfToMatchTransformer
-
-
 def transform_code(source: str, ignore_types_pattern: str | None = None) -> str:
     """Transform Python source code by converting if/elif/else chains to match statements.
 
