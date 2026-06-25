@@ -42,10 +42,8 @@ target-version = ["py310"]
 profile = "black"
 
 [tool.commitizen]
-changelog_incremental = true
 major_version_zero = true
 tag_format = "v$major.$minor.$patch$prerelease"
-update_changelog_on_bump = true
 version_provider = "pep621"
 
 [tool.coverage.paths]
