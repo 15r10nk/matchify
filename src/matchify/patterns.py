@@ -95,10 +95,11 @@ def is_list_tuple_classes(classes: list[cst.BaseExpression]) -> bool:
 def is_ignored_type_expr(
     expr: cst.BaseExpression, ignore_types_pattern: str | None
 ) -> bool:
-    if ignore_types_pattern is None or not isinstance(expr, cst.Name):
-        return False
-
-    return re.match(ignore_types_pattern, expr.value) is not None
+    return (
+        ignore_types_pattern is not None
+        and isinstance(expr, cst.Name)
+        and re.match(ignore_types_pattern, expr.value) is not None
+    )
 
 
 def build_class_pattern(
