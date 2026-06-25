@@ -9,7 +9,7 @@ from libcst import matchers as m
 
 from .capture_patterns import CapturePatternRewriter
 from .facts import BranchFacts
-from .patterns import is_ignored_type_expr
+from .patterns import extract_isinstance_classes
 from .recognizers import SubjectRecognizer, normalize_branch
 from .safety import is_safe_condition
 
@@ -175,18 +175,12 @@ class GenericIfChainCompiler:
             if not call.args[0].value.deep_equals(subject):
                 continue
 
-            class_arg = call.args[1].value
-            if is_ignored_type_expr(class_arg, self.ignore_types_pattern):
+            if (
+                extract_isinstance_classes(
+                    call.args[1].value, self.ignore_types_pattern
+                )
+                is None
+            ):
                 return True
-            if isinstance(class_arg, cst.Tuple):
-                if not class_arg.elements:
-                    return True
-                for elem in class_arg.elements:
-                    if isinstance(elem, cst.StarredElement):
-                        return True
-                    if isinstance(elem, cst.Element) and is_ignored_type_expr(
-                        elem.value, self.ignore_types_pattern
-                    ):
-                        return True
 
         return False
