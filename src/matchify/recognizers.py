@@ -9,6 +9,7 @@ from .patterns import (
     extract_isinstance_classes,
     flatten_boolean,
     is_isinstance_call,
+    is_len_call,
     is_list_tuple_classes,
     is_literal_value,
     is_singleton_name,
@@ -268,9 +269,7 @@ def collect_checked_attribute_paths(
     if not isinstance(node, cst.Comparison) or len(node.comparisons) != 1:
         return set()
 
-    if isinstance(node.left, cst.Call) and m.matches(
-        node.left, m.Call(func=m.Name(value="len"), args=[m.Arg()])
-    ):
+    if is_len_call(node.left):
         len_call = node.left
         path = SubjectPath.from_expression(len_call.args[0].value, subject)
         if path is None:

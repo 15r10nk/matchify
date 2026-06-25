@@ -1,9 +1,8 @@
 """Sequence-pattern recognition and construction."""
 
 import libcst as cst
-from libcst import matchers as m
 
-from .patterns import flatten_boolean, is_isinstance_call
+from .patterns import flatten_boolean, is_isinstance_call, is_len_call
 from .subject_path import SubjectPath
 
 
@@ -16,10 +15,7 @@ def find_sequence_subject(test: cst.BaseExpression) -> cst.BaseExpression | None
             continue
         if not isinstance(target.comparator, cst.Integer):
             continue
-        if not isinstance(component.left, cst.Call) or not m.matches(
-            component.left,
-            m.Call(func=m.Name(value="len"), args=[m.Arg()]),
-        ):
+        if not is_len_call(component.left):
             continue
         len_call = component.left
         subject = len_call.args[0].value

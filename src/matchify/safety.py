@@ -1,9 +1,8 @@
 """Safety checks that decide whether a condition can be converted."""
 
 import libcst as cst
-from libcst import matchers as m
 
-from .patterns import is_literal_value, is_singleton_name
+from .patterns import is_len_call, is_literal_value, is_singleton_name
 
 
 def is_safe_condition(
@@ -23,10 +22,7 @@ def is_safe_condition(
                     comparator
                 ):
                     return False
-            elif isinstance(component.left, cst.Call) and m.matches(
-                component.left,
-                m.Call(func=m.Name(value="len"), args=[m.Arg()]),
-            ):
+            elif is_len_call(component.left):
                 len_call = component.left
                 len_arg = len_call.args[0].value
                 if (

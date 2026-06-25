@@ -48,6 +48,12 @@ def is_isinstance_call(node: cst.CSTNode) -> bool:
     )
 
 
+def is_len_call(node: cst.CSTNode) -> bool:
+    return isinstance(node, cst.Call) and m.matches(
+        node, m.Call(func=m.Name(value="len"), args=[m.Arg()])
+    )
+
+
 def build_value_pattern(value: cst.BaseExpression) -> cst.MatchPattern:
     if (
         isinstance(value, cst.UnaryOperation)

@@ -5,12 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import libcst as cst
-from libcst import matchers as m
 
 from .patterns import (
     extract_isinstance_classes,
     flatten_boolean,
     is_isinstance_call,
+    is_len_call,
     is_list_tuple_classes,
     is_literal_value,
     is_singleton_name,
@@ -159,10 +159,7 @@ def parse_isinstance_predicate(
 def parse_len_predicate(
     predicate: cst.Comparison, subject: cst.BaseExpression
 ) -> LenEqualsPredicate | LenAtLeastPredicate | None:
-    if not isinstance(predicate.left, cst.Call) or not m.matches(
-        predicate.left,
-        m.Call(func=m.Name(value="len"), args=[m.Arg()]),
-    ):
+    if not is_len_call(predicate.left):
         return None
     len_call = predicate.left
     path = SubjectPath.from_expression(len_call.args[0].value, subject)
