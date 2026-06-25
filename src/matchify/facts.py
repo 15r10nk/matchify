@@ -66,16 +66,8 @@ class OrFact:
 PathFact = ValueFact | ClassFact | SequenceFact | OrFact
 
 
-class PatternNode:
-    """Base class for explicit recursive match-pattern IR nodes."""
-
-    # Abstract base hook; concrete node classes are covered through E2E transforms.
-    def render(self) -> cst.MatchPattern:  # pragma: no cover
-        raise NotImplementedError
-
-
 @dataclass(frozen=True)
-class WildcardNode(PatternNode):
+class WildcardNode:
     """Wildcard placeholder used when a path creates an intermediate child."""
 
     # Placeholder nodes should be replaced before rendering through public flows.
@@ -84,7 +76,7 @@ class WildcardNode(PatternNode):
 
 
 @dataclass(frozen=True)
-class ValueNode(PatternNode):
+class ValueNode:
     """A literal or singleton value pattern."""
 
     value: cst.BaseExpression
@@ -94,7 +86,7 @@ class ValueNode(PatternNode):
 
 
 @dataclass(frozen=True)
-class CaptureNode(PatternNode):
+class CaptureNode:
     """A capture pattern that binds one sequence element."""
 
     name: str
@@ -104,7 +96,7 @@ class CaptureNode(PatternNode):
 
 
 @dataclass(frozen=True)
-class ClassNode(PatternNode):
+class ClassNode:
     """A class pattern with recursively nested attribute children."""
 
     classes: tuple[cst.BaseExpression, ...]
@@ -130,7 +122,7 @@ class ClassNode(PatternNode):
 
 
 @dataclass(frozen=True)
-class SequenceNode(PatternNode):
+class SequenceNode:
     """A sequence pattern with recursively nested element children."""
 
     length: int
@@ -174,7 +166,7 @@ class SequenceNode(PatternNode):
 
 
 @dataclass(frozen=True)
-class OrNode(PatternNode):
+class OrNode:
     """An OR pattern with recursive alternatives."""
 
     alternatives: tuple[PatternNode, ...]
@@ -183,6 +175,9 @@ class OrNode(PatternNode):
         return build_or_pattern(
             [bracket_or_sequence_pattern(node.render()) for node in self.alternatives]
         )
+
+
+PatternNode = WildcardNode | ValueNode | CaptureNode | ClassNode | SequenceNode | OrNode
 
 
 @dataclass(frozen=True)
