@@ -85,14 +85,11 @@ def extract_isinstance_classes(
 
 
 def is_list_tuple_classes(classes: list[cst.BaseExpression]) -> bool:
-    names = []
-    for class_expr in classes:
-        # Exact list/tuple detection only applies to plain names; complex
-        # classinfo is handled as a normal pattern candidate and validated later.
-        if not isinstance(class_expr, cst.Name):  # pragma: no cover
-            return False
-        names.append(class_expr.value)
-    return set(names) == {"list", "tuple"}
+    # Exact list/tuple detection only applies to plain names; complex classinfo
+    # is handled as a normal pattern candidate and validated later.
+    if not all(isinstance(class_expr, cst.Name) for class_expr in classes):
+        return False
+    return {class_expr.value for class_expr in classes} == {"list", "tuple"}
 
 
 def is_ignored_type_expr(
