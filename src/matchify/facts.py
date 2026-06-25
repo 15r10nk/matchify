@@ -127,7 +127,7 @@ class SequenceNode:
         if not self.use_star and elements and max(elements) >= required_len:
             raise ValueError("Sequence element facts exceed the checked length")
         if not self.use_star and not validate_wildcard_constraint(
-            {index: node.render() for index, node in elements.items()},
+            set(elements),
             required_len,
         ):
             raise ValueError("Sequence fact would produce too many wildcards")
