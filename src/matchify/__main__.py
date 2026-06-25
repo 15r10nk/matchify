@@ -1,4 +1,4 @@
-"""Compatibility imports and CLI entry point for matchify."""
+"""Module entry point for `python -m matchify`."""
 
 from .cli import main
 
