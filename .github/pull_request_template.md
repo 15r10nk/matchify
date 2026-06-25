@@ -12,11 +12,10 @@ Create an issue first if you want to make bigger changes.
 -->
 
 ## Checklist
-- [ ] I have tested my changes thoroughly (you can download the test coverage with `hatch run cov:github`).
+- [ ] I have tested my changes thoroughly.
 - [ ] I have added/updated relevant documentation.
 - [ ] I have added tests for new functionality (if applicable).
 - [ ] I have reviewed my own code for errors.
-- [ ] I have added a changelog entry with `hatch run changelog:entry`
 - I used:
     - [ ] semantic commits (`feat:` will cause a major and `fix:` a minor version bump)
     - [ ] or my commits can be squashed during merge
