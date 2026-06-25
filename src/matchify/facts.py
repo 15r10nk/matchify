@@ -105,7 +105,7 @@ class ClassNode:
         if not self.classes:  # pragma: no cover
             raise ValueError("Class pattern nodes need class expressions before render")
         return build_class_pattern(
-            list(self.classes),
+            self.classes,
             [(name, render_child_node(node)) for name, node in self.attributes],
         )
 

@@ -155,7 +155,7 @@ def parse_isinstance_predicate(
         return None
     if is_list_tuple_classes(classes):
         return SequenceTypePredicate(path, predicate)
-    return IsInstancePredicate(path, tuple(classes), predicate)
+    return IsInstancePredicate(path, classes, predicate)
 
 
 def parse_len_predicate(
