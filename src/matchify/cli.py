@@ -89,38 +89,31 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    # Collect all Python files
     python_files = collect_python_files(args.paths)
 
     if not python_files:
         print("No Python files found to process")
         return
 
-    # Determine number of workers
     max_workers = args.jobs or multiprocessing.cpu_count()
 
-    # Process files in parallel
     converted_count = 0
     unchanged_count = 0
     error_count = 0
 
     if len(python_files) == 1:
-        # Single file - no need for multiprocessing
         result = convert_file(python_files[0], ignore_types_pattern=args.no_types)
         converted, unchanged, errors = report_result(*result, verbose=args.verbose)
         converted_count += converted
         unchanged_count += unchanged
         error_count += errors
     else:
-        # Multiple files - use parallel processing
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
-            # Submit all tasks
             futures = [
                 executor.submit(convert_file, path, args.no_types)
                 for path in python_files
             ]
 
-            # Process results as they complete
             for future in as_completed(futures):
                 converted, unchanged, errors = report_result(
                     *future.result(), verbose=args.verbose
@@ -129,7 +122,6 @@ def main() -> None:
                 unchanged_count += unchanged
                 error_count += errors
 
-    # Print summary
     print(
         f"\nSummary: {converted_count} converted, {unchanged_count} unchanged, {error_count} errors"
     )
