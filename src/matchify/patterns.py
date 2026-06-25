@@ -1,7 +1,5 @@
 """Shared pattern construction and condition helpers."""
 
-from __future__ import annotations
-
 import re
 
 import libcst as cst
