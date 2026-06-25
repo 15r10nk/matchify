@@ -87,14 +87,13 @@ def has_direct_sequence_element_check(
 def build_sequence_match_list(
     pattern_infos: list[SequenceElementPattern],
     use_star: bool,
-    is_top_level: bool = True,
 ) -> cst.MatchList:
-    elements = build_sequence_elements(pattern_infos, use_star, is_top_level)
+    elements = build_sequence_elements(pattern_infos, use_star)
     return cst.MatchList(patterns=elements, lbracket=None, rbracket=None)
 
 
 def build_sequence_elements(
-    pattern_infos: list[SequenceElementPattern], use_star: bool, is_top_level: bool
+    pattern_infos: list[SequenceElementPattern], use_star: bool
 ) -> list[cst.MatchSequenceElement]:
     elements = [
         cst.MatchSequenceElement(
@@ -110,7 +109,7 @@ def build_sequence_elements(
         )
         return elements
 
-    if len(elements) > 1 or not is_top_level:
+    if len(elements) > 1:
         last = elements[-1]
         elements[-1] = cst.MatchSequenceElement(value=last.value)
     elif elements:  # pragma: no branch
