@@ -205,9 +205,9 @@ def sequence_path_has_element_fact(
 
 
 def fact_priority(fact: PathFact) -> int:
-    if isinstance(fact, ClassFact | SequenceFact):
-        return 0
-    if isinstance(fact, OrFact) and or_fact_is_anchor(fact):
+    if isinstance(fact, ClassFact | SequenceFact) or (
+        isinstance(fact, OrFact) and or_fact_is_anchor(fact)
+    ):
         return 0
     return 1
 
