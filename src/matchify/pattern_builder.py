@@ -211,9 +211,7 @@ def fact_sort_key(fact: PathFact) -> tuple[int, int]:
 def fact_priority(fact: PathFact) -> int:
     if isinstance(fact, ClassFact | SequenceFact):
         return 0
-    if isinstance(fact, OrFact) and all(
-        alternative_is_anchor(alternative) for alternative in fact.alternatives
-    ):
+    if isinstance(fact, OrFact) and or_fact_is_anchor(fact):
         return 0
     return 1
 
