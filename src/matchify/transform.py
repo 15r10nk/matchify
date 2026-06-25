@@ -48,11 +48,10 @@ class IfToMatchTransformer(cst.CSTTransformer):
             new_body_stmts = []
             for stmt in case.body.body:
                 temp_module = cst.Module(body=[stmt])
-                wrapper = cst.MetadataWrapper(temp_module)
                 transformer = IfToMatchTransformer(
                     ignore_types_pattern=self.ignore_types_pattern
                 )
-                transformed_module = wrapper.visit(transformer)
+                transformed_module = temp_module.visit(transformer)
                 new_body_stmts.extend(transformed_module.body)
 
             new_cases.append(
@@ -75,8 +74,7 @@ def transform_code(source: str, ignore_types_pattern: str | None = None) -> str:
     module = cst.parse_module(source)
 
     # First pass: convert if/elif/else to match
-    wrapper = cst.MetadataWrapper(module)
-    transformed = wrapper.visit(
+    transformed = module.visit(
         IfToMatchTransformer(ignore_types_pattern=ignore_types_pattern)
     )
 
