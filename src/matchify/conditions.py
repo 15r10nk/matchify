@@ -159,15 +159,12 @@ def parse_isinstance_predicate(
 def parse_len_predicate(
     predicate: cst.Comparison, subject: cst.BaseExpression
 ) -> LenEqualsPredicate | LenAtLeastPredicate | None:
-    if not m.matches(
+    if not isinstance(predicate.left, cst.Call) or not m.matches(
         predicate.left,
         m.Call(func=m.Name(value="len"), args=[m.Arg()]),
     ):
         return None
     len_call = predicate.left
-    # Guarded by the matcher above; retained for type-narrowing safety.
-    if not isinstance(len_call, cst.Call) or not len_call.args:  # pragma: no cover
-        return None
     path = SubjectPath.from_expression(len_call.args[0].value, subject)
     if path is None or has_unknown_subscript(path):
         return None

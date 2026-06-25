@@ -25,9 +25,10 @@ def is_singleton_name(node: cst.BaseExpression) -> bool:
 
 
 def is_literal_value(node: cst.BaseExpression) -> bool:
-    if m.matches(node, m.UnaryOperation(operator=m.Minus() | m.Plus())):
-        unary = node  # type: ignore[assignment]
-        return m.matches(unary.expression, m.Integer() | m.Float())
+    if isinstance(node, cst.UnaryOperation) and isinstance(
+        node.operator, (cst.Minus, cst.Plus)
+    ):
+        return isinstance(node.expression, (cst.Integer, cst.Float))
 
     return m.matches(
         node,
@@ -90,12 +91,12 @@ def extract_isinstance_classes(
 def is_ignored_type_expr(
     expr: cst.BaseExpression, ignore_types_pattern: str | None
 ) -> bool:
-    if ignore_types_pattern is None or not m.matches(expr, m.Name()):
+    if ignore_types_pattern is None or not isinstance(expr, cst.Name):
         return False
 
     import re
 
-    return re.match(ignore_types_pattern, expr.value) is not None  # type: ignore[attr-defined]
+    return re.match(ignore_types_pattern, expr.value) is not None
 
 
 def build_class_pattern(
