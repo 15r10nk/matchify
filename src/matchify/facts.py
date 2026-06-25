@@ -190,8 +190,6 @@ class PatternTree:
     def from_facts(
         cls,
         facts: tuple[PathFact, ...],
-        *,
-        capture_facts: tuple[CaptureFact, ...] = (),
     ) -> PatternTree:
         # Public normalization only builds PatternTree after at least one fact.
         if not facts:  # pragma: no cover
@@ -205,8 +203,7 @@ class PatternTree:
         if root is None:  # pragma: no cover
             raise ValueError("PatternTree has no renderable node")
 
-        tree = cls(root)
-        return tree.with_captures(capture_facts)
+        return cls(root)
 
     def with_captures(self, capture_facts: tuple[CaptureFact, ...]) -> PatternTree:
         tree = self
