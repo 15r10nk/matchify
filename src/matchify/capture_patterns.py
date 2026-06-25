@@ -110,9 +110,8 @@ class CapturePatternRewriter:
             # Replace with pass statement
             pass_stmt = cst.SimpleStatementLine(body=[cst.Pass()])
             return body.with_changes(body=[pass_stmt])
-        else:
-            # Remove first N statements
-            return body.with_changes(body=body.body[count:])
+        # Remove first N statements
+        return body.with_changes(body=body.body[count:])
 
     def _prepend_aliases(
         self, body: cst.IndentedBlock, aliases: list[tuple[str, str]]
