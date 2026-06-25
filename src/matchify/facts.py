@@ -292,12 +292,8 @@ def merge_nodes(existing: PatternNode, incoming: PatternNode) -> PatternNode:
         return incoming
     if isinstance(incoming, WildcardNode):  # pragma: no cover
         return existing
-    if isinstance(existing, CaptureNode) or isinstance(
-        incoming, CaptureNode
-    ):  # pragma: no cover
-        return incoming
-    if isinstance(existing, ValueNode) or isinstance(
-        incoming, ValueNode
+    if isinstance(existing, (CaptureNode, ValueNode)) or isinstance(
+        incoming, (CaptureNode, ValueNode)
     ):  # pragma: no cover
         return incoming
     if isinstance(existing, ClassNode) and isinstance(
