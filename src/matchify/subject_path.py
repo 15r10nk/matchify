@@ -81,10 +81,6 @@ class SubjectPath:
     def first_part(self) -> SubjectPathPart | None:
         return self.parts[0] if self.parts else None
 
-    @property
-    def last_part(self) -> SubjectPathPart | None:
-        return self.parts[-1] if self.parts else None
-
     def tail(self) -> SubjectPath:
         return SubjectPath(self.parts[1:])
 

@@ -290,7 +290,7 @@ def collect_checked_attribute_paths(
         return {path}
 
     path = SubjectPath.from_expression(node.left, subject)
-    if path is None or not path or not isinstance(path.last_part, AttributePathPart):
+    if path is None or not path or not isinstance(path.parts[-1], AttributePathPart):
         return set()
 
     target = node.comparisons[0]
