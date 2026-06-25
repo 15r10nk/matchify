@@ -42,20 +42,15 @@ def is_literal_value(node: cst.BaseExpression) -> bool:
 
 
 def build_value_pattern(value: cst.BaseExpression) -> cst.MatchPattern:
-    value = normalize_value_pattern_expression(value)
-    if is_singleton_name(value):
-        return cst.MatchSingleton(value=value)
-    return cst.MatchValue(value=value)
-
-
-def normalize_value_pattern_expression(value: cst.BaseExpression) -> cst.BaseExpression:
     if (
         isinstance(value, cst.UnaryOperation)
         and isinstance(value.operator, cst.Plus)
         and isinstance(value.expression, (cst.Integer, cst.Float))
     ):
-        return value.expression
-    return value
+        value = value.expression
+    if is_singleton_name(value):
+        return cst.MatchSingleton(value=value)
+    return cst.MatchValue(value=value)
 
 
 def build_or_pattern(patterns: list[cst.MatchPattern]) -> cst.MatchPattern:
