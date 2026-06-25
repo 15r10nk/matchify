@@ -77,25 +77,19 @@ class GenericIfChainCompiler:
                 current = current.orelse
                 continue
             if isinstance(current.orelse, cst.Else):
-                return (
-                    IfChain(
-                        subject=subject,
-                        branches=branches,
-                        else_body=current.orelse.body,
-                        else_leading_lines=current.orelse.leading_lines,
-                    )
-                    if has_extractable_pattern
-                    else None
-                )
-            return (
-                IfChain(
-                    subject=subject,
-                    branches=branches,
-                    else_body=None,
-                    else_leading_lines=(),
-                )
-                if has_extractable_pattern
-                else None
+                else_body = current.orelse.body
+                else_leading_lines = current.orelse.leading_lines
+            else:
+                else_body = None
+                else_leading_lines = ()
+
+            if not has_extractable_pattern:
+                return None
+            return IfChain(
+                subject=subject,
+                branches=branches,
+                else_body=else_body,
+                else_leading_lines=else_leading_lines,
             )
 
     def compile(
