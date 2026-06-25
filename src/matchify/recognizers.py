@@ -62,11 +62,6 @@ class SubjectRecognizer:
             if isinstance_subject is not None:  # pragma: no cover
                 return isinstance_subject
 
-        sequence_subject = find_sequence_subject(test)
-        # Sequence subjects require an AND expression, handled above.
-        if sequence_subject is not None:  # pragma: no cover
-            return sequence_subject
-
         if isinstance(test, cst.Comparison) and len(test.comparisons) == 1:
             operator = test.comparisons[0].operator
             if isinstance(operator, (cst.Equal, cst.Is)):
