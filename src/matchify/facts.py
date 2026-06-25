@@ -120,12 +120,13 @@ class SequenceNode:
 
     def render(self) -> cst.MatchPattern:
         elements = dict(self.elements)
+        max_element_index = max(elements) if elements else None
         required_len = self.length
-        if self.use_star and elements:
-            required_len = max(elements) + 1
+        if self.use_star and max_element_index is not None:
+            required_len = max_element_index + 1
 
         if not self.use_star:
-            if elements and max(elements) >= required_len:
+            if max_element_index is not None and max_element_index >= required_len:
                 raise ValueError("Sequence element facts exceed the checked length")
             if not validate_wildcard_constraint(set(elements), required_len):
                 raise ValueError("Sequence fact would produce too many wildcards")
