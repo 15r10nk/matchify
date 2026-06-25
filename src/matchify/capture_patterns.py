@@ -81,12 +81,18 @@ def prepend_aliases(
         for alias_name, source_name in aliases
     ]
 
-    if (
-        len(body.body) == 1
-        and isinstance(body.body[0], cst.SimpleStatementLine)
-        and len(body.body[0].body) == 1
-        and isinstance(body.body[0].body[0], cst.Pass)
-    ):
+    if body_is_pass(body):
         return body.with_changes(body=alias_statements)
 
     return body.with_changes(body=[*alias_statements, *body.body])
+
+
+def body_is_pass(body: cst.IndentedBlock) -> bool:
+    if len(body.body) != 1:
+        return False
+    statement = body.body[0]
+    return (
+        isinstance(statement, cst.SimpleStatementLine)
+        and len(statement.body) == 1
+        and isinstance(statement.body[0], cst.Pass)
+    )
