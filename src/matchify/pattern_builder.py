@@ -67,13 +67,9 @@ def build_pattern(
         return build_and_pattern(expr, require_anchored=require_anchored)
     if isinstance(expr, OrExpr):
         return build_or_pattern(expr)
-    return build_predicate_pattern(expr)
-
-
-def build_predicate_pattern(predicate: Predicate) -> PatternBuildResult:
-    fact = fact_from_predicate(predicate)
+    fact = fact_from_predicate(expr)
     if fact is None:
-        return PatternBuildResult((), predicate)
+        return PatternBuildResult((), expr)
     return PatternBuildResult((fact,))
 
 
