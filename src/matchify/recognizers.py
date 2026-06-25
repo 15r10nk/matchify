@@ -374,9 +374,6 @@ def normalize_branch(
         return bool_tree_branch
 
     return BranchFacts(
-        condition=condition,
-        subject=subject,
-        facts=(),
         pattern=None,
         guard=condition,
     )

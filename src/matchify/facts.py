@@ -233,17 +233,11 @@ class PatternTree:
 class BranchFacts:
     """Normalized facts for one branch condition."""
 
-    condition: cst.BaseExpression
-    subject: cst.BaseExpression
-    facts: tuple[PathFact, ...]
     pattern: PatternTree | None
     guard: cst.BaseExpression | None
 
     def with_pattern(self, pattern: PatternTree | None) -> BranchFacts:
         return BranchFacts(
-            condition=self.condition,
-            subject=self.subject,
-            facts=self.facts,
             pattern=pattern,
             guard=self.guard,
         )
@@ -251,16 +245,11 @@ class BranchFacts:
     @classmethod
     def from_facts(
         cls,
-        condition: cst.BaseExpression,
-        subject: cst.BaseExpression,
         facts: tuple[PathFact, ...],
         *,
         guard: cst.BaseExpression | None = None,
     ) -> BranchFacts:
         return cls(
-            condition=condition,
-            subject=subject,
-            facts=facts,
             pattern=PatternTree.from_facts(facts),
             guard=guard,
         )

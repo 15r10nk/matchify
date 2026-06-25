@@ -52,7 +52,7 @@ def normalize_with_bool_tree(
 
     guard = residual_condition(result.residual)
     try:
-        branch = BranchFacts.from_facts(condition, subject, result.facts, guard=guard)
+        branch = BranchFacts.from_facts(result.facts, guard=guard)
         # Non-empty facts above mean BranchFacts.from_facts builds a pattern.
         if branch.pattern is not None:  # pragma: no branch
             branch.pattern.render()
