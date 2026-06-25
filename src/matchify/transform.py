@@ -6,7 +6,6 @@ import libcst as cst
 from libcst.metadata import PositionProvider
 
 from .compiler import GenericIfChainCompiler
-from .recognizers import SubjectRecognizer
 
 
 class IfToMatchTransformer(cst.CSTTransformer):
@@ -62,12 +61,6 @@ class IfToMatchTransformer(cst.CSTTransformer):
             )
 
         return match_stmt.with_changes(cases=new_cases)
-
-    # Compatibility hook for callers that used the old transformer internals.
-    def _extract_subject(  # pragma: no cover
-        self, test: cst.BaseExpression
-    ) -> cst.BaseExpression | None:
-        return SubjectRecognizer(self.ignore_types_pattern).recognize(test)
 
 
 def transform_code(source: str, ignore_types_pattern: str | None = None) -> str:
