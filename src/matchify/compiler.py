@@ -20,7 +20,6 @@ from .safety import is_safe_condition
 class IfBranch(NamedTuple):
     """One if/elif branch in a convertible chain."""
 
-    test: cst.BaseExpression
     body: cst.IndentedBlock
     leading_lines: tuple[cst.EmptyLine, ...]
     facts: BranchFacts
@@ -71,7 +70,7 @@ class GenericIfChainCompiler:
             )
 
             leading_lines = () if current is node else current.leading_lines
-            branches.append(IfBranch(current.test, current.body, leading_lines, facts))
+            branches.append(IfBranch(current.body, leading_lines, facts))
 
             if isinstance(current.orelse, cst.If):
                 current = current.orelse
