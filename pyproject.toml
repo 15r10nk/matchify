@@ -88,7 +88,7 @@ scripts.test = [
   "hatch run all:test-cov -- {args}",
   "coverage combine",
   "coverage html",
-  "coverage report "
+  "coverage report"
 ]
 
 
