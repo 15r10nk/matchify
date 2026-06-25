@@ -16,6 +16,7 @@ from .conditions import (
     OrExpr,
     Predicate,
     SequenceTypePredicate,
+    bind_condition_subject,
     parse_condition,
     residual_condition,
 )
@@ -44,7 +45,10 @@ def normalize_with_bool_tree(
     ignore_types_pattern: str | None = r".*_TYPES$",
 ) -> BranchFacts | None:
     """Normalize one branch by parsing it into BoolExpr first."""
-    expr = parse_condition(condition, subject, ignore_types_pattern)
+    expr = bind_condition_subject(
+        parse_condition(condition, ignore_types_pattern),
+        subject,
+    )
     result = build_pattern(expr)
     if result.pattern is None:
         return None
@@ -144,12 +148,20 @@ def build_result(
 
 def fact_from_predicate(predicate: Predicate) -> PathFact | None:
     if isinstance(predicate, EqualsPredicate | IsPredicate):
+        if predicate.path is None:
+            return None
         return ValueFact(predicate.path, predicate.value)
     if isinstance(predicate, IsInstancePredicate):
+        if predicate.path is None:
+            return None
         return ClassFact(predicate.path, predicate.classes)
     if isinstance(predicate, LenEqualsPredicate):
+        if predicate.path is None:
+            return None
         return SequenceFact(predicate.path, predicate.length)
     if isinstance(predicate, LenAtLeastPredicate):
+        if predicate.path is None:
+            return None
         return SequenceFact(predicate.path, predicate.minimum, use_star=True)
     return None
 
