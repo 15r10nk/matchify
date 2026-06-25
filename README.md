@@ -1,6 +1,5 @@
 <!-- -8<- [start:Header] -->
 
-
 ![ci](https://github.com/15r10nk/matchify/actions/workflows/ci.yml/badge.svg?branch=main)
 [![pypi version](https://img.shields.io/pypi/v/matchify.svg)](https://pypi.org/project/matchify/)
 ![Python Versions](https://img.shields.io/pypi/pyversions/matchify)
@@ -11,13 +10,11 @@
 
 ## Installation
 
-
 You can install "matchify" via [pip](https://pypi.org/project/pip/):
 
 ``` bash
 pip install matchify
 ```
-
 
 ## Key Features
 
@@ -34,7 +31,6 @@ pip install matchify
   - Or patterns for isinstance tuples (`isinstance(x, (int, float))`)
 - **Parallel processing** for fast conversion of large codebases
 - **Safe transformations** - only converts when semantics are preserved
-
 
 ## Usage
 
