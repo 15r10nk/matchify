@@ -203,11 +203,15 @@ def sequence_path_has_element_fact(
 
 
 def fact_priority(fact: PathFact) -> int:
-    if isinstance(fact, ClassFact | SequenceFact) or (
-        isinstance(fact, OrFact) and or_fact_is_anchor(fact)
-    ):
+    if fact_is_anchor(fact):
         return 0
     return 1
+
+
+def fact_is_anchor(fact: PathFact) -> bool:
+    return isinstance(fact, ClassFact | SequenceFact) or (
+        isinstance(fact, OrFact) and or_fact_is_anchor(fact)
+    )
 
 
 def alternative_is_anchor(
@@ -227,9 +231,7 @@ def facts_are_anchored(facts: tuple[PathFact, ...]) -> bool:
     anchored_paths: set[SubjectPath] = set()
     for fact in facts:
         if fact.path.is_subject:
-            if isinstance(fact, ClassFact | SequenceFact) or (
-                isinstance(fact, OrFact) and or_fact_is_anchor(fact)
-            ):
+            if fact_is_anchor(fact):
                 anchored_paths.add(fact.path)
             continue
 
@@ -238,9 +240,7 @@ def facts_are_anchored(facts: tuple[PathFact, ...]) -> bool:
             parent == anchor or parent.starts_with(anchor) for anchor in anchored_paths
         ):
             return False
-        if isinstance(fact, ClassFact | SequenceFact) or (
-            isinstance(fact, OrFact) and or_fact_is_anchor(fact)
-        ):
+        if fact_is_anchor(fact):
             anchored_paths.add(fact.path)
 
     return True
