@@ -11,7 +11,6 @@ from .patterns import is_literal_value, is_singleton_name
 def is_safe_condition(
     condition: cst.BaseExpression,
     subject: cst.BaseExpression,
-    ignore_types_pattern: str | None,
 ) -> bool:
     for component in flatten_all_boolean(condition):
         if isinstance(component, cst.Comparison) and len(component.comparisons) == 1:

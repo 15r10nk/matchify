@@ -84,9 +84,7 @@ class GenericIfChainCompiler:
         has_extractable_pattern = False
 
         for branch in chain.branches:
-            if not is_safe_condition(
-                branch.test, chain.subject, self.ignore_types_pattern
-            ):
+            if not is_safe_condition(branch.test, chain.subject):
                 return False
             if self._has_problematic_isinstance(branch.test, chain.subject):
                 return False
