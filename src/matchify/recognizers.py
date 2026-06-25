@@ -1,7 +1,5 @@
 """Recognizers that turn branch conditions into match patterns and guards."""
 
-from __future__ import annotations
-
 import libcst as cst
 from libcst import matchers as m
 
