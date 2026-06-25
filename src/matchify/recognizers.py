@@ -397,6 +397,4 @@ def prepare_bool_tree_condition(
 
 
 def contains_subscript(node: cst.CSTNode) -> bool:
-    if isinstance(node, cst.Subscript):  # pragma: no branch
-        return True
-    return any(contains_subscript(child) for child in node.children)
+    return bool(m.findall(node, m.Subscript()))
