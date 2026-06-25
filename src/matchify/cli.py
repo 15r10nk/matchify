@@ -2,7 +2,8 @@
 
 import argparse
 import pathlib
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor
+from functools import partial
 
 from .transform import transform_code
 
@@ -103,14 +104,10 @@ def main() -> None:
         error_count += errors
     else:
         with ProcessPoolExecutor(max_workers=args.jobs or None) as executor:
-            futures = [
-                executor.submit(convert_file, path, args.no_types)
-                for path in python_files
-            ]
-
-            for future in as_completed(futures):
+            convert = partial(convert_file, ignore_types_pattern=args.no_types)
+            for result in executor.map(convert, python_files):
                 converted, unchanged, errors = report_result(
-                    *future.result(), verbose=args.verbose
+                    *result, verbose=args.verbose
                 )
                 converted_count += converted
                 unchanged_count += unchanged
