@@ -124,13 +124,11 @@ class SequenceNode:
         if self.use_star and elements:
             required_len = max(elements) + 1
 
-        if not self.use_star and elements and max(elements) >= required_len:
-            raise ValueError("Sequence element facts exceed the checked length")
-        if not self.use_star and not validate_wildcard_constraint(
-            set(elements),
-            required_len,
-        ):
-            raise ValueError("Sequence fact would produce too many wildcards")
+        if not self.use_star:
+            if elements and max(elements) >= required_len:
+                raise ValueError("Sequence element facts exceed the checked length")
+            if not validate_wildcard_constraint(set(elements), required_len):
+                raise ValueError("Sequence fact would produce too many wildcards")
 
         pattern_infos: list[cst.MatchPattern | None] = [
             (render_child_node(elements[index]) if index in elements else None)
