@@ -30,7 +30,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
             return updated_node
 
         chain = self.compiler.extract_chain(updated_node)
-        if chain is None or not self.compiler.is_convertible(chain):
+        if chain is None:
             return updated_node
 
         match_stmt = self.compiler.compile(

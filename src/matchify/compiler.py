@@ -23,6 +23,7 @@ class IfBranch(NamedTuple):
     test: cst.BaseExpression
     body: cst.IndentedBlock
     leading_lines: tuple[cst.EmptyLine, ...]
+    facts: BranchFacts
 
 
 class IfChain(NamedTuple):
@@ -53,45 +54,49 @@ class GenericIfChainCompiler:
             return None
 
         branches: list[IfBranch] = []
+        has_extractable_pattern = False
         current = node
         while True:
             branch_subject = self.subject_recognizer.recognize(current.test)
             if branch_subject is None or not branch_subject.deep_equals(subject):
                 return None
+            if not is_safe_condition(current.test, subject):
+                return None
+            if self._has_problematic_isinstance(current.test, subject):
+                return None
+
+            facts = normalize_branch(current.test, subject, self.ignore_types_pattern)
+            has_extractable_pattern = (
+                has_extractable_pattern or facts.pattern is not None
+            )
 
             leading_lines = () if current is node else current.leading_lines
-            branches.append(IfBranch(current.test, current.body, leading_lines))
+            branches.append(IfBranch(current.test, current.body, leading_lines, facts))
 
             if isinstance(current.orelse, cst.If):
                 current = current.orelse
                 continue
             if isinstance(current.orelse, cst.Else):
-                return IfChain(
+                return (
+                    IfChain(
+                        subject=subject,
+                        branches=branches,
+                        else_body=current.orelse.body,
+                        else_leading_lines=current.orelse.leading_lines,
+                    )
+                    if has_extractable_pattern
+                    else None
+                )
+            return (
+                IfChain(
                     subject=subject,
                     branches=branches,
-                    else_body=current.orelse.body,
-                    else_leading_lines=current.orelse.leading_lines,
+                    else_body=None,
+                    else_leading_lines=(),
                 )
-            return IfChain(
-                subject=subject,
-                branches=branches,
-                else_body=None,
-                else_leading_lines=(),
+                if has_extractable_pattern
+                else None
             )
-
-    def is_convertible(self, chain: IfChain) -> bool:
-        branch_facts = []
-        for branch in chain.branches:
-            if not is_safe_condition(branch.test, chain.subject):
-                return False
-            if self._has_problematic_isinstance(branch.test, chain.subject):
-                return False
-
-            branch_facts.append(
-                normalize_branch(branch.test, chain.subject, self.ignore_types_pattern)
-            )
-
-        return any(facts.pattern is not None for facts in branch_facts)
 
     def compile(
         self, chain: IfChain, leading_lines: tuple[cst.EmptyLine, ...]
@@ -116,7 +121,7 @@ class GenericIfChainCompiler:
     def _compile_branch(
         self, branch: IfBranch, subject: cst.BaseExpression
     ) -> cst.MatchCase:
-        facts = normalize_branch(branch.test, subject, self.ignore_types_pattern)
+        facts = branch.facts
         body = branch.body
 
         if facts.pattern is not None:
