@@ -152,8 +152,6 @@ def fact_from_predicate(predicate: Predicate) -> PathFact | None:
         return SequenceFact(predicate.path, predicate.length)
     if isinstance(predicate, LenAtLeastPredicate):
         return SequenceFact(predicate.path, predicate.minimum, use_star=True)
-    if isinstance(predicate, SequenceTypePredicate):
-        return None
     return None
 
 
