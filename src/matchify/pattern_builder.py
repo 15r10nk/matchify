@@ -303,14 +303,10 @@ def common_residual(
 
     first = residuals[0]
     first_condition = residual_condition(first)
-    # Concrete residual nodes always render back to a condition.
-    if first_condition is None:  # pragma: no cover
-        return _MIXED_RESIDUALS
 
     for residual in residuals[1:]:
         condition = residual_condition(residual)
-        # `condition is None` is defensive; unequal residuals are covered by E2E.
-        if condition is None or not condition.deep_equals(first_condition):
+        if not condition.deep_equals(first_condition):
             return _MIXED_RESIDUALS
     return first
 
