@@ -51,8 +51,8 @@ class GenericIfChainCompiler:
             return None
 
         branches: list[IfBranch] = []
-        current: cst.If | None = node
-        while current is not None:
+        current = node
+        while True:
             branch_subject = self.subject_recognizer.recognize(current.test)
             if branch_subject is None or not branch_subject.deep_equals(subject):
                 return None
@@ -76,9 +76,6 @@ class GenericIfChainCompiler:
                 else_body=None,
                 else_leading_lines=(),
             )
-
-        # Defensive only: the loop returns as soon as the CST chain ends.
-        return None  # pragma: no cover
 
     def is_convertible(self, chain: IfChain) -> bool:
         has_extractable_pattern = False
