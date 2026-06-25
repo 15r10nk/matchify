@@ -231,7 +231,7 @@ class PatternTree:
             tree = PatternTree(
                 insert_capture_node(
                     tree.node,
-                    capture_path(fact),
+                    SubjectPath((*fact.path.parts, SubscriptPathPart(fact.index))),
                     CaptureNode(fact.name),
                 )
             )
@@ -395,10 +395,6 @@ def merge_sequence_nodes(
         else:
             elements[index] = incoming_child
     return SequenceNode(incoming.length, incoming.use_star, tuple(elements.items()))
-
-
-def capture_path(fact: CaptureFact) -> SubjectPath:
-    return SubjectPath((*fact.path.parts, SubscriptPathPart(fact.index)))
 
 
 def insert_capture_node(
