@@ -80,21 +80,18 @@ class GenericIfChainCompiler:
             )
 
     def is_convertible(self, chain: IfChain) -> bool:
-        has_extractable_pattern = False
-
+        branch_facts = []
         for branch in chain.branches:
             if not is_safe_condition(branch.test, chain.subject):
                 return False
             if self._has_problematic_isinstance(branch.test, chain.subject):
                 return False
 
-            facts = normalize_branch(
-                branch.test, chain.subject, self.ignore_types_pattern
+            branch_facts.append(
+                normalize_branch(branch.test, chain.subject, self.ignore_types_pattern)
             )
-            if facts.pattern is not None:
-                has_extractable_pattern = True
 
-        return has_extractable_pattern
+        return any(facts.pattern is not None for facts in branch_facts)
 
     def compile(
         self, chain: IfChain, leading_lines: tuple[cst.EmptyLine, ...]
