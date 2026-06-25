@@ -102,20 +102,16 @@ def build_and_pattern(
     if require_anchored and not facts_are_anchored(ordered_facts):
         return PatternBuildResult((), expr)
 
+    residual = None
+    if len(residuals) == 1:
+        residual = residuals[0]
+    elif residuals:
+        residual = AndExpr(tuple(residuals), expr.original)
+
     return PatternBuildResult(
         ordered_facts,
-        combined_and_residual(residuals, expr.original),
+        residual,
     )
-
-
-def combined_and_residual(
-    residuals: list[BoolExpr], original: cst.BaseExpression
-) -> BoolExpr | None:
-    if not residuals:
-        return None
-    if len(residuals) == 1:
-        return residuals[0]
-    return AndExpr(tuple(residuals), original)
 
 
 def build_or_pattern(expr: OrExpr) -> PatternBuildResult:
