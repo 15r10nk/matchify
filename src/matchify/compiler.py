@@ -120,7 +120,6 @@ class GenericIfChainCompiler:
         facts = normalize_branch(branch.test, subject, self.ignore_types_pattern)
         body = branch.body
 
-        aliases = []
         if facts.pattern is not None:
             captures = self.capture_patterns._detect_multiple_captures(body, subject)
             if captures:
