@@ -3,15 +3,12 @@
 from __future__ import annotations
 
 import libcst as cst
-from libcst.metadata import PositionProvider
 
 from .compiler import GenericIfChainCompiler
 
 
 class IfToMatchTransformer(cst.CSTTransformer):
     """Generic guard-first if-chain transformer."""
-
-    METADATA_DEPENDENCIES = (PositionProvider,)
 
     def __init__(self, ignore_types_pattern: str | None = r".*_TYPES$"):
         super().__init__()
