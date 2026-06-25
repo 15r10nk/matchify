@@ -319,11 +319,8 @@ def extract_hasattr_attribute_path(
     node: cst.BaseExpression, subject: cst.BaseExpression
 ) -> SubjectPath | None:
     if not isinstance(node, cst.Call) or not m.matches(
-        node, m.Call(func=m.Name(value="hasattr"))
+        node, m.Call(func=m.Name(value="hasattr"), args=[m.Arg(), m.Arg()])
     ):
-        return None
-    # Defensive: hasattr needs exactly object and attribute-name arguments.
-    if len(node.args) != 2:  # pragma: no cover
         return None
     path = SubjectPath.from_expression(node.args[0].value, subject)
     if path is None:  # pragma: no cover
