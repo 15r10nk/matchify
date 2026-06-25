@@ -1,7 +1,6 @@
 """Command-line and file processing helpers."""
 
 import argparse
-import multiprocessing
 import pathlib
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
@@ -92,8 +91,6 @@ def main() -> None:
         print("No Python files found to process")
         return
 
-    max_workers = args.jobs or multiprocessing.cpu_count()
-
     converted_count = 0
     unchanged_count = 0
     error_count = 0
@@ -105,7 +102,7 @@ def main() -> None:
         unchanged_count += unchanged
         error_count += errors
     else:
-        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        with ProcessPoolExecutor(max_workers=args.jobs or None) as executor:
             futures = [
                 executor.submit(convert_file, path, args.no_types)
                 for path in python_files
