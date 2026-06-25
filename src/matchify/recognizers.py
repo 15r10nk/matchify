@@ -252,10 +252,7 @@ def extract_list_tuple_isinstance_path(
     path = SubjectPath.from_expression(node.args[0].value, subject)
     if path is None:
         return None
-    class_arg = node.args[1].value
-    if not isinstance(class_arg, cst.Tuple):
-        return None
-    classes = extract_isinstance_classes(class_arg, ignore_types_pattern=None)
+    classes = extract_isinstance_classes(node.args[1].value, ignore_types_pattern=None)
     if classes is None or not is_list_tuple_classes(classes):
         return None
     return path
