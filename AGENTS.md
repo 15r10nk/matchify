@@ -10,26 +10,13 @@ Matchify is a Python tool that automatically converts if/elif/else chains into P
 
 ### Core Components
 
-1. **`src/matchify/__main__.py`** - Main module containing:
-   - `IfToMatchTransformer` - LibCST transformer that converts if-chains to match statements
-   - `convert_file()` - File processing function
-   - `main()` - CLI entry point
-
-2. **`tests/test_cli.py`** - Comprehensive test suite covering:
-   - Transformer logic
-   - File operations
-   - CLI functionality
-   - Edge cases
-
-### Key Classes and Methods
-
-#### `IfToMatchTransformer`
-- Extends `cst.CSTTransformer`
-- Uses `PositionProvider` metadata
-- Key methods:
-  - `_extract_subject()` - Extracts left side of `==` comparisons
-  - `_is_simple_equality_chain()` - Validates if-chain is convertible
-  - `leave_If()` - Main transformation logic
+1. **`src/matchify/transform.py`** - LibCST transformer orchestration and `transform_code()`.
+2. **`src/matchify/compiler.py`** - Normalizes if/elif chains and compiles them to `match`.
+3. **`src/matchify/conditions.py`** - Parses conditions into typed boolean predicates.
+4. **`src/matchify/pattern_builder.py`** - Lowers predicates into pattern facts and guards.
+5. **`src/matchify/facts.py`** and **`src/matchify/patterns.py`** - Pattern IR and rendering.
+6. **`src/matchify/capture_patterns.py`** - Detects assignments that can become capture patterns.
+7. **`src/matchify/cli.py`** and **`src/matchify/__main__.py`** - File processing and CLI entry points.
 
 ## LibCST API Usage
 
@@ -206,25 +193,24 @@ uv run pytest -xvs         # Stop on first failure with output
 ```
 
 ### Test Structure
-Tests are organized into classes:
-- `TestIfToMatchTransformer` - Core transformation logic
-- `TestConvertFile` - File operations
-- `TestMain` - CLI behavior
-- `TestExtractSubject` - Helper method validation
+Tests are behavior-focused:
+- `tests/test_transform.py` and `tests/test_edge_cases.py` cover source-to-source transformations.
+- `tests/test_cli.py` covers file processing and CLI behavior.
+- `tests/test_generated_roundtrip.py` generates programs, runs Matchify, and compares runtime traces.
 
 ### Writing New Tests
 - Use `textwrap.dedent()` for multiline code strings
 - Use `tempfile.TemporaryDirectory()` for file operations
-- Use `cst.parse_module()` and `cst.MetadataWrapper()` for transformation tests
-- Test both positive cases (should convert) and negative cases (should not convert)
+- Prefer end-to-end behavior checks through `transform_code()`, `convert_file()`, or CLI entry points.
+- Test both positive cases (should convert) and negative cases (should not convert).
 
 ## Common Tasks
 
 ### Adding a New Pattern Type
-1. Update `_extract_subject()` to recognize the pattern
-2. Add validation in `_is_simple_equality_chain()`
-3. Handle in `leave_If()` transformation logic
-4. Add test cases in `test_cli.py`
+1. Add or update typed predicates in `conditions.py`.
+2. Lower the predicates into facts or residual guards in `pattern_builder.py`.
+3. Render the resulting pattern shape through the existing pattern IR.
+4. Add end-to-end tests that verify transformed code and runtime behavior.
 
 ### Fixing Transformation Bugs
 1. Create a minimal test case that demonstrates the bug
