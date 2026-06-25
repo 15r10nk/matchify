@@ -258,8 +258,7 @@ def facts_are_anchored(facts: tuple[PathFact, ...]) -> bool:
                 isinstance(fact, OrFact) and or_fact_is_anchor(fact)
             ):
                 anchored_paths.add(fact.path)
-            if isinstance(fact, ValueFact | ClassFact | SequenceFact | OrFact):
-                continue
+            continue
 
         parent = fact.path.parent()
         if not any(
