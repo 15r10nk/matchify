@@ -5,7 +5,7 @@ from __future__ import annotations
 import libcst as cst
 
 from .facts import CaptureFact
-from .subject_path import SubjectPath
+from .subject_path import SubjectPath, extract_integer_subscript_index
 
 
 class CapturePatternRewriter:
@@ -90,15 +90,9 @@ class CapturePatternRewriter:
         path = SubjectPath.from_expression(subscript.value, subject)
         if path is None:
             return None
-        # Check index is an integer literal
-        if not isinstance(subscript.slice[0].slice, cst.Index):
+        index = extract_integer_subscript_index(subscript)
+        if index is None:
             return None
-
-        index_node = subscript.slice[0].slice.value
-        if not isinstance(index_node, cst.Integer):
-            return None
-
-        index = int(index_node.value)
 
         return CaptureFact(name=var_name, path=path, index=index)
 
