@@ -1,7 +1,5 @@
 """Safety checks that decide whether a condition can be converted."""
 
-from __future__ import annotations
-
 import libcst as cst
 from libcst import matchers as m
 
