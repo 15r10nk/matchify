@@ -201,28 +201,24 @@ def residual_condition(expr: BoolExpr | None) -> cst.BaseExpression | None:
     if expr is None:
         return None
     if isinstance(expr, AndExpr):
-        return combine_residuals(expr.parts, cst.And())
+        rendered = [
+            condition for part in expr.parts if (condition := residual_condition(part))
+        ]
+        if not rendered:
+            return None
+        if len(rendered) == 1:
+            return rendered[0]
+        expression = rendered[0]
+        for condition in rendered[1:]:
+            expression = cst.BooleanOperation(
+                left=expression,
+                operator=cst.And(),
+                right=condition,
+            )
+        return expression
     if isinstance(expr, OrExpr):
         return expr.original
     return expr.original
-
-
-def combine_residuals(
-    parts: tuple[BoolExpr, ...], operator: cst.BooleanOperator
-) -> cst.BaseExpression | None:
-    rendered = [condition for part in parts if (condition := residual_condition(part))]
-    if not rendered:
-        return None
-    if len(rendered) == 1:
-        return rendered[0]
-    expression = rendered[0]
-    for condition in rendered[1:]:
-        expression = cst.BooleanOperation(
-            left=expression,
-            operator=operator,
-            right=condition,
-        )
-    return expression
 
 
 def is_list_tuple_classes(classes: list[cst.BaseExpression]) -> bool:
