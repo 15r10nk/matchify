@@ -27,7 +27,6 @@ SequenceElementPattern = WildcardElementPattern | RawElementPattern
 
 
 def find_sequence_subject(test: cst.BaseExpression) -> cst.BaseExpression | None:
-    subject: cst.BaseExpression | None = None
     for component in flatten_boolean(test, cst.And):
         if not isinstance(component, cst.Comparison) or len(component.comparisons) != 1:
             continue
@@ -43,11 +42,11 @@ def find_sequence_subject(test: cst.BaseExpression) -> cst.BaseExpression | None
             continue
         len_call = component.left
         subject = len_call.args[0].value
-        break
-
-    if subject is None or not has_direct_sequence_element_check(test, subject):
+        if has_direct_sequence_element_check(test, subject):
+            return subject
         return None
-    return subject
+
+    return None
 
 
 def has_direct_sequence_element_check(
