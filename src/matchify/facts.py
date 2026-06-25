@@ -236,18 +236,6 @@ class BranchFacts:
     pattern: PatternTree | None
     guard: cst.BaseExpression | None
 
-    @classmethod
-    def from_facts(
-        cls,
-        facts: tuple[PathFact, ...],
-        *,
-        guard: cst.BaseExpression | None = None,
-    ) -> BranchFacts:
-        return cls(
-            pattern=PatternTree.from_facts(facts),
-            guard=guard,
-        )
-
 
 def insert_fact(root: PatternNode | None, fact: PathFact) -> PatternNode:
     node = node_from_fact(fact)

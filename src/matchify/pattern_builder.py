@@ -27,6 +27,7 @@ from .facts import (
     ClassFact,
     OrFact,
     PathFact,
+    PatternTree,
     SequenceFact,
     ValueFact,
 )
@@ -52,8 +53,11 @@ def normalize_with_bool_tree(
 
     guard = residual_condition(result.residual)
     try:
-        branch = BranchFacts.from_facts(result.facts, guard=guard)
-        # Non-empty facts above mean BranchFacts.from_facts builds a pattern.
+        branch = BranchFacts(
+            pattern=PatternTree.from_facts(result.facts),
+            guard=guard,
+        )
+        # Non-empty facts above mean PatternTree.from_facts builds a pattern.
         if branch.pattern is not None:  # pragma: no branch
             branch.pattern.render()
     except ValueError:
