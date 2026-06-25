@@ -211,16 +211,14 @@ class PatternTree:
         return cls(root)
 
     def with_captures(self, capture_facts: tuple[CaptureFact, ...]) -> PatternTree:
-        tree = self
+        node = self.node
         for fact in capture_facts:
-            tree = PatternTree(
-                insert_capture_node(
-                    tree.node,
-                    SubjectPath((*fact.path.parts, SubscriptPathPart(fact.index))),
-                    CaptureNode(fact.name),
-                )
+            node = insert_capture_node(
+                node,
+                SubjectPath((*fact.path.parts, SubscriptPathPart(fact.index))),
+                CaptureNode(fact.name),
             )
-        return tree
+        return PatternTree(node)
 
     def render(self) -> cst.MatchPattern:
         return self.node.render()
