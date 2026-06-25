@@ -183,13 +183,14 @@ class PatternTree:
         if not facts:  # pragma: no cover
             raise ValueError("PatternTree needs at least one fact")
 
-        first, *rest = facts
+        fact_iter = iter(facts)
+        first = next(fact_iter)
         # The builder orders facts so the first one always anchors the subject.
         if not first.path.is_subject:  # pragma: no cover
             raise ValueError("First pattern fact must describe the subject")
 
         root = node_from_fact(first)
-        for fact in rest:
+        for fact in fact_iter:
             root = insert_node(root, fact.path, node_from_fact(fact))
 
         return cls(root)
