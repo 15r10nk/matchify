@@ -30,15 +30,9 @@ def is_literal_value(node: cst.BaseExpression) -> bool:
     ):
         return isinstance(node.expression, (cst.Integer, cst.Float))
 
-    return m.matches(
+    return is_singleton_name(node) or m.matches(
         node,
-        m.Integer()
-        | m.Float()
-        | m.SimpleString()
-        | m.ConcatenatedString()
-        | m.Name(value="True")
-        | m.Name(value="False")
-        | m.Name(value="None"),
+        m.Integer() | m.Float() | m.SimpleString() | m.ConcatenatedString(),
     )
 
 
