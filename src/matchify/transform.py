@@ -32,33 +32,14 @@ class IfToMatchTransformer(cst.CSTTransformer):
         if id(original_node) in self._elif_nodes:
             return updated_node
 
-        chain = self.compiler.extract_chain(original_node)
+        chain = self.compiler.extract_chain(updated_node)
         if chain is None or not self.compiler.is_convertible(chain):
             return updated_node
 
         match_stmt = self.compiler.compile(
-            chain, leading_lines=original_node.leading_lines
+            chain, leading_lines=updated_node.leading_lines
         )
-        return self._transform_nested_cases(match_stmt)
-
-    def _transform_nested_cases(self, match_stmt: cst.Match) -> cst.Match:
-        """Run a fresh transformer over each case body so nested chains are handled."""
-        new_cases = []
-        for case in match_stmt.cases:
-            new_body_stmts = []
-            for stmt in case.body.body:
-                temp_module = cst.Module(body=[stmt])
-                transformer = IfToMatchTransformer(
-                    ignore_types_pattern=self.ignore_types_pattern
-                )
-                transformed_module = temp_module.visit(transformer)
-                new_body_stmts.extend(transformed_module.body)
-
-            new_cases.append(
-                case.with_changes(body=case.body.with_changes(body=new_body_stmts))
-            )
-
-        return match_stmt.with_changes(cases=new_cases)
+        return match_stmt
 
 
 def transform_code(source: str, ignore_types_pattern: str | None = None) -> str:
