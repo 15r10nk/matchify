@@ -10,7 +10,7 @@ from libcst import matchers as m
 from .capture_patterns import CapturePatternRewriter
 from .facts import BranchFacts
 from .patterns import is_ignored_type_expr
-from .recognizers import PatternRecognitionEngine
+from .recognizers import SubjectRecognizer, normalize_branch
 from .safety import is_safe_condition
 
 
@@ -42,18 +42,18 @@ class GenericIfChainCompiler:
 
     def __init__(self, ignore_types_pattern: str | None = r".*_TYPES$") -> None:
         self.ignore_types_pattern = ignore_types_pattern
-        self.recognition = PatternRecognitionEngine(ignore_types_pattern)
+        self.subject_recognizer = SubjectRecognizer(ignore_types_pattern)
         self.capture_patterns = CapturePatternRewriter()
 
     def extract_chain(self, node: cst.If) -> IfChain | None:
-        subject = self.recognition.recognize_subject(node.test)
+        subject = self.subject_recognizer.recognize(node.test)
         if subject is None or not isinstance(node.orelse, cst.If):
             return None
 
         branches: list[IfBranch] = []
         current: cst.If | None = node
         while current is not None:
-            branch_subject = self.recognition.recognize_subject(current.test)
+            branch_subject = self.subject_recognizer.recognize(current.test)
             if branch_subject is None or not branch_subject.deep_equals(subject):
                 return None
 
@@ -91,7 +91,9 @@ class GenericIfChainCompiler:
             if self._has_problematic_isinstance(branch.test, chain.subject):
                 return False
 
-            facts = self.recognition.normalize_branch(branch.test, chain.subject)
+            facts = normalize_branch(
+                branch.test, chain.subject, self.ignore_types_pattern
+            )
             if facts.pattern is not None:
                 has_extractable_pattern = True
 
@@ -120,7 +122,7 @@ class GenericIfChainCompiler:
     def _compile_branch(
         self, branch: IfBranch, subject: cst.BaseExpression
     ) -> cst.MatchCase:
-        facts = self.recognition.normalize_branch(branch.test, subject)
+        facts = normalize_branch(branch.test, subject, self.ignore_types_pattern)
         body = branch.body
 
         aliases = []

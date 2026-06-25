@@ -356,38 +356,30 @@ def extract_hasattr_attribute_path(
     return SubjectPath((*path.parts, AttributePathPart(literal)))
 
 
-class PatternRecognitionEngine:
-    """Runs branch recognition through the BoolExpr predicate pipeline."""
+def normalize_branch(
+    condition: cst.BaseExpression,
+    subject: cst.BaseExpression,
+    ignore_types_pattern: str | None = r".*_TYPES$",
+) -> BranchFacts:
+    bool_tree_condition = prepare_bool_tree_condition(
+        condition,
+        subject,
+    )
+    bool_tree_branch = normalize_with_bool_tree(
+        bool_tree_condition, subject, ignore_types_pattern
+    )
+    # Normal public conversions use the BoolExpr path; fallback remains for
+    # unsupported future predicates.
+    if bool_tree_branch is not None:  # pragma: no branch
+        return bool_tree_branch
 
-    def __init__(self, ignore_types_pattern: str | None = r".*_TYPES$") -> None:
-        self.ignore_types_pattern = ignore_types_pattern
-        self.subject_recognizer = SubjectRecognizer(ignore_types_pattern)
-
-    def recognize_subject(self, test: cst.BaseExpression) -> cst.BaseExpression | None:
-        return self.subject_recognizer.recognize(test)
-
-    def normalize_branch(
-        self, condition: cst.BaseExpression, subject: cst.BaseExpression
-    ) -> BranchFacts:
-        bool_tree_condition = prepare_bool_tree_condition(
-            condition,
-            subject,
-        )
-        bool_tree_branch = normalize_with_bool_tree(
-            bool_tree_condition, subject, self.ignore_types_pattern
-        )
-        # Normal public conversions use the BoolExpr path; fallback remains for
-        # unsupported future predicates.
-        if bool_tree_branch is not None:  # pragma: no branch
-            return bool_tree_branch
-
-        return BranchFacts(
-            condition=condition,
-            subject=subject,
-            facts=(),
-            pattern=None,
-            guard=condition,
-        )
+    return BranchFacts(
+        condition=condition,
+        subject=subject,
+        facts=(),
+        pattern=None,
+        guard=condition,
+    )
 
 
 def prepare_bool_tree_condition(
