@@ -48,9 +48,6 @@ changelog_incremental = true
 major_version_zero = true
 tag_format = "v$major.$minor.$patch$prerelease"
 update_changelog_on_bump = true
-version_files = [
-  "src/matchify/__init__.py:version"
-]
 version_provider = "pep621"
 
 [tool.coverage.paths]
@@ -94,9 +91,6 @@ scripts.test = [
   "coverage report "
 ]
 
-
-[tool.hatch.version]
-path = "src/matchify/__init__.py"
 
 [dependency-groups]
 dev = [
