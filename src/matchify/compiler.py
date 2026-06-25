@@ -53,7 +53,6 @@ class GenericIfChainCompiler:
             return None
 
         branches: list[IfBranch] = []
-        has_extractable_pattern = False
         current = node
         while True:
             branch_subject = self.subject_recognizer.recognize(current.test)
@@ -65,9 +64,6 @@ class GenericIfChainCompiler:
                 return None
 
             facts = normalize_branch(current.test, subject, self.ignore_types_pattern)
-            has_extractable_pattern = (
-                has_extractable_pattern or facts.pattern is not None
-            )
 
             leading_lines = () if current is node else current.leading_lines
             branches.append(IfBranch(current.body, leading_lines, facts))
@@ -82,7 +78,7 @@ class GenericIfChainCompiler:
                 else_body = None
                 else_leading_lines = ()
 
-            if not has_extractable_pattern:
+            if not any(branch.facts.pattern is not None for branch in branches):
                 return None
             return IfChain(
                 subject=subject,
