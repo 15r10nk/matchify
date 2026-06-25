@@ -7,10 +7,7 @@ from dataclasses import dataclass
 import libcst as cst
 
 from .patterns import build_class_pattern, build_or_pattern, build_value_pattern
-from .sequence_patterns import (
-    build_sequence_match_list,
-    validate_wildcard_constraint,
-)
+from .sequence_patterns import build_sequence_match_list
 from .subject_path import (
     AttributePathPart,
     SubjectPath,
@@ -128,7 +125,15 @@ class SequenceNode:
         if not self.use_star:
             if max_element_index is not None and max_element_index >= required_len:
                 raise ValueError("Sequence element facts exceed the checked length")
-            if not validate_wildcard_constraint(set(elements), required_len):
+            consecutive_wildcards = 0
+            for index in range(required_len):
+                if index in elements:
+                    consecutive_wildcards = 0
+                    continue
+                consecutive_wildcards += 1
+                if consecutive_wildcards >= 3:
+                    break
+            if consecutive_wildcards >= 3:
                 raise ValueError("Sequence fact would produce too many wildcards")
 
         pattern_infos: list[cst.MatchPattern | None] = [

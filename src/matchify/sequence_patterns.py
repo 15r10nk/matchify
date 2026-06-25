@@ -89,15 +89,3 @@ def build_sequence_match_list(
             comma=cst.Comma(whitespace_after=cst.SimpleWhitespace("")),
         )
     return cst.MatchList(patterns=elements, lbracket=None, rbracket=None)
-
-
-def validate_wildcard_constraint(element_indexes: set[int], total_len: int) -> bool:
-    consecutive_wildcards = 0
-    for index in range(total_len):
-        if index not in element_indexes:
-            consecutive_wildcards += 1
-            if consecutive_wildcards >= 3:
-                return False
-        else:
-            consecutive_wildcards = 0
-    return True
