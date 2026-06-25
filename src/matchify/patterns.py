@@ -77,10 +77,6 @@ def extract_isinstance_classes(
         for element in class_arg.elements:
             if isinstance(element, cst.StarredElement):
                 return None
-            # LibCST tuple elements are Element or StarredElement; keep this for
-            # forward compatibility with new CST element forms.
-            if not isinstance(element, cst.Element):  # pragma: no cover
-                return None
             if is_ignored_type_expr(element.value, ignore_types_pattern):
                 return None
             classes.append(element.value)
