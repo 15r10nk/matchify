@@ -399,8 +399,7 @@ def render_child_node(node: PatternNode) -> cst.MatchPattern:
 def bracket_sequence_pattern(pattern: cst.MatchList) -> cst.MatchList:
     patterns = pattern.patterns
     if len(patterns) == 1:
-        only_element = patterns[0]
-        patterns = [cst.MatchSequenceElement(value=only_element.value)]
+        patterns = [cst.MatchSequenceElement(value=patterns[0].value)]
     return pattern.with_changes(
         patterns=patterns,
         lbracket=cst.LeftSquareBracket(),
