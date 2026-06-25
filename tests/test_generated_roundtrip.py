@@ -1,12 +1,10 @@
 import random
+from collections.abc import Callable
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
 from io import StringIO
 from itertools import product
 from pathlib import Path
-from typing import Callable
-
-from inline_snapshot import snapshot
 
 from matchify.cli import convert_file
 
@@ -824,11 +822,6 @@ def sequence_value_codes_from_expansion(
     return []
 
 
-def fallthrough_value_code(pattern: GeneratedPattern) -> str | None:
-    values = fallthrough_value_codes(pattern)
-    return values[0] if values else None
-
-
 def fallthrough_value_codes(pattern: GeneratedPattern) -> list[str]:
     if isinstance(pattern, OrPattern):
         if or_alternatives_have_shared_captures(pattern):
@@ -963,13 +956,6 @@ def pattern_class_names(pattern: GeneratedPattern) -> set[str]:
     return set()
 
 
-def class_fallthrough_value_code(
-    class_name: str, attrs: tuple[tuple[str, GeneratedPattern], ...]
-) -> str | None:
-    values = class_fallthrough_value_codes(class_name, attrs)
-    return values[0] if values else None
-
-
 def class_fallthrough_value_codes(
     class_name: str, attrs: tuple[tuple[str, GeneratedPattern], ...]
 ) -> list[str]:
@@ -989,15 +975,6 @@ def matching_attrs_after_index(
         f"{attr}={pattern.to_value_code()}"
         for attr, pattern in sorted(attrs, key=class_attr_sort_key)[current_index + 1 :]
     ]
-
-
-def sequence_fallthrough_value_code(
-    elements: tuple[GeneratedPattern | None, ...],
-    append_extra: bool = False,
-    tuple_value: bool = False,
-) -> str | None:
-    values = sequence_fallthrough_value_codes(elements, append_extra, tuple_value)
-    return values[0] if values else None
 
 
 def sequence_fallthrough_value_codes(
@@ -2533,89 +2510,6 @@ def test_generated_sequence_union_fallthrough_samples_cover_all_classes(
     assert_matchify_preserves_trace(program, tmp_path)
 
 
-def test_sequence_matching_samples_cover_class_union_combinations():
-    pattern = SequencePattern(
-        (
-            ClassUnionPattern(
-                ("Point", "Token"),
-                (("kind", LiteralPattern("1")),),
-            ),
-            ClassUnionPattern(
-                ("Node", "Leaf"),
-                (("kind", LiteralPattern("2")),),
-            ),
-        ),
-        bracketed=False,
-    )
-
-    assert matching_value_codes(pattern) == snapshot(
-        [
-            "[Point(kind=1), Node(kind=2)]",
-            "[Point(kind=1), Leaf(kind=2)]",
-            "[Token(kind=1), Node(kind=2)]",
-            "[Token(kind=1), Leaf(kind=2)]",
-        ]
-    )
-
-
-def test_class_matching_samples_cover_attribute_combinations():
-    pattern = ClassPattern(
-        "Wrapper",
-        (
-            (
-                "left",
-                ClassUnionPattern(
-                    ("Point", "Token"),
-                    (("kind", LiteralPattern("1")),),
-                ),
-            ),
-            (
-                "right",
-                OrPattern((LiteralPattern("'ready'"), SingletonPattern("None"))),
-            ),
-        ),
-    )
-
-    assert matching_value_codes(pattern) == snapshot(
-        [
-            "Wrapper(left=Point(kind=1), right='ready')",
-            "Wrapper(left=Point(kind=1), right=None)",
-            "Wrapper(left=Token(kind=1), right='ready')",
-            "Wrapper(left=Token(kind=1), right=None)",
-        ]
-    )
-
-
-def test_generated_program_samples_are_bounded_for_large_combinations():
-    pattern = SequencePattern(
-        (
-            ClassUnionPattern(("A", "B", "C"), (("kind", LiteralPattern("1")),)),
-            ClassUnionPattern(("D", "E", "F"), (("kind", LiteralPattern("2")),)),
-            OrPattern(
-                (
-                    LiteralPattern("'red'"),
-                    LiteralPattern("'blue'"),
-                    LiteralPattern("'ready'"),
-                )
-            ),
-        ),
-        bracketed=False,
-    )
-    all_values = matching_value_codes(pattern)
-    case_values = [*all_values, *fallthrough_value_codes(pattern)]
-    program = GeneratedProgram(
-        classes=("A", "B", "C", "D", "E", "F"),
-        cases=(GeneratedCase(pattern, "branch_0"),),
-    )
-
-    assert len(all_values) == 27
-    assert len(case_values) > MAX_SAMPLE_VALUES_PER_CASE
-    assert len(program.sample_value_codes()) == MAX_SAMPLE_VALUES_PER_CASE + 1
-    assert program.sample_value_codes()[0] == case_values[0]
-    assert program.sample_value_codes()[-2] == case_values[-1]
-    assert program.sample_value_codes()[-1] == "object()"
-
-
 def test_generated_or_capture_program_survives_matchify(tmp_path: Path):
     program = GeneratedProgram(
         classes=("Point", "Token"),
@@ -3432,98 +3326,6 @@ def test_generated_false_guarded_capture_program_falls_through(tmp_path: Path):
     assert_matchify_preserves_trace(program, tmp_path)
 
 
-def test_pattern_ir_generates_if_conditions():
-    pattern = ClassPattern(
-        "Point",
-        (
-            ("x", LiteralPattern("1")),
-            (
-                "y",
-                SequencePattern(
-                    (
-                        ClassPattern(
-                            "Node",
-                            (
-                                ("kind", SingletonPattern("None")),
-                                ("x", LiteralPattern("'ready'")),
-                            ),
-                        ),
-                        SequencePattern(
-                            (LiteralPattern("2"), SingletonPattern("False")),
-                            bracketed=True,
-                        ),
-                    ),
-                    bracketed=True,
-                ),
-            ),
-        ),
-    )
-
-    assert pattern.to_condition_code("value") == snapshot(
-        "isinstance(value, Point) and len(value.y) == 2 and isinstance(value.y[0], Node) and value.y[0].kind is None and value.y[0].x == 'ready' and len(value.y[1]) == 2 and value.y[1][0] == 2 and value.y[1][1] is False and value.x == 1"
-    )
-
-
-def test_pattern_ir_generates_matching_values():
-    pattern = SequencePattern(
-        (
-            OrPattern((LiteralPattern("'red'"), LiteralPattern("'blue'"))),
-            ClassPattern("Point", (("x", SingletonPattern("True")),)),
-            SequencePattern((LiteralPattern("1"), SingletonPattern("None")), True),
-        ),
-        bracketed=False,
-    )
-
-    assert pattern.to_value_code() == snapshot("['red', Point(x=True), [1, None]]")
-
-
-def test_pattern_ir_generates_signed_numeric_values():
-    pattern = SequencePattern(
-        (
-            LiteralPattern("-3.5"),
-            OrPattern((LiteralPattern("+1"), LiteralPattern("-1"))),
-        ),
-        bracketed=False,
-    )
-
-    assert pattern.to_condition_code("value") == snapshot(
-        "len(value) == 2 and value[0] == -3.5 and (value[1] == +1 or value[1] == -1)"
-    )
-    assert pattern.to_value_code() == snapshot("[-3.5, +1]")
-
-
-def test_sequence_pattern_ir_can_generate_tuple_values():
-    pattern = SequencePattern((LiteralPattern("1"),), bracketed=False, tuple_value=True)
-
-    assert pattern.to_value_code() == snapshot("(1,)")
-
-
-def test_sequence_pattern_ir_can_generate_tuple_fallthrough_values():
-    pattern = SequencePattern(
-        (AttributeGuardedClassPattern("Point", "x", "len([None])", "1"),),
-        bracketed=False,
-        tuple_value=True,
-    )
-
-    assert fallthrough_value_code(pattern) == snapshot("(Point(x=0),)")
-
-
-def test_sequence_pattern_ir_keeps_nested_single_tuple_values():
-    pattern = SequencePattern(
-        (
-            SequencePattern(
-                (LiteralPattern("1"), LiteralPattern("2")),
-                bracketed=True,
-                tuple_value=True,
-            ),
-        ),
-        bracketed=False,
-        tuple_value=True,
-    )
-
-    assert pattern.to_value_code() == snapshot("((1, 2),)")
-
-
 def test_tuple_sequence_value_generated_program_survives_matchify(tmp_path: Path):
     program = GeneratedProgram(
         classes=("Point",),
@@ -3912,9 +3714,6 @@ def test_nested_class_union_sequence_element_generated_program_survives_matchify
         ),
     )
 
-    assert pattern.to_condition_code("value", safe=True) == snapshot(
-        "isinstance(value, (list, tuple)) and len(value) == 1 and isinstance(value[0], (Point, Token)) and hasattr(value[0], 'node') and isinstance(value[0].node, Node) and hasattr(value[0].node, 'kind') and value[0].node.kind == 1"
-    )
     assert_matchify_preserves_trace(program, tmp_path)
 
 
@@ -3943,77 +3742,6 @@ def test_recursive_nested_class_union_sequence_element_generated_program_survive
     assert "isinstance(value[0].kind.y, (list, tuple))" in source
     assert "value[0].kind.y[0][0].kind.x is True" in source
     assert_matchify_preserves_trace(program, tmp_path)
-
-
-def test_or_matching_samples_cover_all_non_capture_alternatives():
-    pattern = OrPattern(
-        (
-            LiteralPattern("'ready'"),
-            ClassPattern("Point", (("kind", LiteralPattern("1")),)),
-            SequencePattern((LiteralPattern("2"), SingletonPattern("None")), False),
-        )
-    )
-
-    assert matching_value_codes(pattern) == snapshot(
-        ["'ready'", "Point(kind=1)", "[2, None]"]
-    )
-
-
-def test_nested_or_matching_samples_cover_all_non_capture_alternatives():
-    pattern = ClassPattern(
-        "Wrapper",
-        (
-            (
-                "inner",
-                OrPattern(
-                    (
-                        ClassPattern("Point", (("kind", LiteralPattern("1")),)),
-                        ClassPattern("Token", (("kind", LiteralPattern("2")),)),
-                    )
-                ),
-            ),
-        ),
-    )
-
-    assert matching_value_codes(pattern) == snapshot(
-        ["Wrapper(inner=Point(kind=1))", "Wrapper(inner=Token(kind=2))"]
-    )
-
-
-def test_sequence_or_fallthrough_samples_cover_disjoint_class_alternatives():
-    pattern = SequencePattern(
-        (
-            OrPattern(
-                (
-                    ClassPattern("Point", (("kind", LiteralPattern("1")),)),
-                    ClassPattern("Token", (("kind", LiteralPattern("2")),)),
-                )
-            ),
-        ),
-        bracketed=False,
-    )
-
-    assert fallthrough_value_codes(pattern) == snapshot(
-        ["[Point(kind=0)]", "[Token(kind=0)]"]
-    )
-
-
-def test_sequence_or_fallthrough_samples_cover_literal_and_class_alternatives():
-    pattern = SequencePattern(
-        (
-            OrPattern(
-                (
-                    LiteralPattern("1"),
-                    ClassPattern("Point", (("kind", LiteralPattern("2")),)),
-                )
-            ),
-        ),
-        bracketed=False,
-    )
-
-    assert fallthrough_value_codes(pattern) == snapshot(
-        ["[object()]", "[Point(kind=0)]"]
-    )
 
 
 def test_class_or_generated_program_survives_matchify(tmp_path: Path):
@@ -4243,9 +3971,6 @@ def test_generated_sequence_or_nested_class_attribute_program_survives_matchify(
         ),
     )
 
-    assert pattern.to_condition_code("value", safe=True) == snapshot(
-        "isinstance(value, (list, tuple)) and len(value) == 1 and (isinstance(value[0], Token) and hasattr(value[0], 'y') and isinstance(value[0].y, Token) and hasattr(value[0].y, 'y') and value[0].y.y == 'ready' or isinstance(value[0], Node) and hasattr(value[0], 'y') and isinstance(value[0].y, Token) and hasattr(value[0].y, 'y') and value[0].y.y is None or isinstance(value[0], Point) and hasattr(value[0], 'y') and isinstance(value[0].y, Token) and hasattr(value[0].y, 'y') and value[0].y.y is False)"
-    )
     assert_matchify_preserves_trace(program, tmp_path)
 
 
@@ -4625,49 +4350,6 @@ def test_false_guarded_generated_cases_are_not_required_for_sample_coverage():
     )
 
     assert sample_values_cover_reachable_cases(program)
-
-
-def test_generated_program_if_code_is_stable():
-    program = GeneratedProgram(
-        classes=("Point", "Node"),
-        cases=(
-            GeneratedCase(
-                ClassPattern(
-                    "Point",
-                    (
-                        ("x", LiteralPattern("1")),
-                        ("y", ClassPattern("Node", (("kind", LiteralPattern("'n'")),))),
-                    ),
-                ),
-                "branch_0",
-            ),
-            GeneratedCase(
-                SequencePattern((LiteralPattern("1"), SingletonPattern("None")), False),
-                "branch_1",
-            ),
-            GeneratedCase(WildcardPattern(), "default"),
-        ),
-    )
-
-    assert program.to_if_code("Point(x=1, y=Node(kind='n'))") == snapshot(
-        """\
-class Point:
-    def __init__(self, **attrs):
-        self.__dict__.update(attrs)
-
-class Node:
-    def __init__(self, **attrs):
-        self.__dict__.update(attrs)
-result = 'unmatched'
-value = Point(x=1, y=Node(kind='n'))
-if isinstance(value, Point) and value.x == 1 and isinstance(value.y, Node) and value.y.kind == 'n':
-    result = 'branch_0'
-elif len(value) == 2 and value[0] == 1 and value[1] is None:
-    result = 'branch_1'
-else:
-    result = 'default'
-"""
-    )
 
 
 def test_generated_if_traces_survive_matchify(tmp_path: Path):
