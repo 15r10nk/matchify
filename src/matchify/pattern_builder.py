@@ -161,8 +161,6 @@ def fact_from_predicate(predicate: Predicate) -> PathFact | None:
         return None
     if isinstance(predicate, RawPredicate):
         return None
-    # Predicate is a closed union; this is retained for defensive future edits.
-    return None  # pragma: no cover
 
 
 def drop_redundant_sequence_type_residuals(
