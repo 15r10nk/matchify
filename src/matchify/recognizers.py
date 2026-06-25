@@ -224,9 +224,7 @@ def is_redundant_hasattr(
     checked_paths: set[SubjectPath],
 ) -> bool:
     hasattr_path = extract_hasattr_attribute_path(node, subject)
-    if hasattr_path is None:
-        return False
-    return any(
+    return hasattr_path is not None and any(
         path == hasattr_path or path.starts_with(hasattr_path) for path in checked_paths
     )
 
