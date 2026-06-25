@@ -378,13 +378,10 @@ def prepare_bool_tree_condition(
                 operator=operator_type(),
                 right=part,
             )
-        # Multiple flattened parts rebuild to BooleanOperation; this guard only
-        # protects future callers that pass an already-single part.
-        if isinstance(expression, cst.BooleanOperation):  # pragma: no branch
-            expression = expression.with_changes(
-                lpar=condition.lpar,
-                rpar=condition.rpar,
-            )
+        expression = expression.with_changes(
+            lpar=condition.lpar,
+            rpar=condition.rpar,
+        )
         return remove_redundant_subject_checks(
             expression,
             subject,
