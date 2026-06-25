@@ -2,7 +2,6 @@
 
 
 ![ci](https://github.com/15r10nk/matchify/actions/workflows/ci.yml/badge.svg?branch=main)
-[![Docs](https://img.shields.io/badge/docs-mkdocs-green)](https://15r10nk.github.io/matchify/)
 [![pypi version](https://img.shields.io/pypi/v/matchify.svg)](https://pypi.org/project/matchify/)
 ![Python Versions](https://img.shields.io/pypi/pyversions/matchify)
 ![PyPI - Downloads](https://img.shields.io/pypi/dw/matchify)
