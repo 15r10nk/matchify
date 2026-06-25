@@ -203,9 +203,7 @@ def sequence_path_has_element_fact(
 
 
 def fact_priority(fact: PathFact) -> int:
-    if fact_is_anchor(fact):
-        return 0
-    return 1
+    return 0 if fact_is_anchor(fact) else 1
 
 
 def fact_is_anchor(fact: PathFact) -> bool:
