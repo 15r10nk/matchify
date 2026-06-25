@@ -119,19 +119,24 @@ def parse_predicate(
     subject: cst.BaseExpression,
     ignore_types_pattern: str | None = r".*_TYPES$",
 ) -> Predicate:
-    if isinstance(predicate, cst.Call) and m.matches(
-        predicate, m.Call(func=m.Name(value="isinstance"), args=[m.Arg(), m.Arg()])
+    if (
+        isinstance(predicate, cst.Call)
+        and m.matches(
+            predicate, m.Call(func=m.Name(value="isinstance"), args=[m.Arg(), m.Arg()])
+        )
+        and (
+            parsed := parse_isinstance_predicate(
+                predicate, subject, ignore_types_pattern
+            )
+        )
+        is not None
     ):
-        parsed = parse_isinstance_predicate(predicate, subject, ignore_types_pattern)
-        if parsed is not None:
-            return parsed
+        return parsed
 
     if isinstance(predicate, cst.Comparison) and len(predicate.comparisons) == 1:
-        parsed = parse_len_predicate(predicate, subject)
-        if parsed is not None:
+        if (parsed := parse_len_predicate(predicate, subject)) is not None:
             return parsed
-        parsed = parse_value_predicate(predicate, subject)
-        if parsed is not None:
+        if (parsed := parse_value_predicate(predicate, subject)) is not None:
             return parsed
 
     return RawPredicate(predicate)
