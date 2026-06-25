@@ -112,7 +112,7 @@ jobs:
     name: Publish new release
     runs-on: ubuntu-latest
     needs: [test, coverage]
-    if: "!contains(github.repository, '-insiders/')"
+    if: github.event_name == 'push' && !contains(github.repository, '-insiders/')
     environment: pypi
     permissions:
       # IMPORTANT: this permission is mandatory for Trusted Publishing
