@@ -1,7 +1,5 @@
 """Sequence-pattern recognition and construction."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 
 import libcst as cst
