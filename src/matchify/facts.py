@@ -172,9 +172,13 @@ class OrNode:
     alternatives: tuple[PatternNode, ...]
 
     def render(self) -> cst.MatchPattern:
-        return build_or_pattern(
-            [bracket_or_sequence_pattern(node.render()) for node in self.alternatives]
-        )
+        patterns = []
+        for node in self.alternatives:
+            pattern = node.render()
+            if isinstance(pattern, cst.MatchList):
+                pattern = bracket_sequence_pattern(pattern)
+            patterns.append(pattern)
+        return build_or_pattern(patterns)
 
 
 PatternNode = WildcardNode | ValueNode | CaptureNode | ClassNode | SequenceNode | OrNode
@@ -409,12 +413,6 @@ def insert_capture_node(
 def render_child_node(node: PatternNode) -> cst.MatchPattern:
     pattern = node.render()
     if isinstance(node, SequenceNode) and isinstance(pattern, cst.MatchList):
-        return bracket_sequence_pattern(pattern)
-    return pattern
-
-
-def bracket_or_sequence_pattern(pattern: cst.MatchPattern) -> cst.MatchPattern:
-    if isinstance(pattern, cst.MatchList):
         return bracket_sequence_pattern(pattern)
     return pattern
 
