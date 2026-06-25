@@ -35,6 +35,7 @@ from .subject_path import SubjectPath, SubscriptPathPart
 class PatternBuildResult:
     facts: tuple[PathFact, ...]
     residual: BoolExpr | None = None
+    pattern: PatternTree | None = None
 
 
 def normalize_with_bool_tree(
@@ -45,17 +46,11 @@ def normalize_with_bool_tree(
     """Normalize one branch by parsing it into BoolExpr first."""
     expr = parse_condition(condition, subject, ignore_types_pattern)
     result = build_pattern(expr)
-    if not result.facts:
+    if result.pattern is None:
         return None
 
     guard = residual_condition(result.residual)
-    try:
-        # Non-empty facts above mean PatternTree.from_facts builds a pattern.
-        pattern = PatternTree.from_facts(result.facts)
-        pattern.render()
-    except ValueError:
-        return None
-    return BranchFacts(pattern=pattern, guard=guard)
+    return BranchFacts(pattern=result.pattern, guard=guard)
 
 
 def build_pattern(
@@ -68,7 +63,7 @@ def build_pattern(
     fact = fact_from_predicate(expr)
     if fact is None:
         return PatternBuildResult((), expr)
-    return PatternBuildResult((fact,))
+    return build_result((fact,))
 
 
 def build_and_pattern(
@@ -103,10 +98,7 @@ def build_and_pattern(
     elif residuals:
         residual = AndExpr(tuple(residuals), expr.original)
 
-    return PatternBuildResult(
-        ordered_facts,
-        residual,
-    )
+    return build_result(ordered_facts, residual)
 
 
 def build_or_pattern(expr: OrExpr) -> PatternBuildResult:
@@ -135,7 +127,19 @@ def build_or_pattern(expr: OrExpr) -> PatternBuildResult:
     stripped = tuple(
         strip_alternative_prefix(common_path, facts) for facts in alternatives
     )
-    return PatternBuildResult((OrFact(common_path, stripped),), residual)
+    return build_result((OrFact(common_path, stripped),), residual)
+
+
+def build_result(
+    facts: tuple[PathFact, ...],
+    residual: BoolExpr | None = None,
+) -> PatternBuildResult:
+    try:
+        pattern = PatternTree.from_facts(facts)
+        pattern.render()
+    except ValueError:
+        return PatternBuildResult(facts, residual)
+    return PatternBuildResult(facts, residual, pattern)
 
 
 def fact_from_predicate(predicate: Predicate) -> PathFact | None:
