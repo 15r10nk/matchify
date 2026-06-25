@@ -31,7 +31,7 @@ from .facts import (
     SequenceFact,
     ValueFact,
 )
-from .subject_path import AttributePathPart, SubjectPath, SubscriptPathPart
+from .subject_path import SubjectPath, SubscriptPathPart
 
 
 @dataclass(frozen=True)
@@ -283,11 +283,7 @@ def facts_are_anchored(facts: tuple[PathFact, ...]) -> bool:
 def required_anchor_path(path: SubjectPath) -> SubjectPath | None:
     if path.is_subject:
         return SubjectPath(())
-    parent = path.parent()
-    if isinstance(path.last_part, AttributePathPart | SubscriptPathPart):
-        return parent
-    # SubjectPathPart is a closed union; retained for defensive future edits.
-    return None  # pragma: no cover
+    return path.parent()
 
 
 def or_fact_is_anchor(fact: OrFact) -> bool:
