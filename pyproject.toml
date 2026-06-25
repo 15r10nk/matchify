@@ -64,9 +64,6 @@ exclude_lines = ["pragma: no cover", "assert False", "raise NotImplemented", "\\
 [tool.coverage.run]
 branch = true
 data_file = "$TOP/.coverage"
-omit = [
-  "src/matchify/__about__.py"
-]
 parallel = true
 
 [tool.hatch.envs.default]
