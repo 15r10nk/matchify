@@ -1,5 +1,5 @@
 name: General Setup
-description: checkout & setup python
+description: setup Python and uv
 inputs:
   python-version:  # id of input
     description: the python version to use
