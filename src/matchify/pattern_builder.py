@@ -280,12 +280,14 @@ def common_alternative_path(
     if not alternatives or any(not facts for facts in alternatives):
         return None
     first_path = alternatives[0][0].path
-    if all(
-        all(fact.path.starts_with(first_path) for fact in facts)
-        for facts in alternatives
-    ):
-        return first_path
-    return None
+    return (
+        first_path
+        if all(
+            all(fact.path.starts_with(first_path) for fact in facts)
+            for facts in alternatives
+        )
+        else None
+    )
 
 
 def strip_alternative_prefix(
