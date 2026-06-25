@@ -61,8 +61,7 @@ def normalize_duplicate_captures(
 
 def remove_statements(body: cst.IndentedBlock, count: int) -> cst.IndentedBlock:
     if len(body.body) <= count:
-        pass_stmt = cst.SimpleStatementLine(body=[cst.Pass()])
-        return body.with_changes(body=[pass_stmt])
+        return body.with_changes(body=[cst.SimpleStatementLine(body=[cst.Pass()])])
     return body.with_changes(body=body.body[count:])
 
 
