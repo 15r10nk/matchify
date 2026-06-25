@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import libcst as cst
+from libcst import matchers as m
 
 from .patterns import (
     extract_isinstance_classes,
@@ -15,6 +16,7 @@ from .patterns import (
     is_literal_value,
     is_singleton_name,
 )
+from .sequence_patterns import find_sequence_subject
 from .subject_path import SubjectPath, SubscriptPathPart
 
 
@@ -86,6 +88,147 @@ Predicate = (
     | RawPredicate
 )
 BoolExpr = AndExpr | OrExpr | Predicate
+
+
+def recognize_subject(
+    condition: cst.BaseExpression,
+    ignore_types_pattern: str | None = r".*_TYPES$",
+) -> cst.BaseExpression | None:
+    """Extract the expression that should become the match subject."""
+    or_subject = recognize_or_subject(condition, ignore_types_pattern)
+    if or_subject is not None:
+        return or_subject
+
+    if is_isinstance_call(condition):
+        if (
+            extract_isinstance_classes(condition.args[1].value, ignore_types_pattern)
+            is not None
+        ):
+            return condition.args[0].value
+
+    if isinstance(condition, cst.BooleanOperation) and isinstance(
+        condition.operator, cst.And
+    ):
+        isinstance_subject = find_isinstance_subject(
+            condition, ignore_types_pattern, include_subscripts=False
+        )
+        if isinstance_subject is not None:
+            return isinstance_subject
+        sequence_subject = find_sequence_subject(condition)
+        if sequence_subject is not None:
+            return sequence_subject
+        value_subject = find_value_subject(condition, ignore_types_pattern)
+        if value_subject is not None:
+            return value_subject
+        return find_isinstance_subject(
+            condition, ignore_types_pattern, include_subscripts=True
+        )
+
+    if isinstance(condition, cst.Comparison) and len(condition.comparisons) == 1:
+        operator = condition.comparisons[0].operator
+        if isinstance(operator, (cst.Equal, cst.Is)):
+            return condition.left
+
+    return None
+
+
+def recognize_or_subject(
+    condition: cst.BaseExpression,
+    ignore_types_pattern: str | None,
+) -> cst.BaseExpression | None:
+    parts = flatten_boolean(condition, cst.Or)
+    if len(parts) <= 1:
+        return None
+
+    subject: cst.BaseExpression | None = None
+    for part in parts:
+        part_subject = recognize_or_part_subject(part, ignore_types_pattern)
+        if part_subject is None:
+            return None
+        if subject is None:
+            subject = part_subject
+        elif not part_subject.deep_equals(subject):
+            return None
+
+    return subject
+
+
+def recognize_or_part_subject(
+    part: cst.BaseExpression,
+    ignore_types_pattern: str | None,
+) -> cst.BaseExpression | None:
+    if isinstance(part, cst.Comparison) and len(part.comparisons) == 1:
+        target = part.comparisons[0]
+        if not isinstance(target.operator, (cst.Equal, cst.Is)):
+            return None
+        if isinstance(target.operator, cst.Is) and not is_singleton_name(
+            target.comparator
+        ):
+            return None
+        if not is_literal_value(target.comparator):
+            return None
+        return part.left
+
+    if is_isinstance_call(part):
+        if (
+            extract_isinstance_classes(part.args[1].value, ignore_types_pattern)
+            is not None
+        ):
+            return part.args[0].value
+
+    if isinstance(part, cst.BooleanOperation) and isinstance(part.operator, cst.And):
+        return recognize_subject(part, ignore_types_pattern)
+
+    return None
+
+
+def find_value_subject(
+    condition: cst.BaseExpression,
+    ignore_types_pattern: str | None,
+) -> cst.BaseExpression | None:
+    for component in flatten_boolean(condition, cst.And):
+        or_subject = recognize_or_subject(component, ignore_types_pattern)
+        if or_subject is not None and not contains_subscript(or_subject):
+            return or_subject
+
+        if not isinstance(component, cst.Comparison):
+            continue
+        if len(component.comparisons) != 1:
+            continue
+        target = component.comparisons[0]
+        if contains_subscript(component.left):
+            continue
+        if isinstance(target.operator, cst.Equal) and is_literal_value(
+            target.comparator
+        ):
+            return component.left
+        if isinstance(target.operator, cst.Is) and is_singleton_name(target.comparator):
+            return component.left
+    return None
+
+
+def find_isinstance_subject(
+    condition: cst.BaseExpression,
+    ignore_types_pattern: str | None,
+    *,
+    include_subscripts: bool,
+) -> cst.BaseExpression | None:
+    for component in flatten_boolean(condition, cst.And):
+        if not is_isinstance_call(component):
+            continue
+        if (
+            extract_isinstance_classes(component.args[1].value, ignore_types_pattern)
+            is None
+        ):
+            continue
+        if not include_subscripts and contains_subscript(component.args[0].value):
+            continue
+        return component.args[0].value
+    return None
+
+
+def contains_subscript(node: cst.CSTNode) -> bool:
+    return bool(m.findall(node, m.Subscript()))
 
 
 def parse_condition(

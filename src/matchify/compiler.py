@@ -11,9 +11,10 @@ from .capture_patterns import (
     prepend_aliases,
     remove_statements,
 )
+from .conditions import recognize_subject
 from .facts import BranchFacts
 from .patterns import build_wildcard_pattern, extract_isinstance_classes
-from .recognizers import SubjectRecognizer, normalize_branch
+from .recognizers import normalize_branch
 from .safety import is_safe_condition
 
 
@@ -45,17 +46,16 @@ class GenericIfChainCompiler:
 
     def __init__(self, ignore_types_pattern: str | None = r".*_TYPES$") -> None:
         self.ignore_types_pattern = ignore_types_pattern
-        self.subject_recognizer = SubjectRecognizer(ignore_types_pattern)
 
     def extract_chain(self, node: cst.If) -> IfChain | None:
-        subject = self.subject_recognizer.recognize(node.test)
+        subject = recognize_subject(node.test, self.ignore_types_pattern)
         if subject is None or not isinstance(node.orelse, cst.If):
             return None
 
         branches: list[IfBranch] = []
         current = node
         while True:
-            branch_subject = self.subject_recognizer.recognize(current.test)
+            branch_subject = recognize_subject(current.test, self.ignore_types_pattern)
             if branch_subject is None or not branch_subject.deep_equals(subject):
                 return None
             if not is_safe_condition(current.test, subject):
