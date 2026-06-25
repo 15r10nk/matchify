@@ -101,10 +101,9 @@ def main() -> None:
         elif changed:
             print(f"Converted: {path}")
             converted_count += 1
-        elif args.verbose:
-            print(f"No changes: {path}")
-            unchanged_count += 1
         else:
+            if args.verbose:
+                print(f"No changes: {path}")
             unchanged_count += 1
     else:
         # Multiple files - use parallel processing
@@ -124,10 +123,9 @@ def main() -> None:
                 elif changed:
                     print(f"Converted: {path}")
                     converted_count += 1
-                elif args.verbose:
-                    print(f"No changes: {path}")
-                    unchanged_count += 1
                 else:
+                    if args.verbose:
+                        print(f"No changes: {path}")
                     unchanged_count += 1
 
     # Print summary
