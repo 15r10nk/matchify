@@ -10,6 +10,7 @@ from .pattern_builder import normalize_with_bool_tree
 from .patterns import (
     extract_isinstance_classes,
     flatten_boolean,
+    is_list_tuple_classes,
     is_literal_value,
     is_singleton_name,
 )
@@ -254,14 +255,10 @@ def extract_list_tuple_isinstance_path(
     class_arg = node.args[1].value
     if not isinstance(class_arg, cst.Tuple):
         return None
-    class_names = []
-    for element in class_arg.elements:
-        if not isinstance(element, cst.Element) or not isinstance(
-            element.value, cst.Name
-        ):
-            return None
-        class_names.append(element.value.value)
-    return path if set(class_names) == {"list", "tuple"} else None
+    classes = extract_isinstance_classes(class_arg, ignore_types_pattern=None)
+    if classes is None or not is_list_tuple_classes(classes):
+        return None
+    return path
 
 
 def collect_checked_attribute_paths(

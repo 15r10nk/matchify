@@ -10,6 +10,7 @@ from libcst import matchers as m
 from .patterns import (
     extract_isinstance_classes,
     flatten_boolean,
+    is_list_tuple_classes,
     is_literal_value,
     is_singleton_name,
 )
@@ -212,17 +213,6 @@ def residual_condition(expr: BoolExpr | None) -> cst.BaseExpression | None:
     if isinstance(expr, OrExpr):
         return expr.original
     return expr.original
-
-
-def is_list_tuple_classes(classes: list[cst.BaseExpression]) -> bool:
-    names = []
-    for class_expr in classes:
-        # Exact list/tuple detection only applies to plain names; complex
-        # classinfo is handled as a normal pattern candidate and validated later.
-        if not isinstance(class_expr, cst.Name):  # pragma: no cover
-            return False
-        names.append(class_expr.value)
-    return set(names) == {"list", "tuple"}
 
 
 def has_unknown_subscript(path: SubjectPath) -> bool:
