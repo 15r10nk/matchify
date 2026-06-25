@@ -17,5 +17,5 @@ Create an issue first if you want to make bigger changes.
 - [ ] I have added tests for new functionality (if applicable).
 - [ ] I have reviewed my own code for errors.
 - I used:
-    - [ ] semantic commits (`feat:` will cause a major and `fix:` a minor version bump)
+    - [ ] semantic commits (`feat:`, `fix:`, etc.)
     - [ ] or my commits can be squashed during merge
