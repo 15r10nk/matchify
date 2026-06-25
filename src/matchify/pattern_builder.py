@@ -17,7 +17,6 @@ from .conditions import (
     LenEqualsPredicate,
     OrExpr,
     Predicate,
-    RawPredicate,
     SequenceTypePredicate,
     parse_condition,
     residual_condition,
@@ -159,8 +158,7 @@ def fact_from_predicate(predicate: Predicate) -> PathFact | None:
         return SequenceFact(predicate.path, predicate.minimum, use_star=True)
     if isinstance(predicate, SequenceTypePredicate):
         return None
-    if isinstance(predicate, RawPredicate):
-        return None
+    return None
 
 
 def drop_redundant_sequence_type_residuals(
