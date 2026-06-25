@@ -1,7 +1,5 @@
 """Normalize if/elif chains and compile them to match statements."""
 
-from __future__ import annotations
-
 from typing import NamedTuple
 
 import libcst as cst
