@@ -42,6 +42,12 @@ def is_literal_value(node: cst.BaseExpression) -> bool:
     )
 
 
+def is_isinstance_call(node: cst.CSTNode) -> bool:
+    return isinstance(node, cst.Call) and m.matches(
+        node, m.Call(func=m.Name(value="isinstance"), args=[m.Arg(), m.Arg()])
+    )
+
+
 def build_value_pattern(value: cst.BaseExpression) -> cst.MatchPattern:
     if (
         isinstance(value, cst.UnaryOperation)

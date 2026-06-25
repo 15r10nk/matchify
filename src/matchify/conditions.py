@@ -10,6 +10,7 @@ from libcst import matchers as m
 from .patterns import (
     extract_isinstance_classes,
     flatten_boolean,
+    is_isinstance_call,
     is_list_tuple_classes,
     is_literal_value,
     is_singleton_name,
@@ -120,10 +121,7 @@ def parse_predicate(
     ignore_types_pattern: str | None = r".*_TYPES$",
 ) -> Predicate:
     if (
-        isinstance(predicate, cst.Call)
-        and m.matches(
-            predicate, m.Call(func=m.Name(value="isinstance"), args=[m.Arg(), m.Arg()])
-        )
+        is_isinstance_call(predicate)
         and (
             parsed := parse_isinstance_predicate(
                 predicate, subject, ignore_types_pattern

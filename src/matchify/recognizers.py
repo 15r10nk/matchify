@@ -8,6 +8,7 @@ from .pattern_builder import normalize_with_bool_tree
 from .patterns import (
     extract_isinstance_classes,
     flatten_boolean,
+    is_isinstance_call,
     is_list_tuple_classes,
     is_literal_value,
     is_singleton_name,
@@ -27,9 +28,7 @@ class SubjectRecognizer:
         if or_subject is not None:
             return or_subject
 
-        if isinstance(test, cst.Call) and m.matches(
-            test, m.Call(func=m.Name(value="isinstance"), args=[m.Arg(), m.Arg()])
-        ):
+        if is_isinstance_call(test):
             if (
                 extract_isinstance_classes(
                     test.args[1].value, self.ignore_types_pattern
@@ -104,9 +103,7 @@ class SubjectRecognizer:
 
         # OR subject probing scans several possible shapes; false sides just
         # continue to the next probe.
-        if isinstance(part, cst.Call) and m.matches(  # pragma: no branch
-            part, m.Call(func=m.Name(value="isinstance"), args=[m.Arg(), m.Arg()])
-        ):
+        if is_isinstance_call(part):  # pragma: no branch
             if (  # pragma: no branch
                 extract_isinstance_classes(
                     part.args[1].value, self.ignore_types_pattern
@@ -157,10 +154,7 @@ class SubjectRecognizer:
     ) -> cst.BaseExpression | None:
         for component in flatten_boolean(test, cst.And):
             # The scan intentionally ignores non-isinstance components.
-            if isinstance(component, cst.Call) and m.matches(  # pragma: no branch
-                component,
-                m.Call(func=m.Name(value="isinstance"), args=[m.Arg(), m.Arg()]),
-            ):
+            if is_isinstance_call(component):  # pragma: no branch
                 if (  # pragma: no branch
                     extract_isinstance_classes(
                         component.args[1].value, self.ignore_types_pattern
@@ -243,9 +237,7 @@ def should_remove_redundant_sequence_type_check(
 def extract_list_tuple_isinstance_path(
     node: cst.BaseExpression, subject: cst.BaseExpression
 ) -> SubjectPath | None:
-    if not isinstance(node, cst.Call) or not m.matches(
-        node, m.Call(func=m.Name(value="isinstance"), args=[m.Arg(), m.Arg()])
-    ):
+    if not is_isinstance_call(node):
         return None
     path = SubjectPath.from_expression(node.args[0].value, subject)
     if path is None:
@@ -267,9 +259,7 @@ def collect_checked_attribute_paths(
         merged = set().union(*parts)
         return merged if len(merged) == 1 else set()
 
-    if isinstance(node, cst.Call) and m.matches(
-        node, m.Call(func=m.Name(value="isinstance"), args=[m.Arg(), m.Arg()])
-    ):
+    if is_isinstance_call(node):
         path = SubjectPath.from_expression(node.args[0].value, subject)
         if path is None or not path:
             return set()

@@ -3,7 +3,7 @@
 import libcst as cst
 from libcst import matchers as m
 
-from .patterns import flatten_boolean
+from .patterns import flatten_boolean, is_isinstance_call
 from .subject_path import SubjectPath
 
 
@@ -46,10 +46,7 @@ def has_direct_sequence_element_check(
             path = SubjectPath.from_expression(component.left, subject)
             if path is not None and path.starts_with_subscript:
                 return True
-        if isinstance(component, cst.Call) and m.matches(
-            component,
-            m.Call(func=m.Name(value="isinstance"), args=[m.Arg(), m.Arg()]),
-        ):
+        if is_isinstance_call(component):
             # False sides are just "not a direct sequence element" probes while
             # scanning mixed AND components.
             if (  # pragma: no branch
