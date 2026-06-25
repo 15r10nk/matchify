@@ -24,9 +24,7 @@ def find_sequence_subject(test: cst.BaseExpression) -> cst.BaseExpression | None
             continue
         len_call = component.left
         subject = len_call.args[0].value
-        if has_direct_sequence_element_check(test, subject):
-            return subject
-        return None
+        return subject if has_direct_sequence_element_check(test, subject) else None
 
     return None
 
