@@ -54,7 +54,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
                     ignore_types_pattern=self.ignore_types_pattern
                 )
                 transformed_module = wrapper.visit(transformer)
-                new_body_stmts.extend(transformed_module.body or [stmt])
+                new_body_stmts.extend(transformed_module.body)
 
             new_cases.append(
                 case.with_changes(body=case.body.with_changes(body=new_body_stmts))
