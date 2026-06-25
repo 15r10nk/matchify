@@ -46,6 +46,20 @@ def collect_python_files(paths: list[pathlib.Path]) -> list[pathlib.Path]:
     return python_files
 
 
+def report_result(
+    path: pathlib.Path, changed: bool, error: str | None, verbose: bool
+) -> tuple[int, int, int]:
+    if error:
+        print(f"Error processing {path}: {error}")
+        return (0, 0, 1)
+    if changed:
+        print(f"Converted: {path}")
+        return (1, 0, 0)
+    if verbose:
+        print(f"No changes: {path}")
+    return (0, 1, 0)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Convert if/elif/else chains to Python 3.10+ match statements"
@@ -92,19 +106,11 @@ def main() -> None:
 
     if len(python_files) == 1:
         # Single file - no need for multiprocessing
-        path, changed, error = convert_file(
-            python_files[0], ignore_types_pattern=args.no_types
-        )
-        if error:
-            print(f"Error processing {path}: {error}")
-            error_count += 1
-        elif changed:
-            print(f"Converted: {path}")
-            converted_count += 1
-        else:
-            if args.verbose:
-                print(f"No changes: {path}")
-            unchanged_count += 1
+        result = convert_file(python_files[0], ignore_types_pattern=args.no_types)
+        converted, unchanged, errors = report_result(*result, verbose=args.verbose)
+        converted_count += converted
+        unchanged_count += unchanged
+        error_count += errors
     else:
         # Multiple files - use parallel processing
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
@@ -116,17 +122,12 @@ def main() -> None:
 
             # Process results as they complete
             for future in as_completed(futures):
-                path, changed, error = future.result()
-                if error:
-                    print(f"Error processing {path}: {error}")
-                    error_count += 1
-                elif changed:
-                    print(f"Converted: {path}")
-                    converted_count += 1
-                else:
-                    if args.verbose:
-                        print(f"No changes: {path}")
-                    unchanged_count += 1
+                converted, unchanged, errors = report_result(
+                    *future.result(), verbose=args.verbose
+                )
+                converted_count += converted
+                unchanged_count += unchanged
+                error_count += errors
 
     # Print summary
     print(
