@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import libcst as cst
 from libcst import matchers as m
 
@@ -93,8 +95,6 @@ def is_ignored_type_expr(
 ) -> bool:
     if ignore_types_pattern is None or not isinstance(expr, cst.Name):
         return False
-
-    import re
 
     return re.match(ignore_types_pattern, expr.value) is not None
 
