@@ -112,14 +112,6 @@ class ClassNode:
             [(name, render_child_node(node)) for name, node in self.attributes],
         )
 
-    def insert_attribute(
-        self, name: str, path: SubjectPath, node: PatternNode
-    ) -> ClassNode:
-        attributes = dict(self.attributes)
-        child = attributes.get(name, WildcardNode())
-        attributes[name] = insert_node(child, path, node)
-        return ClassNode(self.classes, tuple(attributes.items()))
-
 
 @dataclass(frozen=True)
 class SequenceNode:
@@ -155,14 +147,6 @@ class SequenceNode:
             for index in range(required_len)
         ]
         return build_sequence_match_list(pattern_infos, use_star=self.use_star)
-
-    def insert_element(
-        self, index: int, path: SubjectPath, node: PatternNode
-    ) -> SequenceNode:
-        elements = dict(self.elements)
-        child = elements.get(index, WildcardNode())
-        elements[index] = insert_node(child, path, node)
-        return SequenceNode(self.length, self.use_star, tuple(elements.items()))
 
 
 @dataclass(frozen=True)
@@ -281,7 +265,10 @@ def insert_node(root: PatternNode, path: SubjectPath, node: PatternNode) -> Patt
         # Normalized attribute paths are only inserted below class-compatible nodes.
         if not isinstance(root, ClassNode):  # pragma: no cover
             raise ValueError("Attribute paths need a class pattern parent")
-        return root.insert_attribute(first_part.name, path.tail(), node)
+        attributes = dict(root.attributes)
+        child = attributes.get(first_part.name, WildcardNode())
+        attributes[first_part.name] = insert_node(child, path.tail(), node)
+        return ClassNode(root.classes, tuple(attributes.items()))
     if isinstance(first_part, SubscriptPathPart):
         # Wildcard-to-sequence promotion is retained for defensive recursive
         # insertion; public normalization creates sequence anchors explicitly.
@@ -290,7 +277,10 @@ def insert_node(root: PatternNode, path: SubjectPath, node: PatternNode) -> Patt
         # Normalized subscript paths are only inserted below sequence-compatible nodes.
         if not isinstance(root, SequenceNode):  # pragma: no cover
             raise ValueError("Subscript paths need a sequence pattern parent")
-        return root.insert_element(first_part.index, path.tail(), node)
+        elements = dict(root.elements)
+        child = elements.get(first_part.index, WildcardNode())
+        elements[first_part.index] = insert_node(child, path.tail(), node)
+        return SequenceNode(root.length, root.use_star, tuple(elements.items()))
     # SubjectPathPart is a closed union of attribute and subscript parts.
     raise ValueError("Unsupported subject path part")  # pragma: no cover
 
