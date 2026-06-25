@@ -7,7 +7,12 @@ from typing import NamedTuple
 import libcst as cst
 from libcst import matchers as m
 
-from .capture_patterns import CapturePatternRewriter
+from .capture_patterns import (
+    detect_multiple_captures,
+    normalize_duplicate_captures,
+    prepend_aliases,
+    remove_statements,
+)
 from .facts import BranchFacts
 from .patterns import extract_isinstance_classes
 from .recognizers import SubjectRecognizer, normalize_branch
@@ -43,7 +48,6 @@ class GenericIfChainCompiler:
     def __init__(self, ignore_types_pattern: str | None = r".*_TYPES$") -> None:
         self.ignore_types_pattern = ignore_types_pattern
         self.subject_recognizer = SubjectRecognizer(ignore_types_pattern)
-        self.capture_patterns = CapturePatternRewriter()
 
     def extract_chain(self, node: cst.If) -> IfChain | None:
         subject = self.subject_recognizer.recognize(node.test)
@@ -121,11 +125,9 @@ class GenericIfChainCompiler:
         body = branch.body
 
         if facts.pattern is not None:
-            captures = self.capture_patterns._detect_multiple_captures(body, subject)
+            captures = detect_multiple_captures(body, subject)
             if captures:
-                captures, aliases = self.capture_patterns._normalize_duplicate_captures(
-                    captures
-                )
+                captures, aliases = normalize_duplicate_captures(captures)
                 capture_pattern = facts.pattern
                 all_captures_applied = True
                 for capture in captures:
@@ -137,11 +139,9 @@ class GenericIfChainCompiler:
 
                 if all_captures_applied:
                     facts = BranchFacts(pattern=capture_pattern, guard=facts.guard)
-                    body = self.capture_patterns._remove_statements(
-                        body, len(captures) + len(aliases)
-                    )
+                    body = remove_statements(body, len(captures) + len(aliases))
                     if aliases:
-                        body = self.capture_patterns._prepend_aliases(body, aliases)
+                        body = prepend_aliases(body, aliases)
 
         pattern = (
             cst.MatchAs(pattern=None, name=None)
