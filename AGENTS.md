@@ -260,7 +260,7 @@ for an unrelated reason.
 ## Development Workflow
 
 1. Make changes to source code
-2. Add/update tests in `test_cli.py`
+2. Add/update behavior-focused tests in the relevant `tests/test_*.py` file
 3. Run tests: `uv run pytest`
 4. Fix any issues revealed by tests
 5. Ensure all tests pass before committing
