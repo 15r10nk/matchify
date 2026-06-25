@@ -8,7 +8,7 @@ from .subject_path import SubjectPath, extract_integer_subscript_index
 
 def detect_multiple_captures(
     body: cst.IndentedBlock, subject: cst.BaseExpression
-) -> list[CaptureFact]:
+) -> tuple[CaptureFact, ...]:
     captures = []
 
     for stmt in body.body:
@@ -37,12 +37,12 @@ def detect_multiple_captures(
 
         captures.append(CaptureFact(name=target.value, path=path, index=index))
 
-    return captures
+    return tuple(captures)
 
 
 def normalize_duplicate_captures(
-    captures: list[CaptureFact],
-) -> tuple[list[CaptureFact], list[tuple[str, str]]]:
+    captures: tuple[CaptureFact, ...],
+) -> tuple[tuple[CaptureFact, ...], tuple[tuple[str, str], ...]]:
     """Keep one pattern capture per source index and alias later duplicates."""
     seen: dict[tuple[SubjectPath, int], str] = {}
     unique_captures = []
@@ -56,7 +56,7 @@ def normalize_duplicate_captures(
         seen[key] = capture.name
         unique_captures.append(capture)
 
-    return unique_captures, aliases
+    return tuple(unique_captures), tuple(aliases)
 
 
 def remove_statements(body: cst.IndentedBlock, count: int) -> cst.IndentedBlock:
@@ -67,7 +67,7 @@ def remove_statements(body: cst.IndentedBlock, count: int) -> cst.IndentedBlock:
 
 
 def prepend_aliases(
-    body: cst.IndentedBlock, aliases: list[tuple[str, str]]
+    body: cst.IndentedBlock, aliases: tuple[tuple[str, str], ...]
 ) -> cst.IndentedBlock:
     alias_statements = [
         cst.SimpleStatementLine(
