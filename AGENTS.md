@@ -16,7 +16,8 @@ Matchify is a Python tool that automatically converts if/elif/else chains into P
 4. **`src/matchify/pattern_builder.py`** - Lowers predicates into pattern facts and guards.
 5. **`src/matchify/facts.py`** and **`src/matchify/patterns.py`** - Pattern IR and rendering.
 6. **`src/matchify/capture_patterns.py`** - Detects assignments that can become capture patterns.
-7. **`src/matchify/cli.py`** and **`src/matchify/__main__.py`** - File processing and CLI entry points.
+7. **`src/matchify/cli.py`** - File processing and console CLI entry point.
+8. **`src/matchify/__main__.py`** - Thin `python -m matchify` entry point.
 
 ## LibCST API Usage
 
