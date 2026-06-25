@@ -236,12 +236,6 @@ class BranchFacts:
     pattern: PatternTree | None
     guard: cst.BaseExpression | None
 
-    def with_pattern(self, pattern: PatternTree | None) -> BranchFacts:
-        return BranchFacts(
-            pattern=pattern,
-            guard=self.guard,
-        )
-
     @classmethod
     def from_facts(
         cls,

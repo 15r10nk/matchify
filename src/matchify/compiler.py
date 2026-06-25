@@ -8,6 +8,7 @@ import libcst as cst
 from libcst import matchers as m
 
 from .capture_patterns import CapturePatternRewriter
+from .facts import BranchFacts
 from .patterns import is_ignored_type_expr
 from .recognizers import SubjectRecognizer, normalize_branch
 from .safety import is_safe_condition
@@ -141,7 +142,7 @@ class GenericIfChainCompiler:
                     capture_pattern = next_pattern
 
                 if all_captures_applied:
-                    facts = facts.with_pattern(capture_pattern)
+                    facts = BranchFacts(pattern=capture_pattern, guard=facts.guard)
                     body = self.capture_patterns._remove_statements(
                         body, len(captures) + len(aliases)
                     )
