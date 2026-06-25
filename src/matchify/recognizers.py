@@ -29,11 +29,10 @@ class SubjectRecognizer:
             return or_subject
 
         if isinstance(test, cst.Call) and m.matches(
-            test, m.Call(func=m.Name(value="isinstance"))
+            test, m.Call(func=m.Name(value="isinstance"), args=[m.Arg(), m.Arg()])
         ):
             if (
-                len(test.args) >= 2
-                and extract_isinstance_classes(
+                extract_isinstance_classes(
                     test.args[1].value, self.ignore_types_pattern
                 )
                 is not None
@@ -107,11 +106,10 @@ class SubjectRecognizer:
         # OR subject probing scans several possible shapes; false sides just
         # continue to the next probe.
         if isinstance(part, cst.Call) and m.matches(  # pragma: no branch
-            part, m.Call(func=m.Name(value="isinstance"))
+            part, m.Call(func=m.Name(value="isinstance"), args=[m.Arg(), m.Arg()])
         ):
             if (  # pragma: no branch
-                len(part.args) >= 2
-                and extract_isinstance_classes(
+                extract_isinstance_classes(
                     part.args[1].value, self.ignore_types_pattern
                 )
                 is not None
@@ -161,11 +159,11 @@ class SubjectRecognizer:
         for component in flatten_boolean(test, cst.And):
             # The scan intentionally ignores non-isinstance components.
             if isinstance(component, cst.Call) and m.matches(  # pragma: no branch
-                component, m.Call(func=m.Name(value="isinstance"))
+                component,
+                m.Call(func=m.Name(value="isinstance"), args=[m.Arg(), m.Arg()]),
             ):
                 if (  # pragma: no branch
-                    len(component.args) >= 2
-                    and extract_isinstance_classes(
+                    extract_isinstance_classes(
                         component.args[1].value, self.ignore_types_pattern
                     )
                     is not None
