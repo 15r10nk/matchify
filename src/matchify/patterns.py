@@ -58,10 +58,13 @@ def build_or_pattern(patterns: list[cst.MatchPattern]) -> cst.MatchPattern:
     if len(patterns) == 1:
         return patterns[0]
 
-    elements = []
-    for index, pattern in enumerate(patterns):
-        separator = cst.BitOr() if index < len(patterns) - 1 else None
-        elements.append(cst.MatchOrElement(pattern=pattern, separator=separator))
+    elements = [
+        cst.MatchOrElement(
+            pattern=pattern,
+            separator=cst.BitOr() if index < len(patterns) - 1 else None,
+        )
+        for index, pattern in enumerate(patterns)
+    ]
     return cst.MatchOr(patterns=elements)
 
 
