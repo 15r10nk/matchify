@@ -122,15 +122,12 @@ class GenericIfChainCompiler:
             if captures:
                 captures, aliases = normalize_duplicate_captures(captures)
                 capture_pattern = facts.pattern
-                all_captures_applied = True
                 for capture in captures:
                     next_pattern = capture_pattern.with_captures((capture,))
                     if next_pattern.render().deep_equals(capture_pattern.render()):
-                        all_captures_applied = False
                         break
                     capture_pattern = next_pattern
-
-                if all_captures_applied:
+                else:
                     facts = BranchFacts(pattern=capture_pattern, guard=facts.guard)
                     body = remove_statements(body, len(captures) + len(aliases))
                     if aliases:
