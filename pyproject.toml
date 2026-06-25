@@ -98,14 +98,6 @@ scripts.test = [
 ]
 
 
-[tool.hatch.envs.docs]
-dependencies = [
-  "mkdocs>=1.4.2",
-  "mkdocs-material[imaging]>=8.5.10",
-  "mkdocstrings>=0.19.0"
-]
-scripts.serve = ["mkdocs serve {args}"]
-
 [tool.hatch.version]
 path = "src/matchify/__init__.py"
 
