@@ -119,7 +119,7 @@ def parse_predicate(
     ignore_types_pattern: str | None = r".*_TYPES$",
 ) -> Predicate:
     if isinstance(predicate, cst.Call) and m.matches(
-        predicate, m.Call(func=m.Name(value="isinstance"))
+        predicate, m.Call(func=m.Name(value="isinstance"), args=[m.Arg(), m.Arg()])
     ):
         parsed = parse_isinstance_predicate(predicate, subject, ignore_types_pattern)
         if parsed is not None:
@@ -141,10 +141,6 @@ def parse_isinstance_predicate(
     subject: cst.BaseExpression,
     ignore_types_pattern: str | None,
 ) -> IsInstancePredicate | SequenceTypePredicate | None:
-    # The compiler rejects malformed direct-subject isinstance calls before
-    # normalization; this keeps direct use of the parser defensive.
-    if len(predicate.args) < 2:  # pragma: no cover
-        return None
     path = SubjectPath.from_expression(predicate.args[0].value, subject)
     if path is None or has_unknown_subscript(path):
         return None
