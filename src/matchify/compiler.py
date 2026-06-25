@@ -8,7 +8,6 @@ import libcst as cst
 from libcst import matchers as m
 
 from .capture_patterns import CapturePatternRewriter
-from .facts import BranchFacts
 from .patterns import is_ignored_type_expr
 from .recognizers import SubjectRecognizer, normalize_branch
 from .safety import is_safe_condition
@@ -149,7 +148,11 @@ class GenericIfChainCompiler:
                     if aliases:
                         body = self.capture_patterns._prepend_aliases(body, aliases)
 
-        pattern = self._compile_pattern(facts)
+        pattern = (
+            cst.MatchAs(pattern=None, name=None)
+            if facts.pattern is None
+            else facts.pattern.render()
+        )
         guard = facts.guard
 
         kwargs = {
@@ -163,11 +166,6 @@ class GenericIfChainCompiler:
             kwargs["whitespace_after_if"] = cst.SimpleWhitespace(" ")
 
         return cst.MatchCase(**kwargs)
-
-    def _compile_pattern(self, facts: BranchFacts) -> cst.MatchPattern:
-        if facts.pattern is None:
-            return cst.MatchAs(pattern=None, name=None)
-        return facts.pattern.render()
 
     def _has_problematic_isinstance(
         self, test: cst.BaseExpression, subject: cst.BaseExpression
