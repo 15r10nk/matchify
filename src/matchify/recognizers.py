@@ -181,8 +181,6 @@ class SubjectRecognizer:
 def remove_redundant_subject_checks(
     part: cst.BaseExpression,
     subject: cst.BaseExpression,
-    *,
-    remove_sequence_type_checks: bool = True,
 ) -> cst.BaseExpression:
     if not isinstance(part, cst.BooleanOperation) or not isinstance(
         part.operator, cst.And
@@ -203,7 +201,7 @@ def remove_redundant_subject_checks(
         for component in components
         if not is_redundant_hasattr(component, subject, checked_paths)
         and not should_remove_redundant_sequence_type_check(
-            component, subject, checked_paths, remove_sequence_type_checks
+            component, subject, checked_paths
         )
     ]
     if len(filtered) == len(components):
@@ -238,12 +236,11 @@ def should_remove_redundant_sequence_type_check(
     node: cst.BaseExpression,
     subject: cst.BaseExpression,
     checked_paths: set[SubjectPath],
-    remove_sequence_type_checks: bool,
 ) -> bool:
     sequence_path = extract_list_tuple_isinstance_path(node, subject)
     if sequence_path is None or sequence_path not in checked_paths:
         return False
-    return remove_sequence_type_checks or sequence_path.is_subject
+    return sequence_path.is_subject
 
 
 def extract_list_tuple_isinstance_path(
@@ -402,13 +399,11 @@ def prepare_bool_tree_condition(
         return remove_redundant_subject_checks(
             expression,
             subject,
-            remove_sequence_type_checks=False,
         )
 
     return remove_redundant_subject_checks(
         condition,
         subject,
-        remove_sequence_type_checks=False,
     )
 
 
