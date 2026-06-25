@@ -339,10 +339,11 @@ def merge_class_nodes(  # pragma: no cover
     # E2E flows avoid duplicate class facts on one path.
     attributes = dict(existing.attributes)
     for name, incoming_child in incoming.attributes:
-        if name in attributes:
-            attributes[name] = merge_nodes(attributes[name], incoming_child)
-        else:
-            attributes[name] = incoming_child
+        attributes[name] = (
+            merge_nodes(attributes[name], incoming_child)
+            if name in attributes
+            else incoming_child
+        )
     return ClassNode(incoming.classes, tuple(attributes.items()))
 
 
@@ -353,10 +354,11 @@ def merge_sequence_nodes(
     # current E2E flows reject duplicate length facts before rendering.
     elements = dict(existing.elements)
     for index, incoming_child in incoming.elements:
-        if index in elements:
-            elements[index] = merge_nodes(elements[index], incoming_child)
-        else:
-            elements[index] = incoming_child
+        elements[index] = (
+            merge_nodes(elements[index], incoming_child)
+            if index in elements
+            else incoming_child
+        )
     return SequenceNode(incoming.length, incoming.use_star, tuple(elements.items()))
 
 
