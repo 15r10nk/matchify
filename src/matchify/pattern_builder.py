@@ -1,7 +1,5 @@
 """Lower typed condition predicates into the existing recursive pattern IR."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 
 import libcst as cst
