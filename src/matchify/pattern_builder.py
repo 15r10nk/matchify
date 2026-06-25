@@ -92,7 +92,9 @@ def build_and_pattern(
         if result.residual is not None:
             residuals.append(result.residual)
 
-    ordered_facts = tuple(sorted(facts, key=fact_sort_key))
+    ordered_facts = tuple(
+        sorted(facts, key=lambda fact: (len(fact.path.parts), fact_priority(fact)))
+    )
     residuals = drop_redundant_sequence_type_residuals(residuals, ordered_facts)
     if require_anchored and not facts_are_anchored(ordered_facts):
         return PatternBuildResult((), expr)
@@ -200,10 +202,6 @@ def sequence_path_has_element_fact(
         if isinstance(relative.first_part, SubscriptPathPart):
             return True
     return False
-
-
-def fact_sort_key(fact: PathFact) -> tuple[int, int]:
-    return (len(fact.path.parts), fact_priority(fact))
 
 
 def fact_priority(fact: PathFact) -> int:
