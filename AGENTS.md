@@ -270,7 +270,6 @@ for an unrelated reason.
 
 - **libcst>=1.8.6** - Core CST parsing and transformation
 - **pytest** - Testing framework
-- **inline-snapshot** - Snapshot testing support
 
 ## Development Workflow
 
