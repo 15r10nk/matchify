@@ -89,6 +89,5 @@ scripts.test = [
 
 [dependency-groups]
 dev = [
-    "coverage>=7.12.0",
     "pytest>=9.0.1",
 ]
