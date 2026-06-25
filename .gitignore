@@ -121,3 +121,4 @@ dmypy.json
 # Test files
 test_*.py
 !tests/test_*.py
+uv.lock
