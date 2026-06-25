@@ -185,10 +185,7 @@ def drop_common_sequence_type_residuals(
     ):
         return residuals
     first = residuals[0]
-    if not all(
-        isinstance(residual, SequenceTypePredicate) and residual.path == first.path
-        for residual in residuals
-    ):
+    if not all(residual.path == first.path for residual in residuals):
         return residuals
     if not all(
         any(
