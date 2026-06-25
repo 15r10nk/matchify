@@ -28,8 +28,7 @@ def convert_file(
         if transformed_code != source:
             path.write_text(transformed_code, encoding="utf-8")
             return (path, True, None)
-        else:
-            return (path, False, None)
+        return (path, False, None)
     except Exception as e:
         return (path, False, str(e))
 
