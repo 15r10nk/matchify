@@ -6,7 +6,12 @@ from dataclasses import dataclass
 
 import libcst as cst
 
-from .patterns import build_class_pattern, build_or_pattern, build_value_pattern
+from .patterns import (
+    build_class_pattern,
+    build_or_pattern,
+    build_value_pattern,
+    build_wildcard_pattern,
+)
 from .sequence_patterns import build_sequence_match_list
 from .subject_path import (
     AttributePathPart,
@@ -66,7 +71,7 @@ class WildcardNode:
 
     # Placeholder nodes should be replaced before rendering through public flows.
     def render(self) -> cst.MatchPattern:  # pragma: no cover
-        return cst.MatchAs(pattern=None, name=None)
+        return build_wildcard_pattern()
 
 
 @dataclass(frozen=True)

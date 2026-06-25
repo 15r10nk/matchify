@@ -2,7 +2,12 @@
 
 import libcst as cst
 
-from .patterns import flatten_boolean, is_isinstance_call, is_len_call
+from .patterns import (
+    build_wildcard_pattern,
+    flatten_boolean,
+    is_isinstance_call,
+    is_len_call,
+)
 from .subject_path import SubjectPath
 
 
@@ -58,11 +63,7 @@ def build_sequence_match_list(
 ) -> cst.MatchList:
     elements = [
         cst.MatchSequenceElement(
-            value=(
-                cst.MatchAs(pattern=None, name=None)
-                if pattern_info is None
-                else pattern_info
-            ),
+            value=(build_wildcard_pattern() if pattern_info is None else pattern_info),
             comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" ")),
         )
         for pattern_info in pattern_infos

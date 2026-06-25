@@ -12,7 +12,7 @@ from .capture_patterns import (
     remove_statements,
 )
 from .facts import BranchFacts
-from .patterns import extract_isinstance_classes
+from .patterns import build_wildcard_pattern, extract_isinstance_classes
 from .recognizers import SubjectRecognizer, normalize_branch
 from .safety import is_safe_condition
 
@@ -97,7 +97,7 @@ class GenericIfChainCompiler:
         if chain.else_body is not None:
             cases.append(
                 cst.MatchCase(
-                    pattern=cst.MatchAs(pattern=None, name=None),
+                    pattern=build_wildcard_pattern(),
                     body=chain.else_body,
                     leading_lines=chain.else_leading_lines,
                 )
@@ -133,7 +133,7 @@ class GenericIfChainCompiler:
                         body = prepend_aliases(body, aliases)
 
         pattern = (
-            cst.MatchAs(pattern=None, name=None)
+            build_wildcard_pattern()
             if facts.pattern is None
             else facts.pattern.render()
         )

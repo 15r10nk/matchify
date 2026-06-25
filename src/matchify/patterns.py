@@ -66,6 +66,10 @@ def build_value_pattern(value: cst.BaseExpression) -> cst.MatchPattern:
     return cst.MatchValue(value=value)
 
 
+def build_wildcard_pattern() -> cst.MatchAs:
+    return cst.MatchAs(pattern=None, name=None)
+
+
 def build_or_pattern(patterns: list[cst.MatchPattern]) -> cst.MatchPattern:
     if len(patterns) == 1:
         return patterns[0]
