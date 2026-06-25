@@ -24,7 +24,6 @@ def convert_file(
             source, ignore_types_pattern=ignore_types_pattern
         )
 
-        # Only write back if something changed
         if transformed_code != source:
             path.write_text(transformed_code, encoding="utf-8")
             return (path, True, None)
