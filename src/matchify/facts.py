@@ -203,10 +203,6 @@ class PatternTree:
         for fact in facts:
             root = insert_fact(root, fact)
 
-        # Defensive only: non-empty facts always assign a root or raise earlier.
-        if root is None:  # pragma: no cover
-            raise ValueError("PatternTree has no renderable node")
-
         return cls(root)
 
     def with_captures(self, capture_facts: tuple[CaptureFact, ...]) -> PatternTree:
