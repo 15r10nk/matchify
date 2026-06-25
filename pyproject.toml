@@ -21,7 +21,6 @@ dependencies = [
     "libcst>=1.8.6",
 ]
 description = 'converts if-else code to match statements'
-keywords = []
 license = "MIT"
 name = "matchify"
 readme = "README.md"
