@@ -267,11 +267,11 @@ def common_residual(
 
     first = residuals[0]
     first_condition = residual_condition(first)
-
-    for residual in residuals[1:]:
-        condition = residual_condition(residual)
-        if not condition.deep_equals(first_condition):
-            return _MIXED_RESIDUALS
+    if any(
+        not residual_condition(residual).deep_equals(first_condition)
+        for residual in residuals[1:]
+    ):
+        return _MIXED_RESIDUALS
     return first
 
 
