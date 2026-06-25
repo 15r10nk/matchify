@@ -73,9 +73,6 @@ class PatternNode:
     def render(self) -> cst.MatchPattern:  # pragma: no cover
         raise NotImplementedError
 
-    def insert(self, path: SubjectPath, node: PatternNode) -> PatternNode:
-        return insert_node(self, path, node)
-
 
 @dataclass(frozen=True)
 class WildcardNode(PatternNode):
@@ -128,7 +125,7 @@ class ClassNode(PatternNode):
     ) -> ClassNode:
         attributes = dict(self.attributes)
         child = attributes.get(name, WildcardNode())
-        attributes[name] = child.insert(path, node)
+        attributes[name] = insert_node(child, path, node)
         return ClassNode(self.classes, tuple(attributes.items()))
 
 
@@ -172,7 +169,7 @@ class SequenceNode(PatternNode):
     ) -> SequenceNode:
         elements = dict(self.elements)
         child = elements.get(index, WildcardNode())
-        elements[index] = child.insert(path, node)
+        elements[index] = insert_node(child, path, node)
         return SequenceNode(self.length, self.use_star, tuple(elements.items()))
 
 
@@ -185,15 +182,6 @@ class OrNode(PatternNode):
     def render(self) -> cst.MatchPattern:
         return build_or_pattern(
             [bracket_or_sequence_pattern(node.render()) for node in self.alternatives]
-        )
-
-    def insert(self, path: SubjectPath, node: PatternNode) -> PatternNode:
-        # Merging a second subject-level fact into an OR node is an internal
-        # conflict-resolution path; generated branches avoid this shape.
-        if path.is_subject:  # pragma: no cover
-            return merge_nodes(self, node)
-        return OrNode(
-            tuple(alternative.insert(path, node) for alternative in self.alternatives)
         )
 
 
@@ -285,7 +273,7 @@ def insert_fact(root: PatternNode | None, fact: PathFact) -> PatternNode:
         if not fact.path.is_subject:  # pragma: no cover
             raise ValueError("First pattern fact must describe the subject")
         return node
-    return root.insert(fact.path, node)
+    return insert_node(root, fact.path, node)
 
 
 def node_from_fact(fact: PathFact) -> PatternNode:
@@ -313,6 +301,18 @@ def node_from_or_alternative(
 
 
 def insert_node(root: PatternNode, path: SubjectPath, node: PatternNode) -> PatternNode:
+    if isinstance(root, OrNode):
+        # Merging a second subject-level fact into an OR node is an internal
+        # conflict-resolution path; generated branches avoid this shape.
+        if path.is_subject:  # pragma: no cover
+            return merge_nodes(root, node)
+        return OrNode(
+            tuple(
+                insert_node(alternative, path, node)
+                for alternative in root.alternatives
+            )
+        )
+
     if path.is_subject:
         return merge_nodes(root, node)
 
