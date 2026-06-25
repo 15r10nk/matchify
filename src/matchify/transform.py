@@ -17,6 +17,9 @@ class IfToMatchTransformer(cst.CSTTransformer):
         super().__init__()
         self._elif_nodes: set[int] = set()
         self.ignore_types_pattern = ignore_types_pattern
+        self.compiler = GenericIfChainCompiler(
+            ignore_types_pattern=ignore_types_pattern
+        )
 
     def visit_If(self, node: cst.If) -> bool:
         """Track elif nodes so only the chain root performs replacement."""
@@ -32,14 +35,13 @@ class IfToMatchTransformer(cst.CSTTransformer):
         if id(original_node) in self._elif_nodes:
             return updated_node
 
-        compiler = GenericIfChainCompiler(
-            ignore_types_pattern=self.ignore_types_pattern
-        )
-        chain = compiler.extract_chain(original_node)
-        if chain is None or not compiler.is_convertible(chain):
+        chain = self.compiler.extract_chain(original_node)
+        if chain is None or not self.compiler.is_convertible(chain):
             return updated_node
 
-        match_stmt = compiler.compile(chain, leading_lines=original_node.leading_lines)
+        match_stmt = self.compiler.compile(
+            chain, leading_lines=original_node.leading_lines
+        )
         return self._transform_nested_cases(match_stmt)
 
     def _transform_nested_cases(self, match_stmt: cst.Match) -> cst.Match:
