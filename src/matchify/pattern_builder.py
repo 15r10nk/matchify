@@ -187,7 +187,7 @@ def drop_common_sequence_type_residuals(
         for alternative in alternatives
     ):
         return residuals
-    return [None for _ in residuals]
+    return [None] * len(residuals)
 
 
 def sequence_path_has_element_fact(
