@@ -97,7 +97,11 @@ def build_sequence_elements(
 ) -> list[cst.MatchSequenceElement]:
     elements = [
         cst.MatchSequenceElement(
-            value=build_match_pattern_from_info(pattern_info),
+            value=(
+                cst.MatchAs(pattern=None, name=None)
+                if isinstance(pattern_info, WildcardElementPattern)
+                else pattern_info.pattern
+            ),
             comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" ")),
         )
         for pattern_info in pattern_infos
@@ -119,16 +123,6 @@ def build_sequence_elements(
             comma=cst.Comma(whitespace_after=cst.SimpleWhitespace("")),
         )
     return elements
-
-
-def build_match_pattern_from_info(
-    pattern_info: SequenceElementPattern,
-) -> cst.MatchPattern:
-    if isinstance(pattern_info, WildcardElementPattern):
-        return cst.MatchAs(pattern=None, name=None)
-    if isinstance(pattern_info, RawElementPattern):
-        return pattern_info.pattern
-    raise TypeError(f"Unsupported sequence element pattern: {pattern_info!r}")
 
 
 def validate_wildcard_constraint(
