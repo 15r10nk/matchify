@@ -38,10 +38,6 @@ class PatternBuildResult:
     facts: tuple[PathFact, ...]
     residual: BoolExpr | None = None
 
-    @property
-    def has_pattern(self) -> bool:
-        return bool(self.facts)
-
 
 def normalize_with_bool_tree(
     condition: cst.BaseExpression,
@@ -51,13 +47,13 @@ def normalize_with_bool_tree(
     """Normalize one branch by parsing it into BoolExpr first."""
     expr = parse_condition(condition, subject, ignore_types_pattern)
     result = build_pattern(expr)
-    if not result.has_pattern:
+    if not result.facts:
         return None
 
     guard = residual_condition(result.residual)
     try:
         branch = BranchFacts.from_facts(condition, subject, result.facts, guard=guard)
-        # `has_pattern` above means BranchFacts.from_facts builds a pattern.
+        # Non-empty facts above mean BranchFacts.from_facts builds a pattern.
         if branch.pattern is not None:  # pragma: no branch
             branch.pattern.render()
     except ValueError:
@@ -128,7 +124,7 @@ def build_or_pattern(expr: OrExpr) -> PatternBuildResult:
 
     for part in expr.parts:
         result = build_pattern(part, require_anchored=False)
-        if not result.has_pattern:
+        if not result.facts:
             return PatternBuildResult((), expr)
         alternatives.append(result.facts)
         residuals.append(result.residual)
