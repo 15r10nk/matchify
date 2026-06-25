@@ -67,20 +67,14 @@ def has_direct_sequence_element_check(
             if path is not None and path.starts_with_subscript:
                 return True
         if isinstance(component, cst.Call) and m.matches(
-            component, m.Call(func=m.Name(value="isinstance"))
+            component,
+            m.Call(func=m.Name(value="isinstance"), args=[m.Arg(), m.Arg()]),
         ):
             # False sides are just "not a direct sequence element" probes while
             # scanning mixed AND components.
             if (  # pragma: no branch
-                len(component.args) >= 1
-                and (
-                    path := SubjectPath.from_expression(
-                        component.args[0].value, subject
-                    )
-                )
-                is not None
-                and path.starts_with_subscript
-            ):
+                path := SubjectPath.from_expression(component.args[0].value, subject)
+            ) is not None and path.starts_with_subscript:
                 return True
     return False
 
