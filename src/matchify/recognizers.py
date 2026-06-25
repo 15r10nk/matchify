@@ -297,11 +297,10 @@ def collect_checked_attribute_paths(
     if not isinstance(node, cst.Comparison) or len(node.comparisons) != 1:
         return set()
 
-    if m.matches(node.left, m.Call(func=m.Name(value="len"), args=[m.Arg()])):
+    if isinstance(node.left, cst.Call) and m.matches(
+        node.left, m.Call(func=m.Name(value="len"), args=[m.Arg()])
+    ):
         len_call = node.left
-        # Guarded by the len(...) matcher; retained for type-narrowing safety.
-        if not len_call.args:  # pragma: no cover
-            return set()
         path = SubjectPath.from_expression(len_call.args[0].value, subject)
         if path is None:
             return set()

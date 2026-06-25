@@ -36,11 +36,12 @@ def find_sequence_subject(test: cst.BaseExpression) -> cst.BaseExpression | None
             continue
         if not isinstance(target.comparator, cst.Integer):
             continue
-        if not m.matches(
-            component.left, m.Call(func=m.Name(value="len"), args=[m.Arg()])
+        if not isinstance(component.left, cst.Call) or not m.matches(
+            component.left,
+            m.Call(func=m.Name(value="len"), args=[m.Arg()]),
         ):
             continue
-        len_call = component.left  # type: ignore[assignment]
+        len_call = component.left
         subject = len_call.args[0].value
         break
 
