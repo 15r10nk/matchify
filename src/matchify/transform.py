@@ -53,7 +53,6 @@ def transform_code(source: str, ignore_types_pattern: str | None = None) -> str:
     """
     module = cst.parse_module(source)
 
-    # First pass: convert if/elif/else to match
     transformed = module.visit(
         IfToMatchTransformer(ignore_types_pattern=ignore_types_pattern)
     )
