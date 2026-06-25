@@ -13,7 +13,6 @@ class IfToMatchTransformer(cst.CSTTransformer):
     def __init__(self, ignore_types_pattern: str | None = r".*_TYPES$"):
         super().__init__()
         self._elif_nodes: set[int] = set()
-        self.ignore_types_pattern = ignore_types_pattern
         self.compiler = GenericIfChainCompiler(
             ignore_types_pattern=ignore_types_pattern
         )
