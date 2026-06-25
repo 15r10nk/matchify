@@ -237,9 +237,11 @@ def should_remove_redundant_sequence_type_check(
     checked_paths: set[SubjectPath],
 ) -> bool:
     sequence_path = extract_list_tuple_isinstance_path(node, subject)
-    if sequence_path is None or sequence_path not in checked_paths:
-        return False
-    return sequence_path.is_subject
+    return (
+        sequence_path is not None
+        and sequence_path in checked_paths
+        and sequence_path.is_subject
+    )
 
 
 def extract_list_tuple_isinstance_path(
