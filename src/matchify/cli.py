@@ -110,13 +110,13 @@ def main() -> None:
         # Multiple files - use parallel processing
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             # Submit all tasks
-            future_to_path = {
-                executor.submit(convert_file, path, args.no_types): path
+            futures = [
+                executor.submit(convert_file, path, args.no_types)
                 for path in python_files
-            }
+            ]
 
             # Process results as they complete
-            for future in as_completed(future_to_path):
+            for future in as_completed(futures):
                 path, changed, error = future.result()
                 if error:
                     print(f"Error processing {path}: {error}")
