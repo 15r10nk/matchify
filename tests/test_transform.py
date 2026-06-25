@@ -3,8 +3,8 @@ from textwrap import dedent
 from helpers import check_code
 
 
-class TestIfToMatchTransformer:
-    """Test the IfToMatchTransformer class."""
+class TestTransformCode:
+    """Test source-to-source transformation behavior."""
 
     def test_simple_if_elif_else_chain(self):
         """Test conversion of simple if/elif/else chain with == comparisons."""
