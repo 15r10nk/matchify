@@ -29,7 +29,7 @@ class IfChain(NamedTuple):
     """A normalized if/elif/else chain, independent from LibCST navigation quirks."""
 
     subject: cst.BaseExpression
-    branches: list[IfBranch]
+    branches: tuple[IfBranch, ...]
     else_body: cst.IndentedBlock | None
     else_leading_lines: tuple[cst.EmptyLine, ...]
 
@@ -82,7 +82,7 @@ class GenericIfChainCompiler:
                 return None
             return IfChain(
                 subject=subject,
-                branches=branches,
+                branches=tuple(branches),
                 else_body=else_body,
                 else_leading_lines=else_leading_lines,
             )
