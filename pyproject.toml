@@ -75,7 +75,6 @@ dependencies = [
 [tool.hatch.envs.all]
 dependencies = [
   "coverage[toml]>=6.5",
-  "coverage-enable-subprocess",
   "pytest",
   "inline-snapshot[black]"
 ]
