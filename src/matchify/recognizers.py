@@ -8,7 +8,6 @@ from libcst import matchers as m
 from .facts import BranchFacts
 from .pattern_builder import normalize_with_bool_tree
 from .patterns import (
-    combine_guards,
     extract_isinstance_classes,
     flatten_boolean,
     is_literal_value,
@@ -217,8 +216,14 @@ def remove_redundant_subject_checks(
     # If pruning leaves one condition we return it directly; otherwise rebuild AND.
     if len(filtered) == 1:  # pragma: no branch
         return filtered[0]
-    combined = combine_guards(filtered)
-    return combined if combined is not None else part
+    expression = filtered[0]
+    for component in filtered[1:]:
+        expression = cst.BooleanOperation(
+            left=expression,
+            operator=cst.And(),
+            right=component,
+        )
+    return expression
 
 
 def is_redundant_hasattr(

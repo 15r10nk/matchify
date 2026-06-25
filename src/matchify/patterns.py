@@ -18,17 +18,6 @@ def flatten_boolean(
     return [node]
 
 
-def combine_guards(parts: list[cst.BaseExpression]) -> cst.BaseExpression | None:
-    # Defensive helper behavior for callers that already filtered all guards out.
-    if not parts:  # pragma: no cover
-        return None
-
-    guard = parts[0]
-    for part in parts[1:]:
-        guard = cst.BooleanOperation(left=guard, operator=cst.And(), right=part)
-    return guard
-
-
 def is_singleton_name(node: cst.BaseExpression) -> bool:
     return m.matches(
         node, m.Name(value="None") | m.Name(value="True") | m.Name(value="False")
