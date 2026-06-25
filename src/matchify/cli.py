@@ -1,7 +1,5 @@
 """Command-line and file processing helpers."""
 
-from __future__ import annotations
-
 import argparse
 import multiprocessing
 import pathlib
