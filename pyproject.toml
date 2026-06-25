@@ -27,10 +27,8 @@ readme = "README.md"
 requires-python = ">=3.10"
 version = "0.0.1"
 
-
 [project.scripts]
 matchify = "matchify.__main__:main"
-
 
 [project.urls]
 Documentation = "https://github.com/15r10nk/matchify#readme"
@@ -90,7 +88,6 @@ scripts.test = [
   "coverage html",
   "coverage report"
 ]
-
 
 [dependency-groups]
 dev = [
