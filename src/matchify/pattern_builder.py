@@ -213,13 +213,11 @@ def fact_priority(fact: PathFact) -> int:
 def alternative_is_anchor(
     alternative: ValueFact | ClassFact | tuple[PathFact, ...],
 ) -> bool:
-    if isinstance(alternative, ClassFact):
-        return True
-    if isinstance(alternative, tuple):
-        return bool(alternative) and isinstance(
-            alternative[0], ClassFact | SequenceFact
-        )
-    return False
+    return isinstance(alternative, ClassFact) or (
+        isinstance(alternative, tuple)
+        and bool(alternative)
+        and isinstance(alternative[0], ClassFact | SequenceFact)
+    )
 
 
 def facts_are_anchored(facts: tuple[PathFact, ...]) -> bool:
