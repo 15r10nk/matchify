@@ -139,8 +139,10 @@ jobs:
         fi
 
     - run: uv pip install hatch scriv
+      if: ${{ steps.check-version.outputs.should_continue == 'true' }}
 
     - name: build package
+      if: ${{ steps.check-version.outputs.should_continue == 'true' }}
       run: hatch build
 
     - name: Publish package distributions to PyPI
