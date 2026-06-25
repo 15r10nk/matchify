@@ -51,7 +51,7 @@ matchify = ["src/matchify", "*/matchify/src/matchify"]
 tests = ["tests", "*/matchify/tests"]
 
 [tool.coverage.report]
-exclude_lines = ["pragma: no cover", "assert False", "raise NotImplemented", "\\.\\.\\."]
+exclude_lines = ["pragma: no cover"]
 
 [tool.coverage.run]
 branch = true
