@@ -19,11 +19,25 @@ def detect_multiple_captures(
         if len(stmt.body) != 1 or not isinstance(stmt.body[0], cst.Assign):
             break
 
-        capture_info = detect_capture_assignment(stmt.body[0], subject)
-        if capture_info is None:
+        assign = stmt.body[0]
+        if len(assign.targets) != 1:
             break
 
-        captures.append(capture_info)
+        target = assign.targets[0].target
+        if not isinstance(target, cst.Name):
+            break
+
+        if not isinstance(assign.value, cst.Subscript):
+            break
+
+        path = SubjectPath.from_expression(assign.value.value, subject)
+        if path is None:
+            break
+        index = extract_integer_subscript_index(assign.value)
+        if index is None:
+            break
+
+        captures.append(CaptureFact(name=target.value, path=path, index=index))
 
     return captures
 
@@ -45,29 +59,6 @@ def normalize_duplicate_captures(
         unique_captures.append(capture)
 
     return unique_captures, aliases
-
-
-def detect_capture_assignment(
-    assign: cst.Assign, subject: cst.BaseExpression
-) -> CaptureFact | None:
-    if len(assign.targets) != 1:
-        return None
-
-    target = assign.targets[0].target
-    if not isinstance(target, cst.Name):
-        return None
-
-    if not isinstance(assign.value, cst.Subscript):
-        return None
-
-    path = SubjectPath.from_expression(assign.value.value, subject)
-    if path is None:
-        return None
-    index = extract_integer_subscript_index(assign.value)
-    if index is None:
-        return None
-
-    return CaptureFact(name=target.value, path=path, index=index)
 
 
 def remove_statements(body: cst.IndentedBlock, count: int) -> cst.IndentedBlock:
