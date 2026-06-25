@@ -64,7 +64,6 @@ class OrFact:
 
 
 PathFact = ValueFact | ClassFact | SequenceFact | OrFact
-BranchFact = PathFact
 
 
 class PatternNode:
@@ -248,7 +247,7 @@ class BranchFacts:
 
     condition: cst.BaseExpression
     subject: cst.BaseExpression
-    facts: tuple[BranchFact, ...]
+    facts: tuple[PathFact, ...]
     pattern: PatternTree | None
     guard: cst.BaseExpression | None
 
@@ -266,7 +265,7 @@ class BranchFacts:
         cls,
         condition: cst.BaseExpression,
         subject: cst.BaseExpression,
-        facts: tuple[BranchFact, ...],
+        facts: tuple[PathFact, ...],
         *,
         guard: cst.BaseExpression | None = None,
     ) -> BranchFacts:
