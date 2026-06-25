@@ -88,13 +88,6 @@ def build_sequence_match_list(
     pattern_infos: list[SequenceElementPattern],
     use_star: bool,
 ) -> cst.MatchList:
-    elements = build_sequence_elements(pattern_infos, use_star)
-    return cst.MatchList(patterns=elements, lbracket=None, rbracket=None)
-
-
-def build_sequence_elements(
-    pattern_infos: list[SequenceElementPattern], use_star: bool
-) -> list[cst.MatchSequenceElement]:
     elements = [
         cst.MatchSequenceElement(
             value=(
@@ -111,7 +104,7 @@ def build_sequence_elements(
         elements.append(
             cst.MatchSequenceElement(value=cst.MatchStar(name=cst.Name("_")))
         )
-        return elements
+        return cst.MatchList(patterns=elements, lbracket=None, rbracket=None)
 
     if len(elements) > 1:
         last = elements[-1]
@@ -122,7 +115,7 @@ def build_sequence_elements(
             value=last.value,
             comma=cst.Comma(whitespace_after=cst.SimpleWhitespace("")),
         )
-    return elements
+    return cst.MatchList(patterns=elements, lbracket=None, rbracket=None)
 
 
 def validate_wildcard_constraint(
