@@ -99,12 +99,10 @@ def build_sequence_match_list(
         return cst.MatchList(patterns=elements, lbracket=None, rbracket=None)
 
     if len(elements) > 1:
-        last = elements[-1]
-        elements[-1] = cst.MatchSequenceElement(value=last.value)
+        elements[-1] = cst.MatchSequenceElement(value=elements[-1].value)
     elif elements:  # pragma: no branch
-        last = elements[-1]
         elements[-1] = cst.MatchSequenceElement(
-            value=last.value,
+            value=elements[-1].value,
             comma=cst.Comma(whitespace_after=cst.SimpleWhitespace("")),
         )
     return cst.MatchList(patterns=elements, lbracket=None, rbracket=None)
