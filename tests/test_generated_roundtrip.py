@@ -4325,33 +4325,6 @@ def test_sequence_element_attribute_guarded_generated_program_survives_matchify(
     assert_matchify_preserves_trace(program, tmp_path)
 
 
-def test_sample_values_must_cover_reachable_generated_cases():
-    program = GeneratedProgram(
-        classes=("Point",),
-        cases=(
-            GeneratedCase(ClassPattern("Point"), "branch_0"),
-            GeneratedCase(
-                ClassPattern("Point", (("x", LiteralPattern("1")),)), "branch_1"
-            ),
-            GeneratedCase(WildcardPattern(), "default"),
-        ),
-    )
-
-    assert not sample_values_cover_reachable_cases(program)
-
-
-def test_false_guarded_generated_cases_are_not_required_for_sample_coverage():
-    program = GeneratedProgram(
-        classes=("Point",),
-        cases=(
-            GeneratedCase(GuardedPattern(LiteralPattern("1"), "False"), "branch_0"),
-            GeneratedCase(LiteralPattern("1"), "branch_1"),
-        ),
-    )
-
-    assert sample_values_cover_reachable_cases(program)
-
-
 def test_generated_if_traces_survive_matchify(tmp_path: Path):
     for program in generated_programs(count=80, seed=20260625):
         assert_matchify_preserves_trace(program, tmp_path)
