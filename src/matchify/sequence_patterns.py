@@ -6,8 +6,6 @@ from libcst import matchers as m
 from .patterns import flatten_boolean
 from .subject_path import SubjectPath
 
-SequenceElementPattern = cst.MatchPattern | None
-
 
 def find_sequence_subject(test: cst.BaseExpression) -> cst.BaseExpression | None:
     for component in flatten_boolean(test, cst.And):
@@ -62,7 +60,7 @@ def has_direct_sequence_element_check(
 
 
 def build_sequence_match_list(
-    pattern_infos: list[SequenceElementPattern],
+    pattern_infos: list[cst.MatchPattern | None],
     use_star: bool,
 ) -> cst.MatchList:
     elements = [
@@ -94,7 +92,7 @@ def build_sequence_match_list(
 
 
 def validate_wildcard_constraint(
-    elements: dict[int, SequenceElementPattern], total_len: int
+    elements: dict[int, cst.MatchPattern | None], total_len: int
 ) -> bool:
     consecutive_wildcards = 0
     for index in range(total_len):

@@ -8,7 +8,6 @@ import libcst as cst
 
 from .patterns import build_class_pattern, build_or_pattern, build_value_pattern
 from .sequence_patterns import (
-    SequenceElementPattern,
     build_sequence_match_list,
     validate_wildcard_constraint,
 )
@@ -133,7 +132,7 @@ class SequenceNode:
         ):
             raise ValueError("Sequence fact would produce too many wildcards")
 
-        pattern_infos: list[SequenceElementPattern] = [
+        pattern_infos: list[cst.MatchPattern | None] = [
             (render_child_node(elements[index]) if index in elements else None)
             for index in range(required_len)
         ]
