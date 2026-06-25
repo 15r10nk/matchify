@@ -199,9 +199,14 @@ class PatternTree:
         if not facts:  # pragma: no cover
             raise ValueError("PatternTree needs at least one fact")
 
-        root: PatternNode | None = None
-        for fact in facts:
-            root = insert_fact(root, fact)
+        first, *rest = facts
+        # The builder orders facts so the first one always anchors the subject.
+        if not first.path.is_subject:  # pragma: no cover
+            raise ValueError("First pattern fact must describe the subject")
+
+        root = node_from_fact(first)
+        for fact in rest:
+            root = insert_node(root, fact.path, node_from_fact(fact))
 
         return cls(root)
 
@@ -227,16 +232,6 @@ class BranchFacts:
 
     pattern: PatternTree | None
     guard: cst.BaseExpression | None
-
-
-def insert_fact(root: PatternNode | None, fact: PathFact) -> PatternNode:
-    node = node_from_fact(fact)
-    if root is None:
-        # The builder orders facts so the first one always anchors the subject.
-        if not fact.path.is_subject:  # pragma: no cover
-            raise ValueError("First pattern fact must describe the subject")
-        return node
-    return insert_node(root, fact.path, node)
 
 
 def node_from_fact(fact: PathFact) -> PatternNode:
