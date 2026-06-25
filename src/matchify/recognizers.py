@@ -247,11 +247,8 @@ def extract_list_tuple_isinstance_path(
     node: cst.BaseExpression, subject: cst.BaseExpression
 ) -> SubjectPath | None:
     if not isinstance(node, cst.Call) or not m.matches(
-        node, m.Call(func=m.Name(value="isinstance"))
+        node, m.Call(func=m.Name(value="isinstance"), args=[m.Arg(), m.Arg()])
     ):
-        return None
-    # Defensive: only normal two-argument isinstance calls are interesting here.
-    if len(node.args) != 2:  # pragma: no cover
         return None
     path = SubjectPath.from_expression(node.args[0].value, subject)
     if path is None:
@@ -281,11 +278,8 @@ def collect_checked_attribute_paths(
         return merged if len(merged) == 1 else set()
 
     if isinstance(node, cst.Call) and m.matches(
-        node, m.Call(func=m.Name(value="isinstance"))
+        node, m.Call(func=m.Name(value="isinstance"), args=[m.Arg(), m.Arg()])
     ):
-        # Malformed isinstance calls are rejected before they become checked paths.
-        if len(node.args) < 2:  # pragma: no cover
-            return set()
         path = SubjectPath.from_expression(node.args[0].value, subject)
         if path is None or not path:
             return set()
