@@ -1,7 +1,5 @@
 """Capture assignment helpers for compiled match cases."""
 
-from __future__ import annotations
-
 import libcst as cst
 
 from .facts import CaptureFact
