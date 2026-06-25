@@ -1,6 +1,8 @@
 import pathlib
+import runpy
 import sys
 import tempfile
+from importlib import import_module
 from textwrap import dedent
 
 import pytest
@@ -85,6 +87,12 @@ class TestConvertFile:
 class TestMain:
     """Test the main function."""
 
+    def test_module_can_be_imported_without_running_cli(self):
+        """Test importing the module entry point does not parse CLI arguments."""
+
+        module = import_module("matchify.__main__")
+        assert module.main is main
+
     def test_main_no_arguments(self, capsys):
         """Test main function with no arguments."""
 
@@ -121,6 +129,35 @@ class TestMain:
             try:
                 sys.argv = ["matchify", str(test_file)]
                 main()
+
+                result = test_file.read_text(encoding="utf-8")
+                assert "match x:" in result
+
+                captured = capsys.readouterr()
+                assert "Converted:" in captured.out
+            finally:
+                sys.argv = original_argv
+
+    def test_module_entrypoint_with_single_file(self, capsys):
+        """Test running the package module invokes the CLI entry point."""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_file = pathlib.Path(tmpdir) / "test.py"
+            source = dedent(
+                """
+                if x == 1:
+                    print("one")
+                elif x == 2:
+                    print("two")
+            """
+            ).strip()
+            test_file.write_text(source, encoding="utf-8")
+
+            original_argv = sys.argv
+            try:
+                sys.argv = ["python -m matchify", str(test_file)]
+                sys.modules.pop("matchify.__main__", None)
+                runpy.run_module("matchify.__main__", run_name="__main__")
 
                 result = test_file.read_text(encoding="utf-8")
                 assert "match x:" in result
@@ -254,6 +291,30 @@ class TestMain:
 
 
 class TestCliOptionsAndErrors:
+    def test_single_unchanged_file_without_verbose_counts_summary(self, capsys):
+        """Test unchanged single-file runs stay quiet except for the summary."""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_file = pathlib.Path(tmpdir) / "test.py"
+            source = dedent(
+                """
+                if x > 5:
+                    print("big")
+            """
+            ).strip()
+            test_file.write_text(source, encoding="utf-8")
+
+            original_argv = sys.argv
+            try:
+                sys.argv = ["matchify", str(test_file)]
+                main()
+
+                captured = capsys.readouterr()
+                assert "No changes:" not in captured.out
+                assert "0 converted, 1 unchanged, 0 errors" in captured.out
+            finally:
+                sys.argv = original_argv
+
     def test_verbose_flag_with_unchanged_file(self, capsys):
         """Test --verbose flag shows unchanged files."""
 
@@ -275,6 +336,52 @@ class TestCliOptionsAndErrors:
 
                 captured = capsys.readouterr()
                 assert "No changes:" in captured.out
+            finally:
+                sys.argv = original_argv
+
+    def test_multiple_files_with_error_and_verbose_unchanged(self, capsys):
+        """Test parallel processing reports both errors and verbose unchanged files."""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_dir = pathlib.Path(tmpdir)
+            unchanged_file = test_dir / "unchanged.py"
+            broken_file = test_dir / "broken.py"
+
+            unchanged_file.write_text("if x > 5:\n    print('big')", encoding="utf-8")
+            broken_file.write_text("if x == :\n    print('broken')", encoding="utf-8")
+
+            original_argv = sys.argv
+            try:
+                sys.argv = ["matchify", "--jobs", "2", "--verbose", str(test_dir)]
+                main()
+
+                captured = capsys.readouterr()
+                assert "No changes:" in captured.out
+                assert "Error processing" in captured.out
+                assert "0 converted, 1 unchanged, 1 errors" in captured.out
+            finally:
+                sys.argv = original_argv
+
+    def test_multiple_files_with_error_and_nonverbose_unchanged(self, capsys):
+        """Test parallel processing counts quiet unchanged files."""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_dir = pathlib.Path(tmpdir)
+            unchanged_file = test_dir / "unchanged.py"
+            broken_file = test_dir / "broken.py"
+
+            unchanged_file.write_text("if x > 5:\n    print('big')", encoding="utf-8")
+            broken_file.write_text("if x == :\n    print('broken')", encoding="utf-8")
+
+            original_argv = sys.argv
+            try:
+                sys.argv = ["matchify", "--jobs", "2", str(test_dir)]
+                main()
+
+                captured = capsys.readouterr()
+                assert "No changes:" not in captured.out
+                assert "Error processing" in captured.out
+                assert "0 converted, 1 unchanged, 1 errors" in captured.out
             finally:
                 sys.argv = original_argv
 

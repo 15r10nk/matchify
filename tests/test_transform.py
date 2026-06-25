@@ -1041,6 +1041,41 @@ class TestIfToMatchTransformer:
 
         check_code(source, expected)
 
+    def test_isinstance_subscript_subject(self):
+        """Test isinstance chains can match directly on a subscript expression."""
+        source = dedent(
+            """
+            class A:
+                pass
+            class B:
+                pass
+
+            items = [A()]
+            if isinstance(items[0], A):
+                print("a")
+            elif isinstance(items[0], B):
+                print("b")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class A:
+                pass
+            class B:
+                pass
+
+            items = [A()]
+            match items[0]:
+                case A():
+                    print("a")
+                case B():
+                    print("b")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_sequence_pattern_with_guard_condition(self):
         """Test sequence patterns with an independent guard condition."""
         source = dedent(
@@ -1893,6 +1928,66 @@ class TestIfToMatchTransformer:
 
         # Should NOT be converted (3 consecutive wildcards)
         check_code(source, source)
+
+    def test_sequence_element_beyond_checked_length_falls_back_to_guard(self):
+        """Test out-of-range element checks are kept as a guard-only case."""
+        source = dedent(
+            """
+            data = [1, 2, 3]
+            if len(data) == 1 and data[2] == 3:
+                print("too far")
+            elif len(data) == 1 and data[0] == 1:
+                print("one")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            data = [1, 2, 3]
+            match data:
+                case _ if len(data) == 1 and data[2] == 3:
+                    print("too far")
+                case 1,:
+                    print("one")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_non_integer_sequence_subscripts_fall_back_to_guards(self):
+        """Test non-patternable subscript forms remain guards instead of crashing."""
+        source = dedent(
+            """
+            data = [1, 2]
+            i = 0
+            if len(data) == 2 and data[0, 1] == 1:
+                print("tuple subscript")
+            elif len(data) == 2 and data[0:1] == 1:
+                print("slice subscript")
+            elif len(data) == 2 and data[i] == 1:
+                print("dynamic subscript")
+            elif len(data) == 2 and data[0] == 1:
+                print("one")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            data = [1, 2]
+            i = 0
+            match data:
+                case _, _ if data[0, 1] == 1:
+                    print("tuple subscript")
+                case _, _ if data[0:1] == 1:
+                    print("slice subscript")
+                case _, _ if data[i] == 1:
+                    print("dynamic subscript")
+                case 1, _:
+                    print("one")
+        """
+        ).strip()
+
+        check_code(source, expected)
 
     def test_wildcard_pattern_multiple_groups(self):
         """Test wildcard pattern with multiple separate wildcard groups."""
@@ -2855,6 +2950,45 @@ class TestIfToMatchTransformer:
         # Should NOT be converted (different subjects)
         check_code(source, source)
 
+    def test_or_class_pattern_with_common_attribute_check(self):
+        """Test common attribute checks are inserted into every OR class alternative."""
+        source = dedent(
+            """
+            class A:
+                def __init__(self, kind):
+                    self.kind = kind
+            class B:
+                def __init__(self, kind):
+                    self.kind = kind
+
+            x = A(1)
+            if (isinstance(x, A) or isinstance(x, B)) and x.kind == 1:
+                print("match")
+            elif isinstance(x, str):
+                print("str")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class A:
+                def __init__(self, kind):
+                    self.kind = kind
+            class B:
+                def __init__(self, kind):
+                    self.kind = kind
+
+            x = A(1)
+            match x:
+                case A(kind=1) | B(kind=1):
+                    print("match")
+                case str():
+                    print("str")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_capture_pattern_from_assignment(self):
         """Test capture pattern with assignment-based variable binding.
 
@@ -2924,6 +3058,154 @@ class TestIfToMatchTransformer:
                     print(first, again)
                 case Point():
                     print("empty")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_capture_only_body_becomes_pass(self):
+        """Test capture removal keeps an empty case body syntactically valid."""
+        source = dedent(
+            """
+            class Point:
+                def __init__(self, x):
+                    self.x = x
+
+            n = Point([1])
+            if isinstance(n, Point) and len(n.x) >= 1:
+                value = n.x[0]
+            elif isinstance(n, Point):
+                print("empty")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Point:
+                def __init__(self, x):
+                    self.x = x
+
+            n = Point([1])
+            match n:
+                case Point(x=[value, *_]):
+                    pass
+                case Point():
+                    print("empty")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_duplicate_capture_only_body_keeps_alias_without_pass(self):
+        """Test duplicate-only captures replace the temporary pass body with aliases."""
+        source = dedent(
+            """
+            class Point:
+                def __init__(self, x):
+                    self.x = x
+
+            n = Point([1])
+            if isinstance(n, Point) and len(n.x) >= 1:
+                first = n.x[0]
+                again = n.x[0]
+            elif isinstance(n, Point):
+                print("empty")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Point:
+                def __init__(self, x):
+                    self.x = x
+
+            n = Point([1])
+            match n:
+                case Point(x=[first, *_]):
+                    again = first
+                case Point():
+                    print("empty")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_invalid_capture_assignments_stay_in_body(self):
+        """Test capture-like assignments stay in the body when they cannot bind safely."""
+        source = dedent(
+            """
+            class A:
+                def __init__(self, x):
+                    self.x = x
+            class B:
+                def __init__(self, x):
+                    self.x = x
+            class C:
+                def __init__(self, x):
+                    self.x = x
+            class D:
+                def __init__(self, x):
+                    self.x = x
+            class E:
+                def __init__(self, x):
+                    self.x = x
+
+            n = A([1])
+            i = 0
+            if isinstance(n, A) and len(n.x) >= 1:
+                first = second = n.x[0]
+                print(first, second)
+            elif isinstance(n, B) and len(n.x) >= 1:
+                n.value = n.x[0]
+                print(n.value)
+            elif isinstance(n, C) and len(n.x) >= 1:
+                value = other_items[0]
+                print(value)
+            elif isinstance(n, D) and len(n.x) >= 1:
+                value = n.x[0:1]
+                print(value)
+            elif isinstance(n, E) and len(n.x) >= 1:
+                value = n.x[i]
+                print(value)
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class A:
+                def __init__(self, x):
+                    self.x = x
+            class B:
+                def __init__(self, x):
+                    self.x = x
+            class C:
+                def __init__(self, x):
+                    self.x = x
+            class D:
+                def __init__(self, x):
+                    self.x = x
+            class E:
+                def __init__(self, x):
+                    self.x = x
+
+            n = A([1])
+            i = 0
+            match n:
+                case A(x=[_, *_]):
+                    first = second = n.x[0]
+                    print(first, second)
+                case B(x=[_, *_]):
+                    n.value = n.x[0]
+                    print(n.value)
+                case C(x=[_, *_]):
+                    value = other_items[0]
+                    print(value)
+                case D(x=[_, *_]):
+                    value = n.x[0:1]
+                    print(value)
+                case E(x=[_, *_]):
+                    value = n.x[i]
+                    print(value)
         """
         ).strip()
 

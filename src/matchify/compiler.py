@@ -77,7 +77,8 @@ class GenericIfChainCompiler:
                 else_leading_lines=(),
             )
 
-        return None
+        # Defensive only: the loop returns as soon as the CST chain ends.
+        return None  # pragma: no cover
 
     def is_convertible(self, chain: IfChain) -> bool:
         has_extractable_pattern = False

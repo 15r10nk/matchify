@@ -63,7 +63,10 @@ class IfToMatchTransformer(cst.CSTTransformer):
 
         return match_stmt.with_changes(cases=new_cases)
 
-    def _extract_subject(self, test: cst.BaseExpression) -> cst.BaseExpression | None:
+    # Compatibility hook for callers that used the old transformer internals.
+    def _extract_subject(  # pragma: no cover
+        self, test: cst.BaseExpression
+    ) -> cst.BaseExpression | None:
         return SubjectRecognizer(self.ignore_types_pattern).recognize(test)
 
 

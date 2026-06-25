@@ -174,6 +174,67 @@ class TestEdgeCases:
         ).strip()
         check_code(source, expected_converted, ignore_types_pattern=None)
 
+    def test_problematic_isinstance_inside_and_not_converted(self):
+        """Test ignored type variables inside otherwise recognizable branches block conversion."""
+        source = dedent(
+            """
+            SYMBOL_TYPES = (str,)
+            x = 42
+            if isinstance(x, int) and isinstance(x, SYMBOL_TYPES):
+                print("ignored type variable")
+            elif isinstance(x, str):
+                print("str")
+        """
+        ).strip()
+
+        check_code(source, source)
+
+    def test_problematic_empty_isinstance_tuple_inside_and_not_converted(self):
+        """Test empty isinstance tuples inside recognizable branches block conversion."""
+        source = dedent(
+            """
+            x = 42
+            if isinstance(x, int) and isinstance(x, ()):
+                print("empty tuple")
+            elif isinstance(x, str):
+                print("str")
+        """
+        ).strip()
+
+        check_code(source, source)
+
+    def test_problematic_starred_isinstance_tuple_inside_and_not_converted(self):
+        """Test starred isinstance tuples inside recognizable branches block conversion."""
+        source = dedent(
+            """
+            types = (str,)
+            x = 42
+            if isinstance(x, int) and isinstance(x, (*types,)):
+                print("starred tuple")
+            elif isinstance(x, str):
+                print("str")
+        """
+        ).strip()
+
+        check_code(source, source)
+
+    def test_problematic_ignored_isinstance_tuple_element_inside_and_not_converted(
+        self,
+    ):
+        """Test ignored tuple elements inside recognizable branches block conversion."""
+        source = dedent(
+            """
+            SYMBOL_TYPES = (str,)
+            x = 42
+            if isinstance(x, int) and isinstance(x, (float, SYMBOL_TYPES)):
+                print("ignored tuple element")
+            elif isinstance(x, str):
+                print("str")
+        """
+        ).strip()
+
+        check_code(source, source)
+
     def test_guard_pattern_with_boolean_attribute(self):
         """Test isinstance with boolean attribute as guard (not comparison)."""
         source = dedent(
@@ -231,6 +292,186 @@ class TestEdgeCases:
                     print("named tuple")
                 case int():
                     print("int")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_malformed_isinstance_on_other_value_not_converted(self):
+        """Test malformed isinstance calls keep the original if-chain."""
+        source = dedent(
+            """
+            x = 1
+            y = object()
+            if isinstance(x, int) and isinstance(y):
+                print("bad guard")
+            elif isinstance(x, str):
+                print("str")
+        """
+        ).strip()
+
+        check_code(source, source)
+
+    def test_starred_isinstance_on_other_value_stays_guard(self):
+        """Test unsupported isinstance classinfo for another value remains a guard."""
+        source = dedent(
+            """
+            types = (str,)
+            x = 1
+            y = "ok"
+            if isinstance(x, int) and isinstance(y, (*types,)):
+                print("guard")
+            elif isinstance(x, str):
+                print("str")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            types = (str,)
+            x = 1
+            y = "ok"
+            match x:
+                case int() if isinstance(y, (*types,)):
+                    print("guard")
+                case str():
+                    print("str")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_starred_isinstance_on_subject_attribute_stays_guard(self):
+        """Test unsupported isinstance classinfo on a subject attribute remains a guard."""
+        source = dedent(
+            """
+            types = (str,)
+            class Box:
+                def __init__(self, item):
+                    self.item = item
+
+            x = Box("ok")
+            if isinstance(x, Box) and isinstance(x.item, (*types,)):
+                print("guard")
+            elif isinstance(x, str):
+                print("str")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            types = (str,)
+            class Box:
+                def __init__(self, item):
+                    self.item = item
+
+            x = Box("ok")
+            match x:
+                case Box() if isinstance(x.item, (*types,)):
+                    print("guard")
+                case str():
+                    print("str")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_len_attribute_with_variable_length_stays_guard(self):
+        """Test len checks with non-literal lengths remain guards."""
+        source = dedent(
+            """
+            class Box:
+                def __init__(self, items):
+                    self.items = items
+
+            expected = 1
+            x = Box([1])
+            if isinstance(x, Box) and len(x.items) == expected:
+                print("guard")
+            elif isinstance(x, str):
+                print("str")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Box:
+                def __init__(self, items):
+                    self.items = items
+
+            expected = 1
+            x = Box([1])
+            match x:
+                case Box() if len(x.items) == expected:
+                    print("guard")
+                case str():
+                    print("str")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_len_attribute_with_unsupported_operator_stays_guard(self):
+        """Test unsupported len operators remain guards."""
+        source = dedent(
+            """
+            class Box:
+                def __init__(self, items):
+                    self.items = items
+
+            x = Box([1, 2])
+            if isinstance(x, Box) and len(x.items) > 1:
+                print("guard")
+            elif isinstance(x, str):
+                print("str")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Box:
+                def __init__(self, items):
+                    self.items = items
+
+            x = Box([1, 2])
+            match x:
+                case Box() if len(x.items) > 1:
+                    print("guard")
+                case str():
+                    print("str")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_redundant_hasattr_removed_when_attribute_is_pattern_checked(self):
+        """Test redundant hasattr checks are removed when the attribute is matched."""
+        source = dedent(
+            """
+            class Box:
+                def __init__(self, kind):
+                    self.kind = kind
+
+            x = Box(1)
+            if isinstance(x, Box) and hasattr(x, "kind") and x.kind == 1:
+                print("one")
+            elif isinstance(x, str):
+                print("str")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Box:
+                def __init__(self, kind):
+                    self.kind = kind
+
+            x = Box(1)
+            match x:
+                case Box(kind=1):
+                    print("one")
+                case str():
+                    print("str")
         """
         ).strip()
 

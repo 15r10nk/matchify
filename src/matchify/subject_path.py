@@ -52,10 +52,6 @@ class SubjectPath:
         return bool(self.parts)
 
     @classmethod
-    def from_attribute_names(cls, names: tuple[str, ...]) -> SubjectPath:
-        return cls(tuple(AttributePathPart(name) for name in names))
-
-    @classmethod
     def from_expression(
         cls, node: cst.BaseExpression, subject: cst.BaseExpression
     ) -> SubjectPath | None:
@@ -104,18 +100,3 @@ class SubjectPath:
     @property
     def starts_with_subscript(self) -> bool:
         return isinstance(self.first_part, SubscriptPathPart)
-
-    @property
-    def attribute_names(self) -> tuple[str, ...] | None:
-        names = []
-        for part in self.parts:
-            if not isinstance(part, AttributePathPart):
-                return None
-            names.append(part.name)
-        return tuple(names) if names else None
-
-    @property
-    def direct_attribute_name(self) -> str | None:
-        if len(self.parts) != 1 or not isinstance(self.first_part, AttributePathPart):
-            return None
-        return self.first_part.name

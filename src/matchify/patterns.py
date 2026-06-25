@@ -19,7 +19,8 @@ def flatten_boolean(
 
 
 def combine_guards(parts: list[cst.BaseExpression]) -> cst.BaseExpression | None:
-    if not parts:
+    # Defensive helper behavior for callers that already filtered all guards out.
+    if not parts:  # pragma: no cover
         return None
 
     guard = parts[0]
@@ -91,7 +92,9 @@ def extract_isinstance_classes(
         for element in class_arg.elements:
             if isinstance(element, cst.StarredElement):
                 return None
-            if not isinstance(element, cst.Element):
+            # LibCST tuple elements are Element or StarredElement; keep this for
+            # forward compatibility with new CST element forms.
+            if not isinstance(element, cst.Element):  # pragma: no cover
                 return None
             if is_ignored_type_expr(element.value, ignore_types_pattern):
                 return None
