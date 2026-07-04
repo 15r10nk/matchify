@@ -1,58 +1,8 @@
-"""Sequence-pattern recognition and construction."""
+"""Sequence-pattern construction."""
 
 import libcst as cst
 
-from .patterns import (
-    build_wildcard_pattern,
-    flatten_boolean,
-    is_isinstance_call,
-    is_len_call,
-)
-from .subject_path import SubjectPath
-
-
-def find_sequence_subject(test: cst.BaseExpression) -> cst.BaseExpression | None:
-    for component in flatten_boolean(test, cst.And):
-        if not isinstance(component, cst.Comparison) or len(component.comparisons) != 1:
-            continue
-        target = component.comparisons[0]
-        if not isinstance(target.operator, (cst.Equal, cst.GreaterThanEqual)):
-            continue
-        if not isinstance(target.comparator, cst.Integer):
-            continue
-        if not is_len_call(component.left):
-            continue
-        len_call = component.left
-        subject = len_call.args[0].value
-        return subject if has_direct_sequence_element_check(test, subject) else None
-
-    return None
-
-
-def has_direct_sequence_element_check(
-    test: cst.BaseExpression, subject: cst.BaseExpression
-) -> bool:
-    for component in flatten_boolean(test, cst.And):
-        if isinstance(component, cst.BooleanOperation) and isinstance(
-            component.operator, cst.Or
-        ):
-            if all(
-                has_direct_sequence_element_check(part, subject)
-                for part in flatten_boolean(component, cst.Or)
-            ):
-                return True
-        if isinstance(component, cst.Comparison):
-            path = SubjectPath.from_expression(component.left, subject)
-            if path is not None and path.starts_with_subscript:
-                return True
-        if is_isinstance_call(component):
-            # False sides are just "not a direct sequence element" probes while
-            # scanning mixed AND components.
-            if (  # pragma: no branch
-                path := SubjectPath.from_expression(component.args[0].value, subject)
-            ) is not None and path.starts_with_subscript:
-                return True
-    return False
+from .patterns import build_wildcard_pattern
 
 
 def build_sequence_match_list(
