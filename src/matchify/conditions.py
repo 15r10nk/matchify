@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import libcst as cst
 from libcst import matchers as m
@@ -338,30 +338,7 @@ def bind_predicate_subject(
     if path is None or has_unknown_subscript(path):
         return RawPredicate(predicate.original)
 
-    if isinstance(predicate, IsInstancePredicate):
-        return IsInstancePredicate(
-            predicate.expression, predicate.classes, predicate.original, path
-        )
-    if isinstance(predicate, LenEqualsPredicate):
-        return LenEqualsPredicate(
-            predicate.expression, predicate.length, predicate.original, path
-        )
-    if isinstance(predicate, LenAtLeastPredicate):
-        return LenAtLeastPredicate(
-            predicate.expression, predicate.minimum, predicate.original, path
-        )
-    if isinstance(predicate, SequenceTypePredicate):
-        return SequenceTypePredicate(predicate.expression, predicate.original, path)
-    if isinstance(predicate, EqualsPredicate):
-        return EqualsPredicate(
-            predicate.expression, predicate.value, predicate.original, path
-        )
-    if isinstance(predicate, IsPredicate):
-        return IsPredicate(
-            predicate.expression, predicate.value, predicate.original, path
-        )
-
-    return predicate
+    return replace(predicate, path=path)
 
 
 def residual_condition(expr: BoolExpr | None) -> cst.BaseExpression | None:
