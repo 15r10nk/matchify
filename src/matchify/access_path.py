@@ -42,8 +42,6 @@ class NameRoot:
 class MatchSubjectRoot:
     """Root of an access path bound to one match subject."""
 
-    index: int = 0
-
 
 @dataclass(frozen=True)
 class ExpressionRoot:
@@ -103,11 +101,18 @@ class AccessPath:
                 tuple(reversed(parts)),
             )
 
-    def bind(self, subject: AccessPath, index: int = 0) -> AccessPath:
-        """Replace a matching subject prefix while preserving unrelated paths."""
+    def bind(
+        self,
+        subject: AccessPath,
+        target: tuple[AccessPathPart, ...] = (),
+    ) -> AccessPath:
+        """Replace a matching subject prefix with a bound target prefix."""
         if self.root != subject.root or not self.starts_with(subject):
             return self
-        return AccessPath(MatchSubjectRoot(index), self.parts[len(subject.parts) :])
+        return AccessPath(
+            MatchSubjectRoot(),
+            (*target, *self.parts[len(subject.parts) :]),
+        )
 
     @classmethod
     def common_prefix(cls, paths: tuple[AccessPath, ...]) -> AccessPath | None:

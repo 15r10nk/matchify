@@ -5,6 +5,7 @@ from matchify.access_path import (
     AttributePathPart,
     MatchSubjectRoot,
     NameRoot,
+    SubscriptPathPart,
 )
 
 
@@ -27,6 +28,16 @@ def test_binding_preserves_a_path_outside_the_subject():
 
     assert path.bind(subject) == AccessPath(
         NameRoot("config"), (AttributePathPart("enabled"),)
+    )
+
+
+def test_binding_can_target_a_synthetic_tuple_slot():
+    path = AccessPath.from_expression(parse_expression("node.value"))
+    subject = AccessPath.from_expression(parse_expression("node"))
+
+    assert path.bind(subject, (SubscriptPathPart(1),)) == AccessPath(
+        MatchSubjectRoot(),
+        (SubscriptPathPart(1), AttributePathPart("value")),
     )
 
 
