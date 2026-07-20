@@ -11,7 +11,7 @@ from .capture_patterns import (
     prepend_aliases,
     remove_statements,
 )
-from .conditions import BoolExpr, infer_subject, parse_condition
+from .conditions import BoolExpr, parse_condition, select_subject_path
 from .facts import BranchFacts
 from .pattern_builder import normalize_condition
 from .patterns import build_wildcard_pattern, extract_isinstance_classes
@@ -85,7 +85,7 @@ class IfChainCompiler:
                 else_leading_lines = ()
             break
 
-        subject = self._infer_chain_subject(parsed_branches)
+        subject = self._select_chain_subject(parsed_branches)
         if subject is None:
             return None
 
@@ -112,23 +112,17 @@ class IfChainCompiler:
             else_leading_lines=else_leading_lines,
         )
 
-    def _infer_chain_subject(
+    def _select_chain_subject(
         self, branches: list[ParsedBranch]
     ) -> cst.BaseExpression | None:
-        """Choose one subject only after every branch has typed condition IR."""
-        subjects = [infer_subject(branch.condition) for branch in branches]
-        first = subjects[0]
-        if first is None:
+        """Build a subject from the common prefix of all branch candidates."""
+        candidates = tuple(select_subject_path(branch.condition) for branch in branches)
+        if any(candidate is None for candidate in candidates):
             return None
-        first_path = AccessPath.from_expression(first)
-        if first_path is None:
-            return None
-        for subject in subjects[1:]:
-            if subject is None:
-                return None
-            if AccessPath.from_expression(subject) != first_path:
-                return None
-        return first
+        subject_path = AccessPath.common_prefix(
+            tuple(candidate for candidate in candidates if candidate is not None)
+        )
+        return None if subject_path is None else subject_path.to_expression()
 
     def compile(
         self, chain: IfChain, leading_lines: tuple[cst.EmptyLine, ...]

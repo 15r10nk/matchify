@@ -42,3 +42,22 @@ def test_dynamic_subscript_paths_preserve_their_expression_identity():
     assert left != right
     assert left != sliced
     assert right != sliced
+
+
+def test_common_prefix_can_be_rendered_as_fresh_cst():
+    left = AccessPath.from_expression(parse_expression("node.left.value"))
+    right = AccessPath.from_expression(parse_expression("node.left.kind"))
+
+    assert left is not None
+    assert right is not None
+    prefix = AccessPath.common_prefix((left, right))
+
+    assert prefix is not None
+    assert cst.Module([]).code_for_node(prefix.to_expression()) == "node.left"
+
+
+def test_dynamic_subscript_subject_can_be_rendered_as_fresh_cst():
+    path = AccessPath.from_expression(parse_expression("items[index]"))
+
+    assert path is not None
+    assert cst.Module([]).code_for_node(path.to_expression()) == "items[index]"

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
 from dataclasses import dataclass, replace
 
 import libcst as cst
@@ -103,10 +102,6 @@ Predicate = (
     | RawPredicate
 )
 BoolExpr = AndExpr | OrExpr | Predicate
-
-
-def contains_subscript(node: cst.CSTNode) -> bool:
-    return bool(m.findall(node, m.Subscript()))
 
 
 def parse_condition(
@@ -238,67 +233,56 @@ def parse_value_predicate(
     return None
 
 
-def infer_subject(expr: BoolExpr) -> cst.BaseExpression | None:
-    """Infer the common match subject from an unbound BoolExpr tree."""
+def select_subject_path(expr: BoolExpr) -> AccessPath | None:
+    """Select a match-subject candidate from unbound condition IR."""
     if isinstance(expr, OrExpr):
-        return common_subject(infer_subject(part) for part in expr.parts)
+        paths = tuple(select_subject_path(part) for part in expr.parts)
+        first = paths[0]
+        if first is None or any(path != first for path in paths[1:]):
+            return None
+        return first
     if isinstance(expr, AndExpr):
-        subject = find_isinstance_subject(expr, include_subscripts=False)
+        subject = find_isinstance_subject_path(expr, include_subscripts=False)
         if subject is not None:
             return subject
-        subject = find_sequence_subject(expr)
+        subject = find_sequence_subject_path(expr)
         if subject is not None:
             return subject
-        subject = find_value_subject(expr)
+        subject = find_value_subject_path(expr)
         if subject is not None:
             return subject
-        return find_isinstance_subject(expr, include_subscripts=True)
+        return find_isinstance_subject_path(expr, include_subscripts=True)
     if isinstance(expr, IsInstancePredicate):
-        return expr.expression
+        return expr.path
     if isinstance(expr, EqualsPredicate | IsPredicate):
-        return expr.expression
+        return expr.path
     return None
 
 
-def common_subject(
-    subjects: Iterable[cst.BaseExpression | None],
-) -> cst.BaseExpression | None:
-    subject: cst.BaseExpression | None = None
-    for candidate in subjects:
-        if not isinstance(candidate, cst.BaseExpression):
-            return None
-        if subject is None:
-            subject = candidate
-        elif not candidate.deep_equals(subject):
-            return None
-    return subject
-
-
-def find_isinstance_subject(
+def find_isinstance_subject_path(
     expr: BoolExpr, *, include_subscripts: bool
-) -> cst.BaseExpression | None:
+) -> AccessPath | None:
     for part in iter_and_parts(expr):
-        if isinstance(part, IsInstancePredicate):
-            if include_subscripts or not contains_subscript(part.expression):
-                return part.expression
+        if isinstance(part, IsInstancePredicate) and part.path is not None:
+            if include_subscripts or not path_contains_subscript(part.path):
+                return part.path
     return None
 
 
-def find_sequence_subject(expr: BoolExpr) -> cst.BaseExpression | None:
+def find_sequence_subject_path(expr: BoolExpr) -> AccessPath | None:
     parts = tuple(iter_and_parts(expr))
     for part in parts:
-        if not isinstance(part, LenEqualsPredicate | LenAtLeastPredicate):
-            continue
-        if any(
-            has_direct_sequence_element_check(other, part.expression) for other in parts
+        if (
+            not isinstance(part, LenEqualsPredicate | LenAtLeastPredicate)
+            or part.path is None
         ):
-            return part.expression
+            continue
+        if any(has_direct_sequence_element_check(other, part.path) for other in parts):
+            return part.path
     return None
 
 
-def has_direct_sequence_element_check(
-    expr: BoolExpr, subject: cst.BaseExpression
-) -> bool:
+def has_direct_sequence_element_check(expr: BoolExpr, subject: AccessPath) -> bool:
     if isinstance(expr, AndExpr):
         return any(
             has_direct_sequence_element_check(part, subject) for part in expr.parts
@@ -318,39 +302,45 @@ def has_direct_sequence_element_check(
             SequenceTypePredicate,
         ),
     ):
-        path = bind_expression_path(expr.expression, subject)
-        return path is not None and path.starts_with_subscript
-    if isinstance(expr, RawPredicate):
-        path = raw_predicate_subject_path(expr, subject)
-        return path is not None and path.starts_with_subscript
-    return False
+        path = expr.path
+    elif isinstance(expr, RawPredicate):
+        path = raw_predicate_access_path(expr)
+    else:
+        return False
+    if path is None or not path.starts_with(subject) or path == subject:
+        return False
+    return isinstance(path.parts[len(subject.parts)], SubscriptPathPart)
 
 
-def raw_predicate_subject_path(
-    predicate: RawPredicate, subject: cst.BaseExpression
-) -> SubjectPath | None:
+def raw_predicate_access_path(predicate: RawPredicate) -> AccessPath | None:
     node = predicate.original
     if is_isinstance_call(node):
-        return bind_expression_path(node.args[0].value, subject)
+        return AccessPath.from_expression(node.args[0].value)
     if not isinstance(node, cst.Comparison) or len(node.comparisons) != 1:
         return None
     if is_len_call(node.left):
-        return bind_expression_path(node.left.args[0].value, subject)
-    return bind_expression_path(node.left, subject)
+        return AccessPath.from_expression(node.left.args[0].value)
+    return AccessPath.from_expression(node.left)
 
 
-def find_value_subject(expr: BoolExpr) -> cst.BaseExpression | None:
+def find_value_subject_path(expr: BoolExpr) -> AccessPath | None:
     for part in iter_and_parts(expr):
         if isinstance(part, OrExpr):
-            subject = infer_subject(part)
-            if subject is not None and not contains_subscript(subject):
+            subject = select_subject_path(part)
+            if subject is not None and not path_contains_subscript(subject):
                 return subject
             continue
-        if isinstance(part, EqualsPredicate | IsPredicate) and not contains_subscript(
-            part.expression
+        if (
+            isinstance(part, EqualsPredicate | IsPredicate)
+            and part.path is not None
+            and not path_contains_subscript(part.path)
         ):
-            return part.expression
+            return part.path
     return None
+
+
+def path_contains_subscript(path: AccessPath) -> bool:
+    return any(isinstance(part, SubscriptPathPart) for part in path.parts)
 
 
 def iter_and_parts(expr: BoolExpr) -> tuple[BoolExpr, ...]:

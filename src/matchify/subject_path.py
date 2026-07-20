@@ -109,6 +109,44 @@ class AccessPath:
             return self
         return AccessPath(MatchSubjectRoot(index), self.parts[len(subject.parts) :])
 
+    @classmethod
+    def common_prefix(cls, paths: tuple[AccessPath, ...]) -> AccessPath | None:
+        if not paths or any(path.root != paths[0].root for path in paths[1:]):
+            return None
+        common_parts = []
+        for parts in zip(*(path.parts for path in paths)):
+            if any(part != parts[0] for part in parts[1:]):
+                break
+            common_parts.append(parts[0])
+        return cls(paths[0].root, tuple(common_parts))
+
+    def to_expression(self) -> cst.BaseExpression:
+        """Build fresh CST for an unbound access path."""
+        if isinstance(self.root, NameRoot):
+            expression: cst.BaseExpression = cst.Name(self.root.name)
+        elif isinstance(self.root, ExpressionRoot):
+            expression = cst.parse_expression(self.root.code)
+        else:
+            raise ValueError("A bound access path cannot be rendered as a subject")
+
+        for part in self.parts:
+            if isinstance(part, AttributePathPart):
+                expression = cst.Attribute(value=expression, attr=cst.Name(part.name))
+            elif part.index is not None:
+                expression = cst.Subscript(
+                    value=expression,
+                    slice=[
+                        cst.SubscriptElement(
+                            slice=cst.Index(cst.Integer(str(part.index)))
+                        )
+                    ],
+                )
+            elif part.expression_key is not None:
+                expression = cst.parse_expression(part.expression_key)
+            else:  # pragma: no cover
+                raise ValueError("An unknown subscript needs an expression key")
+        return expression
+
     @property
     def is_bound(self) -> bool:
         return isinstance(self.root, MatchSubjectRoot)
