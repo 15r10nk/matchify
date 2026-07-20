@@ -7,10 +7,11 @@ from libcst import matchers as m
 
 
 def flatten_boolean(
-    node: cst.BaseExpression, operator_type: type[cst.BaseBooleanOp]
+    node: cst.BaseExpression,
+    operator_type: type[cst.BaseBooleanOp] | None = None,
 ) -> list[cst.BaseExpression]:
-    if isinstance(node, cst.BooleanOperation) and isinstance(
-        node.operator, operator_type
+    if isinstance(node, cst.BooleanOperation) and (
+        operator_type is None or isinstance(node.operator, operator_type)
     ):
         return flatten_boolean(node.left, operator_type) + flatten_boolean(
             node.right, operator_type

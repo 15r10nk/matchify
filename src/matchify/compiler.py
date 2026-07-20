@@ -139,21 +139,17 @@ class GenericIfChainCompiler:
         )
         guard = facts.guard
 
-        if guard is None:
-            return cst.MatchCase(
-                pattern=pattern,
-                guard=None,
-                body=body,
-                leading_lines=branch.leading_lines,
-            )
-
         return cst.MatchCase(
             pattern=pattern,
             guard=guard,
             body=body,
             leading_lines=branch.leading_lines,
-            whitespace_before_if=cst.SimpleWhitespace(" "),
-            whitespace_after_if=cst.SimpleWhitespace(" "),
+            whitespace_before_if=(
+                cst.SimpleWhitespace("") if guard is None else cst.SimpleWhitespace(" ")
+            ),
+            whitespace_after_if=(
+                cst.SimpleWhitespace("") if guard is None else cst.SimpleWhitespace(" ")
+            ),
         )
 
     def _has_problematic_isinstance(

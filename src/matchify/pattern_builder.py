@@ -35,7 +35,6 @@ from .subject_path import SubjectPath, SubscriptPathPart
 class PatternBuildResult:
     facts: tuple[PathFact, ...]
     residual: BoolExpr | None = None
-    pattern: PatternTree | None = None
 
 
 def normalize_condition(
@@ -45,11 +44,14 @@ def normalize_condition(
     """Bind and lower a parsed condition into a pattern and residual guard."""
     expr = bind_condition_subject(expr, subject)
     result = build_pattern(expr)
-    if result.pattern is None:
+    try:
+        pattern = PatternTree.from_facts(result.facts)
+        pattern.render()
+    except ValueError:
         return None
 
     guard = residual_condition(result.residual)
-    return BranchFacts(pattern=result.pattern, guard=guard)
+    return BranchFacts(pattern=pattern, guard=guard)
 
 
 def build_pattern(
@@ -62,7 +64,7 @@ def build_pattern(
     fact = fact_from_predicate(expr)
     if fact is None:
         return PatternBuildResult((), expr)
-    return build_result((fact,))
+    return PatternBuildResult((fact,))
 
 
 def build_and_pattern(
@@ -97,7 +99,7 @@ def build_and_pattern(
     elif residuals:
         residual = AndExpr(tuple(residuals), expr.original)
 
-    return build_result(ordered_facts, residual)
+    return PatternBuildResult(ordered_facts, residual)
 
 
 def build_or_pattern(expr: OrExpr) -> PatternBuildResult:
@@ -126,19 +128,7 @@ def build_or_pattern(expr: OrExpr) -> PatternBuildResult:
     stripped = tuple(
         strip_alternative_prefix(common_path, facts) for facts in alternatives
     )
-    return build_result((OrFact(common_path, stripped),), residual)
-
-
-def build_result(
-    facts: tuple[PathFact, ...],
-    residual: BoolExpr | None = None,
-) -> PatternBuildResult:
-    try:
-        pattern = PatternTree.from_facts(facts)
-        pattern.render()
-    except ValueError:
-        return PatternBuildResult(facts, residual)
-    return PatternBuildResult(facts, residual, pattern)
+    return PatternBuildResult((OrFact(common_path, stripped),), residual)
 
 
 def fact_from_predicate(predicate: Predicate) -> PathFact | None:

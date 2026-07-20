@@ -2,14 +2,14 @@
 
 import libcst as cst
 
-from .patterns import is_len_call, is_literal_value, is_singleton_name
+from .patterns import flatten_boolean, is_len_call, is_literal_value, is_singleton_name
 
 
 def is_safe_condition(
     condition: cst.BaseExpression,
     subject: cst.BaseExpression,
 ) -> bool:
-    for component in flatten_all_boolean(condition):
+    for component in flatten_boolean(condition):
         if isinstance(component, cst.Comparison) and len(component.comparisons) == 1:
             target = component.comparisons[0]
             comparator = target.comparator
@@ -33,9 +33,3 @@ def is_safe_condition(
                     return False
 
     return True
-
-
-def flatten_all_boolean(node: cst.BaseExpression) -> list[cst.BaseExpression]:
-    if isinstance(node, cst.BooleanOperation):
-        return flatten_all_boolean(node.left) + flatten_all_boolean(node.right)
-    return [node]
