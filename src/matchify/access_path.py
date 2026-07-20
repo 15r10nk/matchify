@@ -1,4 +1,4 @@
-"""Helpers for reasoning about expressions derived from a match subject."""
+"""Absolute and match-subject-bound expression access paths."""
 
 from __future__ import annotations
 

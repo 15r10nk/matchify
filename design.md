@@ -70,6 +70,13 @@ EqualsPredicate(path=subject.x, value=1)
 Unrecognized expressions remain raw predicates and can later become guard
 conditions.
 
+Predicate paths are initially absolute `AccessPath` values. For example,
+`value.child.kind` is represented by a `NameRoot("value")` followed by two
+attribute parts. After all branches have been parsed, the compiler selects a
+common subject prefix and replaces that prefix with `MatchSubjectRoot(0)`.
+Paths outside the selected subject keep their original root and remain eligible
+for residual guards.
+
 ## Pattern Anchors
 
 Not every predicate can safely become a pattern by itself. Some predicates only
@@ -163,7 +170,7 @@ ClassPattern(
 )
 ```
 
-The `SubjectPath` decides where a predicate belongs. A predicate for
+The bound `AccessPath` decides where a predicate belongs. A predicate for
 `subject.child.kind` is inserted into the `child` attribute, then recursively
 into the `kind` attribute of the nested pattern.
 

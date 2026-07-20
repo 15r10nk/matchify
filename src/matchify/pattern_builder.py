@@ -1,10 +1,11 @@
-"""Lower typed condition predicates into the existing recursive pattern IR."""
+"""Lower typed condition predicates into the recursive pattern IR."""
 
 from dataclasses import dataclass
 
 import libcst as cst
 from libcst import matchers as m
 
+from .access_path import AccessPath, SubscriptPathPart
 from .conditions import (
     AndExpr,
     BoolExpr,
@@ -30,7 +31,6 @@ from .facts import (
     SequenceFact,
     ValueFact,
 )
-from .subject_path import AccessPath, SubscriptPathPart
 
 
 @dataclass(frozen=True)

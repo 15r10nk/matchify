@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 import libcst as cst
 from libcst import matchers as m
 
+from .access_path import AccessPath, AttributePathPart, SubscriptPathPart
 from .patterns import (
     extract_isinstance_classes,
     flatten_boolean,
@@ -16,7 +17,6 @@ from .patterns import (
     is_literal_value,
     is_singleton_name,
 )
-from .subject_path import AccessPath, AttributePathPart, SubscriptPathPart
 
 
 @dataclass(frozen=True)

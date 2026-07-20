@@ -1,6 +1,6 @@
 import libcst as cst
 
-from matchify.subject_path import (
+from matchify.access_path import (
     AccessPath,
     AttributePathPart,
     MatchSubjectRoot,

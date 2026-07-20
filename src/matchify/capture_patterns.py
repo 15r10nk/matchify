@@ -2,8 +2,8 @@
 
 import libcst as cst
 
+from .access_path import AccessPath, extract_integer_subscript_index
 from .facts import CaptureFact
-from .subject_path import AccessPath, extract_integer_subscript_index
 
 
 def detect_captures(

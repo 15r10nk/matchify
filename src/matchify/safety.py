@@ -2,8 +2,8 @@
 
 import libcst as cst
 
+from .access_path import AccessPath, AttributePathPart
 from .patterns import flatten_boolean, is_len_call, is_literal_value, is_singleton_name
-from .subject_path import AccessPath, AttributePathPart
 
 
 def is_safe_condition(

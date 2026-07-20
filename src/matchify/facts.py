@@ -1,4 +1,4 @@
-"""Normalized branch facts used as a bridge toward a recursive pattern IR."""
+"""Normalized branch facts and their recursive pattern IR."""
 
 from __future__ import annotations
 
@@ -6,16 +6,16 @@ from dataclasses import dataclass
 
 import libcst as cst
 
+from .access_path import (
+    AccessPath,
+    AttributePathPart,
+    SubscriptPathPart,
+)
 from .patterns import (
     build_class_pattern,
     build_or_pattern,
     build_value_pattern,
     build_wildcard_pattern,
-)
-from .subject_path import (
-    AccessPath,
-    AttributePathPart,
-    SubscriptPathPart,
 )
 
 

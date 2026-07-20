@@ -5,6 +5,7 @@ from typing import NamedTuple
 import libcst as cst
 from libcst import matchers as m
 
+from .access_path import AccessPath
 from .capture_patterns import (
     detect_captures,
     normalize_duplicate_captures,
@@ -16,7 +17,6 @@ from .facts import BranchFacts
 from .pattern_builder import normalize_condition
 from .patterns import build_wildcard_pattern, extract_isinstance_classes
 from .safety import is_safe_condition
-from .subject_path import AccessPath
 
 
 class IfBranch(NamedTuple):
