@@ -68,10 +68,6 @@ PathFact = ValueFact | ClassFact | SequenceFact | OrFact
 class WildcardNode:
     """Wildcard placeholder used when a path creates an intermediate child."""
 
-    # Placeholder nodes should be replaced before rendering through public flows.
-    def render(self) -> cst.MatchPattern:  # pragma: no cover
-        return build_wildcard_pattern()
-
 
 @dataclass(frozen=True)
 class ValueNode:
@@ -101,10 +97,6 @@ class ClassNode:
     attributes: tuple[tuple[str, PatternNode], ...] = ()
 
     def render(self) -> cst.MatchPattern:
-        # Intermediate class nodes without classes are never rendered by the
-        # public transformer; anchors must fill the class before rendering.
-        if not self.classes:  # pragma: no cover
-            raise ValueError("Class pattern nodes need class expressions before render")
         return build_class_pattern(
             self.classes,
             [(name, render_child_node(node)) for name, node in self.attributes],

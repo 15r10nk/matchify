@@ -6,7 +6,7 @@ import libcst as cst
 from libcst import matchers as m
 
 from .capture_patterns import (
-    detect_multiple_captures,
+    detect_captures,
     normalize_duplicate_captures,
     prepend_aliases,
     remove_statements,
@@ -35,7 +35,7 @@ class IfChain(NamedTuple):
     else_leading_lines: tuple[cst.EmptyLine, ...]
 
 
-class GenericIfChainCompiler:
+class IfChainCompiler:
     """Analyze an if-chain once, then compile it to a match statement.
 
     The compiler is deliberately guard-first:
@@ -117,7 +117,7 @@ class GenericIfChainCompiler:
         body = branch.body
 
         if facts.pattern is not None:
-            captures = detect_multiple_captures(body, subject)
+            captures = detect_captures(body, subject)
             if captures:
                 captures, aliases = normalize_duplicate_captures(captures)
                 capture_pattern = facts.pattern

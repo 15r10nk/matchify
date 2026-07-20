@@ -6,7 +6,7 @@ from .facts import CaptureFact
 from .subject_path import SubjectPath, extract_integer_subscript_index
 
 
-def detect_multiple_captures(
+def detect_captures(
     body: cst.IndentedBlock, subject: cst.BaseExpression
 ) -> tuple[CaptureFact, ...]:
     captures = []

@@ -2,7 +2,7 @@
 
 import libcst as cst
 
-from .compiler import GenericIfChainCompiler
+from .compiler import IfChainCompiler
 
 
 class IfToMatchTransformer(cst.CSTTransformer):
@@ -11,9 +11,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
     def __init__(self, ignore_types_pattern: str | None = r".*_TYPES$"):
         super().__init__()
         self._elif_nodes: set[int] = set()
-        self.compiler = GenericIfChainCompiler(
-            ignore_types_pattern=ignore_types_pattern
-        )
+        self.compiler = IfChainCompiler(ignore_types_pattern=ignore_types_pattern)
 
     def visit_If(self, node: cst.If) -> bool:
         """Track elif nodes so only the chain root performs replacement."""
