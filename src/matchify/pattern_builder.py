@@ -17,7 +17,6 @@ from .conditions import (
     Predicate,
     SequenceTypePredicate,
     bind_condition_subject,
-    parse_condition,
     residual_condition,
 )
 from .facts import (
@@ -39,16 +38,12 @@ class PatternBuildResult:
     pattern: PatternTree | None = None
 
 
-def normalize_with_bool_tree(
-    condition: cst.BaseExpression,
+def normalize_condition(
+    expr: BoolExpr,
     subject: cst.BaseExpression,
-    ignore_types_pattern: str | None = r".*_TYPES$",
 ) -> BranchFacts | None:
-    """Normalize one branch by parsing it into BoolExpr first."""
-    expr = bind_condition_subject(
-        parse_condition(condition, ignore_types_pattern),
-        subject,
-    )
+    """Bind and lower a parsed condition into a pattern and residual guard."""
+    expr = bind_condition_subject(expr, subject)
     result = build_pattern(expr)
     if result.pattern is None:
         return None

@@ -3,8 +3,9 @@
 import libcst as cst
 from libcst import matchers as m
 
+from .conditions import AndExpr, BoolExpr, OrExpr
 from .facts import BranchFacts
-from .pattern_builder import normalize_with_bool_tree
+from .pattern_builder import normalize_condition
 from .patterns import (
     extract_isinstance_classes,
     flatten_boolean,
@@ -165,57 +166,47 @@ def extract_hasattr_attribute_path(
 
 
 def normalize_branch(
-    condition: cst.BaseExpression,
+    condition: BoolExpr,
     subject: cst.BaseExpression,
-    ignore_types_pattern: str | None = r".*_TYPES$",
 ) -> BranchFacts:
-    bool_tree_condition = prepare_bool_tree_condition(
-        condition,
-        subject,
-    )
-    bool_tree_branch = normalize_with_bool_tree(
-        bool_tree_condition, subject, ignore_types_pattern
-    )
-    # Normal public conversions use the BoolExpr path; fallback remains for
-    # unsupported future predicates.
-    if bool_tree_branch is not None:  # pragma: no branch
-        return bool_tree_branch
+    condition = prepare_condition(condition, subject)
+    branch = normalize_condition(condition, subject)
+    if branch is not None:
+        return branch
 
     return BranchFacts(
         pattern=None,
-        guard=condition,
+        guard=condition.original,
     )
 
 
-def prepare_bool_tree_condition(
-    condition: cst.BaseExpression,
+def prepare_condition(
+    condition: BoolExpr,
     subject: cst.BaseExpression,
-) -> cst.BaseExpression:
-    if isinstance(condition, cst.BooleanOperation) and isinstance(
-        condition.operator, (cst.And, cst.Or)
-    ):
-        operator_type = cst.And if isinstance(condition.operator, cst.And) else cst.Or
-        parts = [
-            prepare_bool_tree_condition(part, subject)
-            for part in flatten_boolean(condition, operator_type)
-        ]
-        expression = parts[0]
-        for part in parts[1:]:
-            expression = cst.BooleanOperation(
-                left=expression,
-                operator=operator_type(),
-                right=part,
-            )
-        expression = expression.with_changes(
-            lpar=condition.lpar,
-            rpar=condition.rpar,
+) -> BoolExpr:
+    """Remove checks implied by structural patterns from a parsed condition."""
+    if isinstance(condition, OrExpr):
+        return OrExpr(
+            tuple(prepare_condition(part, subject) for part in condition.parts),
+            condition.original,
         )
-        return remove_redundant_subject_checks(
-            expression,
-            subject,
-        )
+    if not isinstance(condition, AndExpr):
+        return condition
 
-    return remove_redundant_subject_checks(
-        condition,
-        subject,
+    parts = tuple(prepare_condition(part, subject) for part in condition.parts)
+    checked_paths = {
+        path
+        for part in parts
+        for path in collect_checked_attribute_paths(part.original, subject)
+    }
+    if not checked_paths:
+        return AndExpr(parts, condition.original)
+    filtered = tuple(
+        part
+        for part in parts
+        if not is_redundant_hasattr(part.original, subject, checked_paths)
+        and not should_remove_redundant_sequence_type_check(
+            part.original, subject, checked_paths
+        )
     )
+    return AndExpr(filtered, condition.original)

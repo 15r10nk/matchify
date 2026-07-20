@@ -96,14 +96,6 @@ Predicate = (
 BoolExpr = AndExpr | OrExpr | Predicate
 
 
-def recognize_subject(
-    condition: cst.BaseExpression,
-    ignore_types_pattern: str | None = r".*_TYPES$",
-) -> cst.BaseExpression | None:
-    """Extract the expression that should become the match subject."""
-    return infer_subject(parse_condition(condition, ignore_types_pattern))
-
-
 def contains_subscript(node: cst.CSTNode) -> bool:
     return bool(m.findall(node, m.Subscript()))
 
