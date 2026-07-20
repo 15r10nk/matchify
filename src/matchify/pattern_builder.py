@@ -30,7 +30,7 @@ from .facts import (
     SequenceFact,
     ValueFact,
 )
-from .subject_path import SubjectPath, SubscriptPathPart
+from .subject_path import AccessPath, SubscriptPathPart
 
 
 @dataclass(frozen=True)
@@ -41,7 +41,7 @@ class PatternBuildResult:
 
 def normalize_condition(
     expr: BoolExpr,
-    subject: SubjectPath,
+    subject: AccessPath,
 ) -> BranchFacts:
     """Bind and lower a parsed condition into a pattern and residual guard."""
     expr = bind_condition_subject(expr, subject)
@@ -75,7 +75,7 @@ def build_and_pattern(
 ) -> PatternBuildResult:
     facts: list[PathFact] = []
     residuals: list[BoolExpr] = []
-    class_paths: set[SubjectPath] = set()
+    class_paths: set[AccessPath] = set()
 
     for part in expr.parts:
         if isinstance(part, IsInstancePredicate) and part.path in class_paths:
@@ -154,7 +154,7 @@ def fact_from_predicate(predicate: Predicate) -> PathFact | None:
     return None
 
 
-def path_is_patternable(path: SubjectPath | None) -> bool:
+def path_is_patternable(path: AccessPath | None) -> bool:
     return path is not None and path.is_bound and not has_unknown_subscript(path)
 
 
@@ -194,7 +194,7 @@ def drop_common_sequence_type_residuals(
 
 
 def sequence_path_has_element_fact(
-    path: SubjectPath, facts: tuple[PathFact, ...]
+    path: AccessPath, facts: tuple[PathFact, ...]
 ) -> bool:
     for fact in facts:
         if not fact.path.starts_with(path) or fact.path == path:
@@ -229,7 +229,7 @@ def facts_are_anchored(facts: tuple[PathFact, ...]) -> bool:
     if not facts:
         return False
 
-    anchored_paths: set[SubjectPath] = set()
+    anchored_paths: set[AccessPath] = set()
     for fact in facts:
         if fact.path.is_subject:
             if fact_is_anchor(fact):
@@ -279,7 +279,7 @@ def is_liftable_or_residual(guard: cst.BaseExpression) -> bool:
 
 def common_alternative_path(
     alternatives: list[tuple[PathFact, ...]],
-) -> SubjectPath | None:
+) -> AccessPath | None:
     if not alternatives or any(not facts for facts in alternatives):
         return None
     first_path = alternatives[0][0].path
@@ -294,7 +294,7 @@ def common_alternative_path(
 
 
 def strip_alternative_prefix(
-    path: SubjectPath, facts: tuple[PathFact, ...]
+    path: AccessPath, facts: tuple[PathFact, ...]
 ) -> ValueFact | ClassFact | tuple[PathFact, ...]:
     stripped = tuple(strip_fact_prefix(path, fact) for fact in facts)
     if len(stripped) != 1:
@@ -307,7 +307,7 @@ def strip_alternative_prefix(
     return stripped
 
 
-def strip_fact_prefix(path: SubjectPath, fact: PathFact) -> PathFact:
+def strip_fact_prefix(path: AccessPath, fact: PathFact) -> PathFact:
     stripped_path = fact.path.strip_prefix(path)
     if isinstance(fact, ValueFact):
         return ValueFact(stripped_path, fact.value)

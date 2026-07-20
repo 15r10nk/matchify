@@ -13,8 +13,8 @@ from .patterns import (
     build_wildcard_pattern,
 )
 from .subject_path import (
+    AccessPath,
     AttributePathPart,
-    SubjectPath,
     SubscriptPathPart,
 )
 
@@ -23,7 +23,7 @@ from .subject_path import (
 class ValueFact:
     """A subject-path value check that can become a match value pattern."""
 
-    path: SubjectPath
+    path: AccessPath
     value: cst.BaseExpression
 
 
@@ -31,7 +31,7 @@ class ValueFact:
 class ClassFact:
     """A subject-path isinstance check that can become a class pattern."""
 
-    path: SubjectPath
+    path: AccessPath
     classes: tuple[cst.BaseExpression, ...]
 
 
@@ -39,7 +39,7 @@ class ClassFact:
 class SequenceFact:
     """A subject sequence length check that can become a sequence pattern."""
 
-    path: SubjectPath
+    path: AccessPath
     length: int
     use_star: bool = False
 
@@ -49,7 +49,7 @@ class CaptureFact:
     """A body assignment that can become a match capture pattern."""
 
     name: str
-    path: SubjectPath
+    path: AccessPath
     index: int
 
 
@@ -57,7 +57,7 @@ class CaptureFact:
 class OrFact:
     """Multiple alternative facts for the same subject path."""
 
-    path: SubjectPath
+    path: AccessPath
     alternatives: tuple[ValueFact | ClassFact | tuple[PathFact, ...], ...]
 
 
@@ -215,7 +215,7 @@ class PatternTree:
     def with_capture(self, fact: CaptureFact) -> PatternTree | None:
         node = insert_capture_node(
             self.node,
-            SubjectPath(
+            AccessPath(
                 fact.path.root,
                 (*fact.path.parts, SubscriptPathPart(fact.index)),
             ),
@@ -259,7 +259,7 @@ def node_from_or_alternative(
     return PatternTree.from_facts(alternative).node
 
 
-def insert_node(root: PatternNode, path: SubjectPath, node: PatternNode) -> PatternNode:
+def insert_node(root: PatternNode, path: AccessPath, node: PatternNode) -> PatternNode:
     if isinstance(root, OrNode):
         if path.is_subject:
             raise ValueError("Conflicting facts for the same subject path")
@@ -290,12 +290,12 @@ def insert_node(root: PatternNode, path: SubjectPath, node: PatternNode) -> Patt
         child = elements.get(first_part.index, WildcardNode())
         elements[first_part.index] = insert_node(child, path.tail(), node)
         return SequenceNode(root.length, root.use_star, tuple(elements.items()))
-    # SubjectPathPart is a closed union of attribute and subscript parts.
+    # AccessPathPart is a closed union of attribute and subscript parts.
     raise ValueError("Unsupported subject path part")  # pragma: no cover
 
 
 def insert_capture_node(
-    root: PatternNode, path: SubjectPath, node: CaptureNode
+    root: PatternNode, path: AccessPath, node: CaptureNode
 ) -> PatternNode | None:
     if path.is_subject:
         return node if isinstance(root, WildcardNode) else None

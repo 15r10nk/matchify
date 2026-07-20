@@ -3,7 +3,7 @@
 import libcst as cst
 
 from .facts import CaptureFact
-from .subject_path import AccessPath, SubjectPath, extract_integer_subscript_index
+from .subject_path import AccessPath, extract_integer_subscript_index
 
 
 def detect_captures(
@@ -48,7 +48,7 @@ def normalize_duplicate_captures(
     captures: tuple[CaptureFact, ...],
 ) -> tuple[tuple[CaptureFact, ...], tuple[tuple[str, str], ...]]:
     """Keep one pattern capture per source index and alias later duplicates."""
-    seen: dict[tuple[SubjectPath, int], str] = {}
+    seen: dict[tuple[AccessPath, int], str] = {}
     unique_captures = []
     aliases = []
 

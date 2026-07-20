@@ -16,7 +16,7 @@ from .patterns import (
     is_literal_value,
     is_singleton_name,
 )
-from .subject_path import AccessPath, AttributePathPart, SubjectPath, SubscriptPathPart
+from .subject_path import AccessPath, AttributePathPart, SubscriptPathPart
 
 
 @dataclass(frozen=True)
@@ -36,7 +36,7 @@ class IsInstancePredicate:
     expression: cst.BaseExpression
     classes: tuple[cst.BaseExpression, ...]
     original: cst.BaseExpression
-    path: SubjectPath | None = None
+    path: AccessPath | None = None
 
 
 @dataclass(frozen=True)
@@ -44,7 +44,7 @@ class LenEqualsPredicate:
     expression: cst.BaseExpression
     length: int
     original: cst.BaseExpression
-    path: SubjectPath | None = None
+    path: AccessPath | None = None
 
 
 @dataclass(frozen=True)
@@ -52,14 +52,14 @@ class LenAtLeastPredicate:
     expression: cst.BaseExpression
     minimum: int
     original: cst.BaseExpression
-    path: SubjectPath | None = None
+    path: AccessPath | None = None
 
 
 @dataclass(frozen=True)
 class SequenceTypePredicate:
     expression: cst.BaseExpression
     original: cst.BaseExpression
-    path: SubjectPath | None = None
+    path: AccessPath | None = None
 
 
 @dataclass(frozen=True)
@@ -67,7 +67,7 @@ class EqualsPredicate:
     expression: cst.BaseExpression
     value: cst.BaseExpression
     original: cst.BaseExpression
-    path: SubjectPath | None = None
+    path: AccessPath | None = None
 
 
 @dataclass(frozen=True)
@@ -75,7 +75,7 @@ class IsPredicate:
     expression: cst.BaseExpression
     value: cst.BaseExpression
     original: cst.BaseExpression
-    path: SubjectPath | None = None
+    path: AccessPath | None = None
 
 
 @dataclass(frozen=True)
@@ -83,7 +83,7 @@ class HasAttrPredicate:
     expression: cst.BaseExpression
     attribute: str
     original: cst.BaseExpression
-    path: SubjectPath | None = None
+    path: AccessPath | None = None
 
 
 @dataclass(frozen=True)
@@ -384,7 +384,7 @@ def remove_implied_checks(expr: BoolExpr) -> BoolExpr:
 
 def condition_is_implied(
     expr: BoolExpr,
-    checked_paths: set[SubjectPath],
+    checked_paths: set[AccessPath],
 ) -> bool:
     if (
         isinstance(expr, HasAttrPredicate)
@@ -402,7 +402,7 @@ def condition_is_implied(
     )
 
 
-def checked_pattern_paths(expr: BoolExpr) -> set[SubjectPath]:
+def checked_pattern_paths(expr: BoolExpr) -> set[AccessPath]:
     if isinstance(expr, AndExpr):
         return set().union(*(checked_pattern_paths(part) for part in expr.parts))
     if isinstance(expr, OrExpr):
@@ -469,7 +469,7 @@ def residual_condition(expr: BoolExpr | None) -> cst.BaseExpression | None:
     return expr.original
 
 
-def has_unknown_subscript(path: SubjectPath) -> bool:
+def has_unknown_subscript(path: AccessPath) -> bool:
     """Return true when a path contains a subscript that cannot become a pattern index."""
     return any(
         isinstance(part, SubscriptPathPart) and part.index is None

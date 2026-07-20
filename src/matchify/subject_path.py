@@ -178,8 +178,3 @@ class AccessPath:
     @property
     def starts_with_subscript(self) -> bool:
         return isinstance(self.first_part, SubscriptPathPart)
-
-
-# Pattern facts use AccessPath values whose root is MatchSubjectRoot. Keeping the
-# alias makes that invariant explicit at their call sites.
-SubjectPath = AccessPath
