@@ -154,8 +154,8 @@ def fact_from_predicate(predicate: Predicate) -> PathFact | None:
     return None
 
 
-def path_is_patternable(path: AccessPath | None) -> bool:
-    return path is not None and path.is_bound and not has_unknown_subscript(path)
+def path_is_patternable(path: AccessPath) -> bool:
+    return path.is_bound and not has_unknown_subscript(path)
 
 
 def drop_redundant_sequence_type_residuals(

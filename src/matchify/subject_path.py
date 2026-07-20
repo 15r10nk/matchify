@@ -73,7 +73,7 @@ class AccessPath:
         return bool(self.parts)
 
     @classmethod
-    def from_expression(cls, node: cst.BaseExpression) -> AccessPath | None:
+    def from_expression(cls, node: cst.BaseExpression) -> AccessPath:
         parts: list[AccessPathPart] = []
         current = node
 

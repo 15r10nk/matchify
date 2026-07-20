@@ -16,8 +16,6 @@ def test_binding_replaces_a_multi_part_subject_prefix():
     path = AccessPath.from_expression(parse_expression("self.node.value"))
     subject = AccessPath.from_expression(parse_expression("self.node"))
 
-    assert path is not None
-    assert subject is not None
     assert path.bind(subject) == AccessPath(
         MatchSubjectRoot(), (AttributePathPart("value"),)
     )
@@ -27,8 +25,6 @@ def test_binding_preserves_a_path_outside_the_subject():
     path = AccessPath.from_expression(parse_expression("config.enabled"))
     subject = AccessPath.from_expression(parse_expression("self.node"))
 
-    assert path is not None
-    assert subject is not None
     assert path.bind(subject) == AccessPath(
         NameRoot("config"), (AttributePathPart("enabled"),)
     )
@@ -48,8 +44,6 @@ def test_common_prefix_can_be_rendered_as_fresh_cst():
     left = AccessPath.from_expression(parse_expression("node.left.value"))
     right = AccessPath.from_expression(parse_expression("node.left.kind"))
 
-    assert left is not None
-    assert right is not None
     prefix = AccessPath.common_prefix((left, right))
 
     assert prefix is not None
@@ -59,5 +53,4 @@ def test_common_prefix_can_be_rendered_as_fresh_cst():
 def test_dynamic_subscript_subject_can_be_rendered_as_fresh_cst():
     path = AccessPath.from_expression(parse_expression("items[index]"))
 
-    assert path is not None
     assert cst.Module([]).code_for_node(path.to_expression()) == "items[index]"

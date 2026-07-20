@@ -33,57 +33,50 @@ class OrExpr:
 
 @dataclass(frozen=True)
 class IsInstancePredicate:
-    expression: cst.BaseExpression
+    path: AccessPath
     classes: tuple[cst.BaseExpression, ...]
     original: cst.BaseExpression
-    path: AccessPath | None = None
 
 
 @dataclass(frozen=True)
 class LenEqualsPredicate:
-    expression: cst.BaseExpression
+    path: AccessPath
     length: int
     original: cst.BaseExpression
-    path: AccessPath | None = None
 
 
 @dataclass(frozen=True)
 class LenAtLeastPredicate:
-    expression: cst.BaseExpression
+    path: AccessPath
     minimum: int
     original: cst.BaseExpression
-    path: AccessPath | None = None
 
 
 @dataclass(frozen=True)
 class SequenceTypePredicate:
-    expression: cst.BaseExpression
+    path: AccessPath
     original: cst.BaseExpression
-    path: AccessPath | None = None
 
 
 @dataclass(frozen=True)
 class EqualsPredicate:
-    expression: cst.BaseExpression
+    path: AccessPath
     value: cst.BaseExpression
     original: cst.BaseExpression
-    path: AccessPath | None = None
 
 
 @dataclass(frozen=True)
 class IsPredicate:
-    expression: cst.BaseExpression
+    path: AccessPath
     value: cst.BaseExpression
     original: cst.BaseExpression
-    path: AccessPath | None = None
 
 
 @dataclass(frozen=True)
 class HasAttrPredicate:
-    expression: cst.BaseExpression
+    path: AccessPath
     attribute: str
     original: cst.BaseExpression
-    path: AccessPath | None = None
 
 
 @dataclass(frozen=True)
@@ -167,7 +160,7 @@ def parse_hasattr_predicate(predicate: cst.BaseExpression) -> HasAttrPredicate |
         return None
     expression = predicate.args[0].value
     return HasAttrPredicate(
-        expression, attribute, predicate, AccessPath.from_expression(expression)
+        AccessPath.from_expression(expression), attribute, predicate
     )
 
 
@@ -180,12 +173,10 @@ def parse_isinstance_predicate(
         return None
     if is_list_tuple_classes(classes):
         expression = predicate.args[0].value
-        return SequenceTypePredicate(
-            expression, predicate, AccessPath.from_expression(expression)
-        )
+        return SequenceTypePredicate(AccessPath.from_expression(expression), predicate)
     expression = predicate.args[0].value
     return IsInstancePredicate(
-        expression, classes, predicate, AccessPath.from_expression(expression)
+        AccessPath.from_expression(expression), classes, predicate
     )
 
 
@@ -202,12 +193,12 @@ def parse_len_predicate(
     if isinstance(target.operator, cst.Equal):
         expression = len_call.args[0].value
         return LenEqualsPredicate(
-            expression, length, predicate, AccessPath.from_expression(expression)
+            AccessPath.from_expression(expression), length, predicate
         )
     if isinstance(target.operator, cst.GreaterThanEqual):
         expression = len_call.args[0].value
         return LenAtLeastPredicate(
-            expression, length, predicate, AccessPath.from_expression(expression)
+            AccessPath.from_expression(expression), length, predicate
         )
     return None
 
@@ -218,17 +209,11 @@ def parse_value_predicate(
     target = predicate.comparisons[0]
     if isinstance(target.operator, cst.Equal) and is_literal_value(target.comparator):
         return EqualsPredicate(
-            predicate.left,
-            target.comparator,
-            predicate,
-            AccessPath.from_expression(predicate.left),
+            AccessPath.from_expression(predicate.left), target.comparator, predicate
         )
     if isinstance(target.operator, cst.Is) and is_singleton_name(target.comparator):
         return IsPredicate(
-            predicate.left,
-            target.comparator,
-            predicate,
-            AccessPath.from_expression(predicate.left),
+            AccessPath.from_expression(predicate.left), target.comparator, predicate
         )
     return None
 
@@ -263,7 +248,7 @@ def find_isinstance_subject_path(
     expr: BoolExpr, *, include_subscripts: bool
 ) -> AccessPath | None:
     for part in iter_and_parts(expr):
-        if isinstance(part, IsInstancePredicate) and part.path is not None:
+        if isinstance(part, IsInstancePredicate):
             if include_subscripts or not path_contains_subscript(part.path):
                 return part.path
     return None
@@ -272,10 +257,7 @@ def find_isinstance_subject_path(
 def find_sequence_subject_path(expr: BoolExpr) -> AccessPath | None:
     parts = tuple(iter_and_parts(expr))
     for part in parts:
-        if (
-            not isinstance(part, LenEqualsPredicate | LenAtLeastPredicate)
-            or part.path is None
-        ):
+        if not isinstance(part, LenEqualsPredicate | LenAtLeastPredicate):
             continue
         if any(has_direct_sequence_element_check(other, part.path) for other in parts):
             return part.path
@@ -330,11 +312,9 @@ def find_value_subject_path(expr: BoolExpr) -> AccessPath | None:
             if subject is not None and not path_contains_subscript(subject):
                 return subject
             continue
-        if (
-            isinstance(part, EqualsPredicate | IsPredicate)
-            and part.path is not None
-            and not path_contains_subscript(part.path)
-        ):
+        if isinstance(
+            part, EqualsPredicate | IsPredicate
+        ) and not path_contains_subscript(part.path):
             return part.path
     return None
 
@@ -386,17 +366,12 @@ def condition_is_implied(
     expr: BoolExpr,
     checked_paths: set[AccessPath],
 ) -> bool:
-    if (
-        isinstance(expr, HasAttrPredicate)
-        and expr.path is not None
-        and expr.path.is_bound
-    ):
+    if isinstance(expr, HasAttrPredicate) and expr.path.is_bound:
         return any(
             path == expr.path or path.starts_with(expr.path) for path in checked_paths
         )
     return bool(
         isinstance(expr, SequenceTypePredicate)
-        and expr.path is not None
         and expr.path.is_subject
         and expr.path in checked_paths
     )
@@ -410,14 +385,10 @@ def checked_pattern_paths(expr: BoolExpr) -> set[AccessPath]:
         merged = set().union(*paths)
         return merged if len(merged) == 1 else set()
     if isinstance(expr, IsInstancePredicate):
-        return {expr.path} if expr.path is not None and expr.path.is_bound else set()
+        return {expr.path} if expr.path.is_bound else set()
     if isinstance(expr, LenEqualsPredicate | LenAtLeastPredicate):
-        return {expr.path} if expr.path is not None and expr.path.is_bound else set()
-    if (
-        not isinstance(expr, EqualsPredicate | IsPredicate)
-        or expr.path is None
-        or not expr.path.is_bound
-    ):
+        return {expr.path} if expr.path.is_bound else set()
+    if not isinstance(expr, EqualsPredicate | IsPredicate) or not expr.path.is_bound:
         return set()
     return (
         {expr.path}
@@ -431,12 +402,10 @@ def bind_predicate_subject(predicate: Predicate, subject: AccessPath) -> Predica
         return predicate
 
     path = predicate.path
-    if isinstance(predicate, HasAttrPredicate) and path is not None:
+    if isinstance(predicate, HasAttrPredicate):
         path = AccessPath(
             path.root, (*path.parts, AttributePathPart(predicate.attribute))
         )
-    if path is None:
-        return predicate
     path = path.bind(subject)
     if not path.is_bound or has_unknown_subscript(path):
         return replace(predicate, path=path)

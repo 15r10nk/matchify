@@ -30,8 +30,6 @@ def detect_captures(
 
         path = AccessPath.from_expression(assign.value.value)
         subject_path = AccessPath.from_expression(subject)
-        if path is None or subject_path is None:
-            break
         path = path.bind(subject_path)
         if not path.is_bound:
             break
