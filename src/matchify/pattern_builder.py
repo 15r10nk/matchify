@@ -5,7 +5,12 @@ from dataclasses import dataclass
 import libcst as cst
 from libcst import matchers as m
 
-from .access_path import AccessPath, MatchSubjectPlan, SubscriptPathPart
+from .access_path import (
+    AccessPath,
+    MatchSubjectPlan,
+    MatchSubjectRoot,
+    SubscriptPathPart,
+)
 from .conditions import (
     AndExpr,
     BoolExpr,
@@ -46,9 +51,18 @@ def normalize_condition(
     """Bind and lower a parsed condition into a pattern and residual guard."""
     expr = bind_condition_subject(expr, subject)
     expr = remove_implied_checks(expr)
-    result = build_pattern(expr)
+    result = build_pattern(expr, require_anchored=not subject.is_composite)
+    facts = result.facts
+    if subject.is_composite:
+        facts = (
+            SequenceFact(
+                AccessPath(MatchSubjectRoot()),
+                len(subject.bindings),
+            ),
+            *facts,
+        )
     try:
-        pattern = PatternTree.from_facts(result.facts)
+        pattern = PatternTree.from_facts(facts)
         pattern.render()
     except ValueError:
         return BranchFacts(pattern=None, guard=expr.original)

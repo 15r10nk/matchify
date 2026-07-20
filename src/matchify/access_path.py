@@ -208,6 +208,12 @@ class MatchSubjectPlan:
     def from_subjects(cls, subjects: tuple[AccessPath, ...]) -> MatchSubjectPlan:
         if not subjects:
             raise ValueError("A match subject plan needs at least one subject")
+        for index, subject in enumerate(subjects):
+            if any(
+                subject.starts_with(other) or other.starts_with(subject)
+                for other in subjects[index + 1 :]
+            ):
+                raise ValueError("Match subjects must not overlap")
         if len(subjects) == 1:
             return cls((SubjectBinding(subjects[0], ()),))
         return cls(
@@ -220,6 +226,10 @@ class MatchSubjectPlan:
     @property
     def subjects(self) -> tuple[AccessPath, ...]:
         return tuple(binding.source for binding in self.bindings)
+
+    @property
+    def is_composite(self) -> bool:
+        return len(self.bindings) > 1
 
     def bind(self, path: AccessPath) -> AccessPath:
         candidates = [

@@ -1,4 +1,5 @@
 import libcst as cst
+import pytest
 
 from matchify.access_path import (
     AccessPath,
@@ -85,3 +86,11 @@ def test_subject_plan_binds_multiple_subjects_to_tuple_slots():
         (SubscriptPathPart(1), AttributePathPart("kind")),
     )
     assert cst.Module([]).code_for_node(plan.to_expression()) == "(a.x, b.y)"
+
+
+def test_subject_plan_rejects_overlapping_subjects():
+    parent = AccessPath.from_expression(parse_expression("node"))
+    child = AccessPath.from_expression(parse_expression("node.value"))
+
+    with pytest.raises(ValueError, match="must not overlap"):
+        MatchSubjectPlan.from_subjects((parent, child))

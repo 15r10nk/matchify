@@ -1,10 +1,30 @@
 from textwrap import dedent
 
+import libcst as cst
 from helpers import check_code
+
+from matchify.access_path import AccessPath, MatchSubjectPlan
+from matchify.conditions import parse_condition
+from matchify.pattern_builder import normalize_condition
 
 
 class TestTransformCode:
     """Test source-to-source transformation behavior."""
+
+    def test_composite_subject_plan_builds_a_tuple_pattern(self):
+        condition = parse_condition(cst.parse_expression("a.x == 1 and b.y == 2"))
+        plan = MatchSubjectPlan.from_subjects(
+            (
+                AccessPath.from_expression(cst.parse_expression("a.x")),
+                AccessPath.from_expression(cst.parse_expression("b.y")),
+            )
+        )
+
+        facts = normalize_condition(condition, plan)
+
+        assert facts.pattern is not None
+        assert cst.Module([]).code_for_node(facts.pattern.render()) == "1, 2"
+        assert facts.guard is None
 
     def test_common_subject_is_built_from_branch_path_prefixes(self):
         source = dedent(
