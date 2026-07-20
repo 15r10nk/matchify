@@ -26,6 +26,42 @@ class TestTransformCode:
         assert cst.Module([]).code_for_node(facts.pattern.render()) == "1, 2"
         assert facts.guard is None
 
+    def test_eager_tuple_comparisons_use_a_composite_match_subject(self):
+        source = dedent(
+            """
+            class Box:
+                def __init__(self, x=None, y=None):
+                    self.x = x
+                    self.y = y
+
+            a = Box(x=1)
+            b = Box(y=2)
+            if (a.x, b.y) == (1, 2):
+                print("first")
+            elif (a.x, b.y) == (3, 4):
+                print("second")
+            """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Box:
+                def __init__(self, x=None, y=None):
+                    self.x = x
+                    self.y = y
+
+            a = Box(x=1)
+            b = Box(y=2)
+            match (a.x, b.y):
+                case 1, 2:
+                    print("first")
+                case 3, 4:
+                    print("second")
+            """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_common_subject_is_built_from_branch_path_prefixes(self):
         source = dedent(
             """

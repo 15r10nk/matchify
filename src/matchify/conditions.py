@@ -37,6 +37,14 @@ class OrExpr:
 
 
 @dataclass(frozen=True)
+class ProductExpr:
+    """Predicates from one eagerly evaluated tuple comparison."""
+
+    parts: tuple[Predicate, ...]
+    original: cst.BaseExpression
+
+
+@dataclass(frozen=True)
 class IsInstancePredicate:
     path: AccessPath
     classes: tuple[cst.BaseExpression, ...]
@@ -99,7 +107,7 @@ Predicate = (
     | HasAttrPredicate
     | RawPredicate
 )
-BoolExpr = AndExpr | OrExpr | Predicate
+BoolExpr = AndExpr | OrExpr | ProductExpr | Predicate
 
 
 def parse_condition(
@@ -141,12 +149,53 @@ def parse_predicate(
             return parsed
 
     if isinstance(predicate, cst.Comparison) and len(predicate.comparisons) == 1:
+        if (parsed := parse_product_predicate(predicate)) is not None:
+            return parsed
         if (parsed := parse_len_predicate(predicate)) is not None:
             return parsed
         if (parsed := parse_value_predicate(predicate)) is not None:
             return parsed
 
     return RawPredicate(predicate)
+
+
+def parse_product_predicate(predicate: cst.Comparison) -> ProductExpr | None:
+    target = predicate.comparisons[0]
+    if (
+        not isinstance(target.operator, cst.Equal)
+        or not isinstance(predicate.left, cst.Tuple)
+        or not isinstance(target.comparator, cst.Tuple)
+        or len(predicate.left.elements) != len(target.comparator.elements)
+        or not predicate.left.elements
+    ):
+        return None
+
+    predicates = []
+    for left_element, right_element in zip(
+        predicate.left.elements, target.comparator.elements
+    ):
+        if (
+            isinstance(left_element, cst.StarredElement)
+            or isinstance(right_element, cst.StarredElement)
+            or not is_literal_value(right_element.value)
+        ):
+            return None
+        original = cst.Comparison(
+            left=left_element.value,
+            comparisons=[
+                cst.ComparisonTarget(
+                    operator=cst.Equal(), comparator=right_element.value
+                )
+            ],
+        )
+        predicates.append(
+            EqualsPredicate(
+                AccessPath.from_expression(left_element.value),
+                right_element.value,
+                original,
+            )
+        )
+    return ProductExpr(tuple(predicates), predicate)
 
 
 def parse_hasattr_predicate(predicate: cst.BaseExpression) -> HasAttrPredicate | None:
@@ -249,6 +298,14 @@ def select_subject_path(expr: BoolExpr) -> AccessPath | None:
     return None
 
 
+def select_subject_paths(expr: BoolExpr) -> tuple[AccessPath, ...] | None:
+    """Select one or more eagerly evaluated subjects from condition IR."""
+    if isinstance(expr, ProductExpr):
+        return tuple(part.path for part in expr.parts)
+    subject = select_subject_path(expr)
+    return None if subject is None else (subject,)
+
+
 def find_isinstance_subject_path(
     expr: BoolExpr, *, include_subscripts: bool
 ) -> AccessPath | None:
@@ -346,6 +403,11 @@ def bind_condition_subject(expr: BoolExpr, subject: MatchSubjectPlan) -> BoolExp
             tuple(bind_condition_subject(part, subject) for part in expr.parts),
             expr.original,
         )
+    if isinstance(expr, ProductExpr):
+        return ProductExpr(
+            tuple(bind_predicate_subject(part, subject) for part in expr.parts),
+            expr.original,
+        )
     return bind_predicate_subject(expr, subject)
 
 
@@ -354,6 +416,22 @@ def remove_implied_checks(expr: BoolExpr) -> BoolExpr:
     if isinstance(expr, OrExpr):
         return OrExpr(
             tuple(remove_implied_checks(part) for part in expr.parts),
+            expr.original,
+        )
+    if isinstance(expr, ProductExpr):
+        return ProductExpr(
+            tuple(
+                part
+                for part in expr.parts
+                if not condition_is_implied(
+                    part,
+                    {
+                        path
+                        for candidate in expr.parts
+                        for path in checked_pattern_paths(candidate)
+                    },
+                )
+            ),
             expr.original,
         )
     if not isinstance(expr, AndExpr):
@@ -383,7 +461,7 @@ def condition_is_implied(
 
 
 def checked_pattern_paths(expr: BoolExpr) -> set[AccessPath]:
-    if isinstance(expr, AndExpr):
+    if isinstance(expr, AndExpr | ProductExpr):
         return set().union(*(checked_pattern_paths(part) for part in expr.parts))
     if isinstance(expr, OrExpr):
         paths = [checked_pattern_paths(part) for part in expr.parts]
@@ -441,6 +519,8 @@ def residual_condition(expr: BoolExpr | None) -> cst.BaseExpression | None:
             )
         return expression
     if isinstance(expr, OrExpr):
+        return expr.original
+    if isinstance(expr, ProductExpr):
         return expr.original
     return expr.original
 

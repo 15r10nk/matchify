@@ -101,6 +101,18 @@ class TestEdgeCases:
 
         check_code(source, expected)
 
+    def test_inconsistent_tuple_subject_order_is_not_converted(self):
+        source = dedent(
+            """
+            if (a.x, b.y) == (1, 2):
+                print("first")
+            elif (b.y, a.x) == (3, 4):
+                print("second")
+            """
+        ).strip()
+
+        check_code(source, source)
+
     def test_isinstance_with_starred_element_not_converted(self):
         """Test that isinstance with *args in tuple is not converted."""
         source = dedent(

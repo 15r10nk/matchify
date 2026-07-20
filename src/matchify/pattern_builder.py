@@ -21,6 +21,7 @@ from .conditions import (
     LenEqualsPredicate,
     OrExpr,
     Predicate,
+    ProductExpr,
     SequenceTypePredicate,
     bind_condition_subject,
     has_unknown_subscript,
@@ -76,6 +77,11 @@ def build_pattern(
 ) -> PatternBuildResult:
     if isinstance(expr, AndExpr):
         return build_and_pattern(expr, require_anchored=require_anchored)
+    if isinstance(expr, ProductExpr):
+        return build_and_pattern(
+            AndExpr(expr.parts, expr.original),
+            require_anchored=require_anchored,
+        )
     if isinstance(expr, OrExpr):
         return build_or_pattern(expr)
     fact = fact_from_predicate(expr)

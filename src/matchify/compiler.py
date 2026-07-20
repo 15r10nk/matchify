@@ -12,7 +12,7 @@ from .capture_patterns import (
     prepend_aliases,
     remove_statements,
 )
-from .conditions import BoolExpr, parse_condition, select_subject_path
+from .conditions import BoolExpr, parse_condition, select_subject_paths
 from .facts import BranchFacts
 from .pattern_builder import normalize_condition
 from .patterns import build_wildcard_pattern, extract_isinstance_classes
@@ -116,13 +116,29 @@ class IfChainCompiler:
         self, branches: list[ParsedBranch]
     ) -> MatchSubjectPlan | None:
         """Build a subject from the common prefix of all branch candidates."""
-        candidates = tuple(select_subject_path(branch.condition) for branch in branches)
+        candidates = tuple(
+            select_subject_paths(branch.condition) for branch in branches
+        )
         if any(candidate is None for candidate in candidates):
             return None
-        subject = AccessPath.common_prefix(
-            tuple(candidate for candidate in candidates if candidate is not None)
+        paths_by_branch = tuple(
+            candidate for candidate in candidates if candidate is not None
         )
-        return None if subject is None else MatchSubjectPlan.from_subjects((subject,))
+        size = len(paths_by_branch[0])
+        if any(len(paths) != size for paths in paths_by_branch[1:]):
+            return None
+        subjects = tuple(
+            AccessPath.common_prefix(tuple(paths[index] for paths in paths_by_branch))
+            for index in range(size)
+        )
+        if any(subject is None for subject in subjects):
+            return None
+        try:
+            return MatchSubjectPlan.from_subjects(
+                tuple(subject for subject in subjects if subject is not None)
+            )
+        except ValueError:
+            return None
 
     def compile(
         self, chain: IfChain, leading_lines: tuple[cst.EmptyLine, ...]
