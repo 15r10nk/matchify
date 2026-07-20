@@ -7,7 +7,7 @@ from .subject_path import AccessPath, extract_integer_subscript_index
 
 
 def detect_captures(
-    body: cst.IndentedBlock, subject: cst.BaseExpression
+    body: cst.IndentedBlock, subject: AccessPath
 ) -> tuple[CaptureFact, ...]:
     captures = []
 
@@ -29,8 +29,7 @@ def detect_captures(
             break
 
         path = AccessPath.from_expression(assign.value.value)
-        subject_path = AccessPath.from_expression(subject)
-        path = path.bind(subject_path)
+        path = path.bind(subject)
         if not path.is_bound:
             break
         index = extract_integer_subscript_index(assign.value)

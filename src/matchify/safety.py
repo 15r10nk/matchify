@@ -3,17 +3,19 @@
 import libcst as cst
 
 from .patterns import flatten_boolean, is_len_call, is_literal_value, is_singleton_name
+from .subject_path import AccessPath, AttributePathPart
 
 
 def is_safe_condition(
     condition: cst.BaseExpression,
-    subject: cst.BaseExpression,
+    subject: AccessPath,
 ) -> bool:
     for component in flatten_boolean(condition):
         if isinstance(component, cst.Comparison) and len(component.comparisons) == 1:
             target = component.comparisons[0]
             comparator = target.comparator
-            if component.left.deep_equals(subject):
+            left_path = AccessPath.from_expression(component.left)
+            if left_path == subject:
                 if isinstance(target.operator, cst.Equal) and not is_literal_value(
                     comparator
                 ):
@@ -24,11 +26,13 @@ def is_safe_condition(
                     return False
             elif is_len_call(component.left):
                 len_call = component.left
-                len_arg = len_call.args[0].value
+                len_path = AccessPath.from_expression(len_call.args[0].value)
                 if (
-                    isinstance(subject, cst.Attribute)
-                    and isinstance(len_arg, cst.Attribute)
-                    and len_arg.value.deep_equals(subject)
+                    subject.parts
+                    and isinstance(subject.parts[-1], AttributePathPart)
+                    and len_path.parts
+                    and isinstance(len_path.parts[-1], AttributePathPart)
+                    and len_path.parent() == subject
                 ):
                     return False
 

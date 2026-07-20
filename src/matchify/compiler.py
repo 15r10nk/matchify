@@ -30,7 +30,7 @@ class IfBranch(NamedTuple):
 class IfChain(NamedTuple):
     """A normalized if/elif/else chain, independent from LibCST navigation quirks."""
 
-    subject: cst.BaseExpression
+    subject: AccessPath
     branches: tuple[IfBranch, ...]
     else_body: cst.IndentedBlock | None
     else_leading_lines: tuple[cst.EmptyLine, ...]
@@ -88,13 +88,12 @@ class IfChainCompiler:
         subject_path = self._select_chain_subject(parsed_branches)
         if subject_path is None:
             return None
-        subject = subject_path.to_expression()
 
         branches: list[IfBranch] = []
         for branch in parsed_branches:
-            if not is_safe_condition(branch.test, subject):
+            if not is_safe_condition(branch.test, subject_path):
                 return None
-            if self._has_problematic_isinstance(branch.test, subject):
+            if self._has_problematic_isinstance(branch.test, subject_path):
                 return None
             branches.append(
                 IfBranch(
@@ -107,7 +106,7 @@ class IfChainCompiler:
         if not any(branch.facts.pattern is not None for branch in branches):
             return None
         return IfChain(
-            subject=subject,
+            subject=subject_path,
             branches=tuple(branches),
             else_body=else_body,
             else_leading_lines=else_leading_lines,
@@ -139,12 +138,12 @@ class IfChainCompiler:
             )
 
         return cst.Match(
-            subject=chain.subject, cases=cases, leading_lines=leading_lines
+            subject=chain.subject.to_expression(),
+            cases=cases,
+            leading_lines=leading_lines,
         )
 
-    def _compile_branch(
-        self, branch: IfBranch, subject: cst.BaseExpression
-    ) -> cst.MatchCase:
+    def _compile_branch(self, branch: IfBranch, subject: AccessPath) -> cst.MatchCase:
         facts = branch.facts
         body = branch.body
 
@@ -185,12 +184,12 @@ class IfChainCompiler:
         )
 
     def _has_problematic_isinstance(
-        self, test: cst.BaseExpression, subject: cst.BaseExpression
+        self, test: cst.BaseExpression, subject: AccessPath
     ) -> bool:
         for call in m.findall(test, m.Call(func=m.Name(value="isinstance"))):
             if len(call.args) < 2:
                 return True
-            if not call.args[0].value.deep_equals(subject):
+            if AccessPath.from_expression(call.args[0].value) != subject:
                 continue
 
             if (
