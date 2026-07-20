@@ -3101,7 +3101,7 @@ def test_generated_attribute_or_direct_sequence_capture_program_survives_matchif
     transformed = path.read_text(encoding="utf-8")
     assert (
         "case Wrapper(data=[capture_0_0, 2, capture_0_1, *_] | "
-        "[capture_0_0, 3, capture_0_1, *_]) if hasattr(value, 'data'):"
+        "[capture_0_0, 3, capture_0_1, *_]):"
     ) in transformed
     assert "capture_0_0 = value.data[0]" not in transformed
     assert "capture_0_1 = value.data[2]" not in transformed

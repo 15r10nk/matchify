@@ -43,8 +43,8 @@ def normalize_condition(
     subject: cst.BaseExpression,
 ) -> BranchFacts:
     """Bind and lower a parsed condition into a pattern and residual guard."""
-    expr = remove_implied_checks(expr, subject)
     expr = bind_condition_subject(expr, subject)
+    expr = remove_implied_checks(expr)
     result = build_pattern(expr)
     try:
         pattern = PatternTree.from_facts(result.facts)

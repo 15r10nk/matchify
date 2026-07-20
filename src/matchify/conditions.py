@@ -80,6 +80,14 @@ class IsPredicate:
 
 
 @dataclass(frozen=True)
+class HasAttrPredicate:
+    expression: cst.BaseExpression
+    attribute: str
+    original: cst.BaseExpression
+    path: SubjectPath | None = None
+
+
+@dataclass(frozen=True)
 class RawPredicate:
     original: cst.BaseExpression
 
@@ -91,6 +99,7 @@ Predicate = (
     | SequenceTypePredicate
     | EqualsPredicate
     | IsPredicate
+    | HasAttrPredicate
     | RawPredicate
 )
 BoolExpr = AndExpr | OrExpr | Predicate
@@ -130,6 +139,9 @@ def parse_predicate(
     predicate: cst.BaseExpression,
     ignore_types_pattern: str | None = r".*_TYPES$",
 ) -> Predicate:
+    if (parsed := parse_hasattr_predicate(predicate)) is not None:
+        return parsed
+
     if is_isinstance_call(predicate):
         parsed = parse_isinstance_predicate(predicate, ignore_types_pattern)
         if parsed is not None:
@@ -142,6 +154,23 @@ def parse_predicate(
             return parsed
 
     return RawPredicate(predicate)
+
+
+def parse_hasattr_predicate(predicate: cst.BaseExpression) -> HasAttrPredicate | None:
+    if not isinstance(predicate, cst.Call) or not m.matches(
+        predicate, m.Call(func=m.Name(value="hasattr"), args=[m.Arg(), m.Arg()])
+    ):
+        return None
+    name = predicate.args[1].value
+    if not isinstance(name, cst.SimpleString):
+        return None
+    try:
+        attribute = name.evaluated_value
+    except ValueError:
+        return None
+    if not isinstance(attribute, str):
+        return None
+    return HasAttrPredicate(predicate.args[0].value, attribute, predicate)
 
 
 def parse_isinstance_predicate(
@@ -320,112 +349,58 @@ def bind_condition_subject(expr: BoolExpr, subject: cst.BaseExpression) -> BoolE
     return bind_predicate_subject(expr, subject)
 
 
-def remove_implied_checks(expr: BoolExpr, subject: cst.BaseExpression) -> BoolExpr:
+def remove_implied_checks(expr: BoolExpr) -> BoolExpr:
     """Remove conditions already enforced by a structural pattern."""
     if isinstance(expr, OrExpr):
         return OrExpr(
-            tuple(remove_implied_checks(part, subject) for part in expr.parts),
+            tuple(remove_implied_checks(part) for part in expr.parts),
             expr.original,
         )
     if not isinstance(expr, AndExpr):
         return expr
 
-    parts = tuple(remove_implied_checks(part, subject) for part in expr.parts)
-    checked_paths = {
-        path
-        for part in parts
-        for path in checked_attribute_paths(part.original, subject)
-    }
+    parts = tuple(remove_implied_checks(part) for part in expr.parts)
+    checked_paths = {path for part in parts for path in checked_pattern_paths(part)}
     return AndExpr(
-        tuple(
-            part
-            for part in parts
-            if not condition_is_implied(part.original, subject, checked_paths)
-        ),
+        tuple(part for part in parts if not condition_is_implied(part, checked_paths)),
         expr.original,
     )
 
 
 def condition_is_implied(
-    node: cst.BaseExpression,
-    subject: cst.BaseExpression,
+    expr: BoolExpr,
     checked_paths: set[SubjectPath],
 ) -> bool:
-    hasattr_path = hasattr_attribute_path(node, subject)
-    if hasattr_path is not None:
+    if isinstance(expr, HasAttrPredicate) and expr.path is not None:
         return any(
-            path == hasattr_path or path.starts_with(hasattr_path)
-            for path in checked_paths
+            path == expr.path or path.starts_with(expr.path) for path in checked_paths
         )
-
-    sequence_path = list_tuple_isinstance_path(node, subject)
-    return (
-        sequence_path is not None
-        and sequence_path.is_subject
-        and sequence_path in checked_paths
+    return bool(
+        isinstance(expr, SequenceTypePredicate)
+        and expr.path is not None
+        and expr.path.is_subject
+        and expr.path in checked_paths
     )
 
 
-def list_tuple_isinstance_path(
-    node: cst.BaseExpression, subject: cst.BaseExpression
-) -> SubjectPath | None:
-    if not is_isinstance_call(node):
-        return None
-    path = SubjectPath.from_expression(node.args[0].value, subject)
-    classes = extract_isinstance_classes(node.args[1].value, ignore_types_pattern=None)
-    return path if classes is not None and is_list_tuple_classes(classes) else None
-
-
-def checked_attribute_paths(
-    node: cst.BaseExpression, subject: cst.BaseExpression
-) -> set[SubjectPath]:
-    if isinstance(node, cst.BooleanOperation) and isinstance(node.operator, cst.Or):
-        paths = [
-            checked_attribute_paths(part, subject)
-            for part in flatten_boolean(node, cst.Or)
-        ]
+def checked_pattern_paths(expr: BoolExpr) -> set[SubjectPath]:
+    if isinstance(expr, AndExpr):
+        return set().union(*(checked_pattern_paths(part) for part in expr.parts))
+    if isinstance(expr, OrExpr):
+        paths = [checked_pattern_paths(part) for part in expr.parts]
         merged = set().union(*paths)
         return merged if len(merged) == 1 else set()
-
-    if is_isinstance_call(node):
-        path = SubjectPath.from_expression(node.args[0].value, subject)
-        return {path} if path else set()
-
-    if not isinstance(node, cst.Comparison) or len(node.comparisons) != 1:
+    if isinstance(expr, IsInstancePredicate):
+        return {expr.path} if expr.path else set()
+    if isinstance(expr, LenEqualsPredicate | LenAtLeastPredicate):
+        return {expr.path} if expr.path is not None else set()
+    if not isinstance(expr, EqualsPredicate | IsPredicate) or expr.path is None:
         return set()
-    if is_len_call(node.left):
-        path = SubjectPath.from_expression(node.left.args[0].value, subject)
-        return {path} if path is not None else set()
-
-    path = SubjectPath.from_expression(node.left, subject)
-    if path is None or not path or not isinstance(path.parts[-1], AttributePathPart):
-        return set()
-    target = node.comparisons[0]
-    if not isinstance(target.operator, (cst.Equal, cst.Is)):
-        return set()
-    if isinstance(target.operator, cst.Is) and not is_singleton_name(target.comparator):
-        return set()
-    return {path} if is_literal_value(target.comparator) else set()
-
-
-def hasattr_attribute_path(
-    node: cst.BaseExpression, subject: cst.BaseExpression
-) -> SubjectPath | None:
-    if not isinstance(node, cst.Call) or not m.matches(
-        node, m.Call(func=m.Name(value="hasattr"), args=[m.Arg(), m.Arg()])
-    ):
-        return None
-    path = SubjectPath.from_expression(node.args[0].value, subject)
-    name_arg = node.args[1].value
-    if path is None or not isinstance(name_arg, cst.SimpleString):
-        return None
-    try:
-        name = name_arg.evaluated_value
-    except ValueError:
-        return None
-    if not isinstance(name, str):
-        return None
-    return SubjectPath((*path.parts, AttributePathPart(name)))
+    return (
+        {expr.path}
+        if expr.path and isinstance(expr.path.parts[-1], AttributePathPart)
+        else set()
+    )
 
 
 def bind_predicate_subject(
@@ -435,6 +410,8 @@ def bind_predicate_subject(
         return predicate
 
     path = SubjectPath.from_expression(predicate.expression, subject)
+    if isinstance(predicate, HasAttrPredicate) and path is not None:
+        path = SubjectPath((*path.parts, AttributePathPart(predicate.attribute)))
     if path is None or has_unknown_subscript(path):
         return RawPredicate(predicate.original)
 
