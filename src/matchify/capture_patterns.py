@@ -2,12 +2,12 @@
 
 import libcst as cst
 
-from .access_path import AccessPath, extract_integer_subscript_index
+from .access_path import AccessPath, MatchSubjectPlan, extract_integer_subscript_index
 from .facts import CaptureFact
 
 
 def detect_captures(
-    body: cst.IndentedBlock, subject: AccessPath
+    body: cst.IndentedBlock, subject: MatchSubjectPlan
 ) -> tuple[CaptureFact, ...]:
     captures = []
 
@@ -29,7 +29,7 @@ def detect_captures(
             break
 
         path = AccessPath.from_expression(assign.value.value)
-        path = path.bind(subject)
+        path = subject.bind(path)
         if not path.is_bound:
             break
         index = extract_integer_subscript_index(assign.value)

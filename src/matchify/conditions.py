@@ -7,7 +7,12 @@ from dataclasses import dataclass, replace
 import libcst as cst
 from libcst import matchers as m
 
-from .access_path import AccessPath, AttributePathPart, SubscriptPathPart
+from .access_path import (
+    AccessPath,
+    AttributePathPart,
+    MatchSubjectPlan,
+    SubscriptPathPart,
+)
 from .patterns import (
     extract_isinstance_classes,
     flatten_boolean,
@@ -329,7 +334,7 @@ def iter_and_parts(expr: BoolExpr) -> tuple[BoolExpr, ...]:
     return (expr,)
 
 
-def bind_condition_subject(expr: BoolExpr, subject: AccessPath) -> BoolExpr:
+def bind_condition_subject(expr: BoolExpr, subject: MatchSubjectPlan) -> BoolExpr:
     """Bind unbound predicate expressions to paths relative to the match subject."""
     if isinstance(expr, AndExpr):
         return AndExpr(
@@ -397,7 +402,9 @@ def checked_pattern_paths(expr: BoolExpr) -> set[AccessPath]:
     )
 
 
-def bind_predicate_subject(predicate: Predicate, subject: AccessPath) -> Predicate:
+def bind_predicate_subject(
+    predicate: Predicate, subject: MatchSubjectPlan
+) -> Predicate:
     if isinstance(predicate, RawPredicate):
         return predicate
 
@@ -406,7 +413,7 @@ def bind_predicate_subject(predicate: Predicate, subject: AccessPath) -> Predica
         path = AccessPath(
             path.root, (*path.parts, AttributePathPart(predicate.attribute))
         )
-    path = path.bind(subject)
+    path = subject.bind(path)
     if not path.is_bound or has_unknown_subscript(path):
         return replace(predicate, path=path)
 

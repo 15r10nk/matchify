@@ -3,6 +3,7 @@ import libcst as cst
 from matchify.access_path import (
     AccessPath,
     AttributePathPart,
+    MatchSubjectPlan,
     MatchSubjectRoot,
     NameRoot,
     SubscriptPathPart,
@@ -65,3 +66,22 @@ def test_dynamic_subscript_subject_can_be_rendered_as_fresh_cst():
     path = AccessPath.from_expression(parse_expression("items[index]"))
 
     assert cst.Module([]).code_for_node(path.to_expression()) == "items[index]"
+
+
+def test_subject_plan_binds_multiple_subjects_to_tuple_slots():
+    first = AccessPath.from_expression(parse_expression("a.x"))
+    second = AccessPath.from_expression(parse_expression("b.y"))
+    plan = MatchSubjectPlan.from_subjects((first, second))
+
+    first_child = AccessPath.from_expression(parse_expression("a.x.value"))
+    second_child = AccessPath.from_expression(parse_expression("b.y.kind"))
+
+    assert plan.bind(first_child) == AccessPath(
+        MatchSubjectRoot(),
+        (SubscriptPathPart(0), AttributePathPart("value")),
+    )
+    assert plan.bind(second_child) == AccessPath(
+        MatchSubjectRoot(),
+        (SubscriptPathPart(1), AttributePathPart("kind")),
+    )
+    assert cst.Module([]).code_for_node(plan.to_expression()) == "(a.x, b.y)"

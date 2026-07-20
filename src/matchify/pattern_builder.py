@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import libcst as cst
 from libcst import matchers as m
 
-from .access_path import AccessPath, SubscriptPathPart
+from .access_path import AccessPath, MatchSubjectPlan, SubscriptPathPart
 from .conditions import (
     AndExpr,
     BoolExpr,
@@ -41,7 +41,7 @@ class PatternBuildResult:
 
 def normalize_condition(
     expr: BoolExpr,
-    subject: AccessPath,
+    subject: MatchSubjectPlan,
 ) -> BranchFacts:
     """Bind and lower a parsed condition into a pattern and residual guard."""
     expr = bind_condition_subject(expr, subject)

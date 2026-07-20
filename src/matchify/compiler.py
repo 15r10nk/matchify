@@ -5,7 +5,7 @@ from typing import NamedTuple
 import libcst as cst
 from libcst import matchers as m
 
-from .access_path import AccessPath
+from .access_path import AccessPath, MatchSubjectPlan
 from .capture_patterns import (
     detect_captures,
     normalize_duplicate_captures,
@@ -30,7 +30,7 @@ class IfBranch(NamedTuple):
 class IfChain(NamedTuple):
     """A normalized if/elif/else chain, independent from LibCST navigation quirks."""
 
-    subject: AccessPath
+    subject: MatchSubjectPlan
     branches: tuple[IfBranch, ...]
     else_body: cst.IndentedBlock | None
     else_leading_lines: tuple[cst.EmptyLine, ...]
@@ -85,41 +85,44 @@ class IfChainCompiler:
                 else_leading_lines = ()
             break
 
-        subject_path = self._select_chain_subject(parsed_branches)
-        if subject_path is None:
+        subject = self._select_chain_subject(parsed_branches)
+        if subject is None:
             return None
 
         branches: list[IfBranch] = []
         for branch in parsed_branches:
-            if not is_safe_condition(branch.test, subject_path):
+            if not is_safe_condition(branch.test, subject):
                 return None
-            if self._has_problematic_isinstance(branch.test, subject_path):
+            if self._has_problematic_isinstance(branch.test, subject):
                 return None
             branches.append(
                 IfBranch(
                     branch.body,
                     branch.leading_lines,
-                    normalize_condition(branch.condition, subject_path),
+                    normalize_condition(branch.condition, subject),
                 )
             )
 
         if not any(branch.facts.pattern is not None for branch in branches):
             return None
         return IfChain(
-            subject=subject_path,
+            subject=subject,
             branches=tuple(branches),
             else_body=else_body,
             else_leading_lines=else_leading_lines,
         )
 
-    def _select_chain_subject(self, branches: list[ParsedBranch]) -> AccessPath | None:
+    def _select_chain_subject(
+        self, branches: list[ParsedBranch]
+    ) -> MatchSubjectPlan | None:
         """Build a subject from the common prefix of all branch candidates."""
         candidates = tuple(select_subject_path(branch.condition) for branch in branches)
         if any(candidate is None for candidate in candidates):
             return None
-        return AccessPath.common_prefix(
+        subject = AccessPath.common_prefix(
             tuple(candidate for candidate in candidates if candidate is not None)
         )
+        return None if subject is None else MatchSubjectPlan.from_subjects((subject,))
 
     def compile(
         self, chain: IfChain, leading_lines: tuple[cst.EmptyLine, ...]
@@ -143,7 +146,9 @@ class IfChainCompiler:
             leading_lines=leading_lines,
         )
 
-    def _compile_branch(self, branch: IfBranch, subject: AccessPath) -> cst.MatchCase:
+    def _compile_branch(
+        self, branch: IfBranch, subject: MatchSubjectPlan
+    ) -> cst.MatchCase:
         facts = branch.facts
         body = branch.body
 
@@ -184,12 +189,12 @@ class IfChainCompiler:
         )
 
     def _has_problematic_isinstance(
-        self, test: cst.BaseExpression, subject: AccessPath
+        self, test: cst.BaseExpression, subject: MatchSubjectPlan
     ) -> bool:
         for call in m.findall(test, m.Call(func=m.Name(value="isinstance"))):
             if len(call.args) < 2:
                 return True
-            if AccessPath.from_expression(call.args[0].value) != subject:
+            if AccessPath.from_expression(call.args[0].value) not in subject.subjects:
                 continue
 
             if (
