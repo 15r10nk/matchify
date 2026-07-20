@@ -220,15 +220,13 @@ class PatternTree:
 
         return cls(root)
 
-    def with_captures(self, capture_facts: tuple[CaptureFact, ...]) -> PatternTree:
-        node = self.node
-        for fact in capture_facts:
-            node = insert_capture_node(
-                node,
-                SubjectPath((*fact.path.parts, SubscriptPathPart(fact.index))),
-                CaptureNode(fact.name),
-            )
-        return PatternTree(node)
+    def with_capture(self, fact: CaptureFact) -> PatternTree | None:
+        node = insert_capture_node(
+            self.node,
+            SubjectPath((*fact.path.parts, SubscriptPathPart(fact.index))),
+            CaptureNode(fact.name),
+        )
+        return None if node is None else PatternTree(node)
 
     def render(self) -> cst.MatchPattern:
         return self.node.render()
@@ -268,10 +266,8 @@ def node_from_or_alternative(
 
 def insert_node(root: PatternNode, path: SubjectPath, node: PatternNode) -> PatternNode:
     if isinstance(root, OrNode):
-        # Merging a second subject-level fact into an OR node is an internal
-        # conflict-resolution path; generated branches avoid this shape.
-        if path.is_subject:  # pragma: no cover
-            return merge_nodes(root, node)
+        if path.is_subject:
+            raise ValueError("Conflicting facts for the same subject path")
         return OrNode(
             tuple(
                 insert_node(alternative, path, node)
@@ -280,28 +276,20 @@ def insert_node(root: PatternNode, path: SubjectPath, node: PatternNode) -> Patt
         )
 
     if path.is_subject:
-        return merge_nodes(root, node)
+        if isinstance(root, WildcardNode):
+            return node
+        raise ValueError("Conflicting facts for the same subject path")
 
     first_part = path.first_part
     if isinstance(first_part, AttributePathPart):
-        # Wildcard-to-class promotion is defensive for future nested fact shapes;
-        # current public normalization requires class anchors before attributes.
-        if isinstance(root, WildcardNode):  # pragma: no cover
-            root = ClassNode(())
-        # Normalized attribute paths are only inserted below class-compatible nodes.
-        if not isinstance(root, ClassNode):  # pragma: no cover
+        if not isinstance(root, ClassNode):
             raise ValueError("Attribute paths need a class pattern parent")
         attributes = dict(root.attributes)
         child = attributes.get(first_part.name, WildcardNode())
         attributes[first_part.name] = insert_node(child, path.tail(), node)
         return ClassNode(root.classes, tuple(attributes.items()))
     if isinstance(first_part, SubscriptPathPart):
-        # Wildcard-to-sequence promotion is retained for defensive recursive
-        # insertion; public normalization creates sequence anchors explicitly.
-        if isinstance(root, WildcardNode):  # pragma: no cover
-            root = SequenceNode(0, use_star=True)
-        # Normalized subscript paths are only inserted below sequence-compatible nodes.
-        if not isinstance(root, SequenceNode):  # pragma: no cover
+        if not isinstance(root, SequenceNode):
             raise ValueError("Subscript paths need a sequence pattern parent")
         elements = dict(root.elements)
         child = elements.get(first_part.index, WildcardNode())
@@ -311,106 +299,55 @@ def insert_node(root: PatternNode, path: SubjectPath, node: PatternNode) -> Patt
     raise ValueError("Unsupported subject path part")  # pragma: no cover
 
 
-def merge_nodes(existing: PatternNode, incoming: PatternNode) -> PatternNode:
-    # The following fallbacks protect manual/future fact combinations; current
-    # end-to-end paths construct compatible anchors before merging.
-    if isinstance(existing, WildcardNode):  # pragma: no cover
-        return incoming
-    if isinstance(incoming, WildcardNode):  # pragma: no cover
-        return existing
-    if isinstance(existing, (CaptureNode, ValueNode)) or isinstance(
-        incoming, (CaptureNode, ValueNode)
-    ):  # pragma: no cover
-        return incoming
-    if isinstance(existing, ClassNode) and isinstance(
-        incoming, ClassNode
-    ):  # pragma: no cover
-        return merge_class_nodes(existing, incoming)
-    if isinstance(existing, SequenceNode) and isinstance(
-        incoming, SequenceNode
-    ):  # pragma: no cover
-        return merge_sequence_nodes(existing, incoming)
-    if isinstance(existing, OrNode) and isinstance(
-        incoming, OrNode
-    ):  # pragma: no cover
-        return incoming
-    return incoming  # pragma: no cover
-
-
-def merge_class_nodes(  # pragma: no cover
-    existing: ClassNode, incoming: ClassNode
-) -> ClassNode:
-    # Retained for overlapping class facts from future predicate builders; current
-    # E2E flows avoid duplicate class facts on one path.
-    attributes = dict(existing.attributes)
-    for name, incoming_child in incoming.attributes:
-        attributes[name] = (
-            merge_nodes(attributes[name], incoming_child)
-            if name in attributes
-            else incoming_child
-        )
-    return ClassNode(incoming.classes, tuple(attributes.items()))
-
-
-def merge_sequence_nodes(
-    existing: SequenceNode, incoming: SequenceNode
-) -> SequenceNode:  # pragma: no cover
-    # Retained for overlapping sequence facts from future predicate builders;
-    # current E2E flows reject duplicate length facts before rendering.
-    elements = dict(existing.elements)
-    for index, incoming_child in incoming.elements:
-        elements[index] = (
-            merge_nodes(elements[index], incoming_child)
-            if index in elements
-            else incoming_child
-        )
-    return SequenceNode(incoming.length, incoming.use_star, tuple(elements.items()))
-
-
 def insert_capture_node(
     root: PatternNode, path: SubjectPath, node: CaptureNode
-) -> PatternNode:
-    # Capture facts always target a subscript path in public transformations.
-    if path.is_subject:  # pragma: no cover
-        return merge_nodes(root, node)
+) -> PatternNode | None:
+    if path.is_subject:
+        return node if isinstance(root, WildcardNode) else None
     if isinstance(root, OrNode):
+        alternatives = tuple(
+            insert_capture_node(alternative, path, node)
+            for alternative in root.alternatives
+        )
+        if any(alternative is None for alternative in alternatives):
+            return None
         return OrNode(
             tuple(
-                insert_capture_node(alternative, path, node)
-                for alternative in root.alternatives
+                alternative for alternative in alternatives if alternative is not None
             )
         )
 
     first_part = path.first_part
     if isinstance(first_part, AttributePathPart):
-        # Invalid capture paths are left unchanged; public captures into
-        # attributes only occur below class patterns.
-        if not isinstance(root, ClassNode):  # pragma: no cover
-            return root
+        if not isinstance(root, ClassNode):
+            return None
         attributes = dict(root.attributes)
         child = attributes.get(first_part.name)
         if child is None:
-            return root
-        attributes[first_part.name] = insert_capture_node(child, path.tail(), node)
+            return None
+        inserted = insert_capture_node(child, path.tail(), node)
+        if inserted is None:
+            return None
+        attributes[first_part.name] = inserted
         return ClassNode(root.classes, tuple(attributes.items()))
 
     if isinstance(first_part, SubscriptPathPart):
-        # Invalid capture paths are left unchanged; E2E tests cover the common
-        # attribute-missing case, this is the non-sequence defensive twin.
-        if not isinstance(root, SequenceNode):  # pragma: no cover
-            return root
+        if not isinstance(root, SequenceNode):
+            return None
         elements = dict(root.elements)
         child = elements.get(first_part.index)
         if child is None:
             if not path.tail().is_subject:
-                return root
+                return None
             elements[first_part.index] = node
         else:
-            elements[first_part.index] = insert_capture_node(child, path.tail(), node)
+            inserted = insert_capture_node(child, path.tail(), node)
+            if inserted is None:
+                return None
+            elements[first_part.index] = inserted
         return SequenceNode(root.length, root.use_star, tuple(elements.items()))
 
-    # SubjectPathPart is a closed union; retained for defensive future edits.
-    return root  # pragma: no cover
+    return None
 
 
 def render_child_node(node: PatternNode) -> cst.MatchPattern:

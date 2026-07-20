@@ -18,47 +18,6 @@ from .patterns import (
 from .subject_path import AttributePathPart, SubjectPath
 
 
-def remove_redundant_subject_checks(
-    part: cst.BaseExpression,
-    subject: cst.BaseExpression,
-) -> cst.BaseExpression:
-    if not isinstance(part, cst.BooleanOperation) or not isinstance(
-        part.operator, cst.And
-    ):
-        return part
-
-    components = flatten_boolean(part, cst.And)
-    checked_paths = {
-        path
-        for component in components
-        for path in collect_checked_attribute_paths(component, subject)
-    }
-    if not checked_paths:
-        return part
-
-    filtered = [
-        component
-        for component in components
-        if not is_redundant_hasattr(component, subject, checked_paths)
-        and not should_remove_redundant_sequence_type_check(
-            component, subject, checked_paths
-        )
-    ]
-    if len(filtered) == len(components):
-        return part
-    # If pruning leaves one condition we return it directly; otherwise rebuild AND.
-    if len(filtered) == 1:  # pragma: no branch
-        return filtered[0]
-    expression = filtered[0]
-    for component in filtered[1:]:
-        expression = cst.BooleanOperation(
-            left=expression,
-            operator=cst.And(),
-            right=component,
-        )
-    return expression
-
-
 def is_redundant_hasattr(
     node: cst.BaseExpression,
     subject: cst.BaseExpression,

@@ -3211,6 +3211,32 @@ class TestTransformCode:
 
         check_code(source, expected)
 
+    def test_capture_does_not_replace_an_existing_value_pattern(self):
+        source = dedent(
+            """
+            value = [1]
+            if len(value) == 1 and value[0] == 1:
+                item = value[0]
+                print(item)
+            elif value == 0:
+                print("zero")
+            """
+        ).strip()
+
+        expected = dedent(
+            """
+            value = [1]
+            match value:
+                case 1,:
+                    item = value[0]
+                    print(item)
+                case 0:
+                    print("zero")
+            """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_capture_pattern_multiple_values(self):
         """Test multiple capture pattern with consecutive assignments.
 
