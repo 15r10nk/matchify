@@ -85,9 +85,10 @@ class IfChainCompiler:
                 else_leading_lines = ()
             break
 
-        subject = self._select_chain_subject(parsed_branches)
-        if subject is None:
+        subject_path = self._select_chain_subject(parsed_branches)
+        if subject_path is None:
             return None
+        subject = subject_path.to_expression()
 
         branches: list[IfBranch] = []
         for branch in parsed_branches:
@@ -99,7 +100,7 @@ class IfChainCompiler:
                 IfBranch(
                     branch.body,
                     branch.leading_lines,
-                    normalize_condition(branch.condition, subject),
+                    normalize_condition(branch.condition, subject_path),
                 )
             )
 
@@ -112,17 +113,14 @@ class IfChainCompiler:
             else_leading_lines=else_leading_lines,
         )
 
-    def _select_chain_subject(
-        self, branches: list[ParsedBranch]
-    ) -> cst.BaseExpression | None:
+    def _select_chain_subject(self, branches: list[ParsedBranch]) -> AccessPath | None:
         """Build a subject from the common prefix of all branch candidates."""
         candidates = tuple(select_subject_path(branch.condition) for branch in branches)
         if any(candidate is None for candidate in candidates):
             return None
-        subject_path = AccessPath.common_prefix(
+        return AccessPath.common_prefix(
             tuple(candidate for candidate in candidates if candidate is not None)
         )
-        return None if subject_path is None else subject_path.to_expression()
 
     def compile(
         self, chain: IfChain, leading_lines: tuple[cst.EmptyLine, ...]

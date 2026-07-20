@@ -41,7 +41,7 @@ class PatternBuildResult:
 
 def normalize_condition(
     expr: BoolExpr,
-    subject: cst.BaseExpression,
+    subject: SubjectPath,
 ) -> BranchFacts:
     """Bind and lower a parsed condition into a pattern and residual guard."""
     expr = bind_condition_subject(expr, subject)

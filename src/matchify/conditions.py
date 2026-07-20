@@ -349,7 +349,7 @@ def iter_and_parts(expr: BoolExpr) -> tuple[BoolExpr, ...]:
     return (expr,)
 
 
-def bind_condition_subject(expr: BoolExpr, subject: cst.BaseExpression) -> BoolExpr:
+def bind_condition_subject(expr: BoolExpr, subject: AccessPath) -> BoolExpr:
     """Bind unbound predicate expressions to paths relative to the match subject."""
     if isinstance(expr, AndExpr):
         return AndExpr(
@@ -426,9 +426,7 @@ def checked_pattern_paths(expr: BoolExpr) -> set[SubjectPath]:
     )
 
 
-def bind_predicate_subject(
-    predicate: Predicate, subject: cst.BaseExpression
-) -> Predicate:
+def bind_predicate_subject(predicate: Predicate, subject: AccessPath) -> Predicate:
     if isinstance(predicate, RawPredicate):
         return predicate
 
@@ -437,24 +435,13 @@ def bind_predicate_subject(
         path = AccessPath(
             path.root, (*path.parts, AttributePathPart(predicate.attribute))
         )
-    subject_path = AccessPath.from_expression(subject)
-    if path is None or subject_path is None:
+    if path is None:
         return predicate
-    path = path.bind(subject_path)
+    path = path.bind(subject)
     if not path.is_bound or has_unknown_subscript(path):
         return replace(predicate, path=path)
 
     return replace(predicate, path=path)
-
-
-def bind_expression_path(
-    expression: cst.BaseExpression, subject: cst.BaseExpression
-) -> AccessPath | None:
-    path = AccessPath.from_expression(expression)
-    subject_path = AccessPath.from_expression(subject)
-    if path is None or subject_path is None:
-        return None
-    return path.bind(subject_path)
 
 
 def residual_condition(expr: BoolExpr | None) -> cst.BaseExpression | None:
