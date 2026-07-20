@@ -13,8 +13,8 @@ from .capture_patterns import (
 )
 from .conditions import infer_subject, parse_condition
 from .facts import BranchFacts
+from .pattern_builder import normalize_condition
 from .patterns import build_wildcard_pattern, extract_isinstance_classes
-from .recognizers import normalize_branch
 from .safety import is_safe_condition
 
 
@@ -65,7 +65,7 @@ class GenericIfChainCompiler:
             if self._has_problematic_isinstance(current.test, subject):
                 return None
 
-            facts = normalize_branch(condition, subject)
+            facts = normalize_condition(condition, subject)
 
             leading_lines = () if current is node else current.leading_lines
             branches.append(IfBranch(current.body, leading_lines, facts))

@@ -17,7 +17,7 @@ from .patterns import (
     is_literal_value,
     is_singleton_name,
 )
-from .subject_path import SubjectPath, SubscriptPathPart
+from .subject_path import AttributePathPart, SubjectPath, SubscriptPathPart
 
 
 @dataclass(frozen=True)
@@ -318,6 +318,114 @@ def bind_condition_subject(expr: BoolExpr, subject: cst.BaseExpression) -> BoolE
             expr.original,
         )
     return bind_predicate_subject(expr, subject)
+
+
+def remove_implied_checks(expr: BoolExpr, subject: cst.BaseExpression) -> BoolExpr:
+    """Remove conditions already enforced by a structural pattern."""
+    if isinstance(expr, OrExpr):
+        return OrExpr(
+            tuple(remove_implied_checks(part, subject) for part in expr.parts),
+            expr.original,
+        )
+    if not isinstance(expr, AndExpr):
+        return expr
+
+    parts = tuple(remove_implied_checks(part, subject) for part in expr.parts)
+    checked_paths = {
+        path
+        for part in parts
+        for path in checked_attribute_paths(part.original, subject)
+    }
+    return AndExpr(
+        tuple(
+            part
+            for part in parts
+            if not condition_is_implied(part.original, subject, checked_paths)
+        ),
+        expr.original,
+    )
+
+
+def condition_is_implied(
+    node: cst.BaseExpression,
+    subject: cst.BaseExpression,
+    checked_paths: set[SubjectPath],
+) -> bool:
+    hasattr_path = hasattr_attribute_path(node, subject)
+    if hasattr_path is not None:
+        return any(
+            path == hasattr_path or path.starts_with(hasattr_path)
+            for path in checked_paths
+        )
+
+    sequence_path = list_tuple_isinstance_path(node, subject)
+    return (
+        sequence_path is not None
+        and sequence_path.is_subject
+        and sequence_path in checked_paths
+    )
+
+
+def list_tuple_isinstance_path(
+    node: cst.BaseExpression, subject: cst.BaseExpression
+) -> SubjectPath | None:
+    if not is_isinstance_call(node):
+        return None
+    path = SubjectPath.from_expression(node.args[0].value, subject)
+    classes = extract_isinstance_classes(node.args[1].value, ignore_types_pattern=None)
+    return path if classes is not None and is_list_tuple_classes(classes) else None
+
+
+def checked_attribute_paths(
+    node: cst.BaseExpression, subject: cst.BaseExpression
+) -> set[SubjectPath]:
+    if isinstance(node, cst.BooleanOperation) and isinstance(node.operator, cst.Or):
+        paths = [
+            checked_attribute_paths(part, subject)
+            for part in flatten_boolean(node, cst.Or)
+        ]
+        merged = set().union(*paths)
+        return merged if len(merged) == 1 else set()
+
+    if is_isinstance_call(node):
+        path = SubjectPath.from_expression(node.args[0].value, subject)
+        return {path} if path else set()
+
+    if not isinstance(node, cst.Comparison) or len(node.comparisons) != 1:
+        return set()
+    if is_len_call(node.left):
+        path = SubjectPath.from_expression(node.left.args[0].value, subject)
+        return {path} if path is not None else set()
+
+    path = SubjectPath.from_expression(node.left, subject)
+    if path is None or not path or not isinstance(path.parts[-1], AttributePathPart):
+        return set()
+    target = node.comparisons[0]
+    if not isinstance(target.operator, (cst.Equal, cst.Is)):
+        return set()
+    if isinstance(target.operator, cst.Is) and not is_singleton_name(target.comparator):
+        return set()
+    return {path} if is_literal_value(target.comparator) else set()
+
+
+def hasattr_attribute_path(
+    node: cst.BaseExpression, subject: cst.BaseExpression
+) -> SubjectPath | None:
+    if not isinstance(node, cst.Call) or not m.matches(
+        node, m.Call(func=m.Name(value="hasattr"), args=[m.Arg(), m.Arg()])
+    ):
+        return None
+    path = SubjectPath.from_expression(node.args[0].value, subject)
+    name_arg = node.args[1].value
+    if path is None or not isinstance(name_arg, cst.SimpleString):
+        return None
+    try:
+        name = name_arg.evaluated_value
+    except ValueError:
+        return None
+    if not isinstance(name, str):
+        return None
+    return SubjectPath((*path.parts, AttributePathPart(name)))
 
 
 def bind_predicate_subject(

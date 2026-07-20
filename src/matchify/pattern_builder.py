@@ -17,6 +17,7 @@ from .conditions import (
     Predicate,
     SequenceTypePredicate,
     bind_condition_subject,
+    remove_implied_checks,
     residual_condition,
 )
 from .facts import (
@@ -40,15 +41,16 @@ class PatternBuildResult:
 def normalize_condition(
     expr: BoolExpr,
     subject: cst.BaseExpression,
-) -> BranchFacts | None:
+) -> BranchFacts:
     """Bind and lower a parsed condition into a pattern and residual guard."""
+    expr = remove_implied_checks(expr, subject)
     expr = bind_condition_subject(expr, subject)
     result = build_pattern(expr)
     try:
         pattern = PatternTree.from_facts(result.facts)
         pattern.render()
     except ValueError:
-        return None
+        return BranchFacts(pattern=None, guard=expr.original)
 
     guard = residual_condition(result.residual)
     return BranchFacts(pattern=pattern, guard=guard)

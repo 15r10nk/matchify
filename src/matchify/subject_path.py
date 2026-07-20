@@ -42,7 +42,7 @@ class SubjectPath:
         subject.node     -> (AttributePathPart("node"),)
         subject.args[0]  -> (AttributePathPart("args"), SubscriptPathPart(0))
 
-    Keeping this analysis in one place makes recognizers easier to reason
+    Keeping this analysis in one place makes condition lowering easier to reason
     about: they can ask about paths instead of re-walking LibCST nodes.
     """
 

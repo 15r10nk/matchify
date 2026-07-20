@@ -10,7 +10,6 @@ Matchify converts eligible `if`/`elif`/`else` chains into Python 3.10+
 - `src/matchify/compiler.py` normalizes complete chains and compiles them into
   `match` statements.
 - `src/matchify/conditions.py` parses conditions into typed predicates.
-- `src/matchify/recognizers.py` contains low-level CST expression recognizers.
 - `src/matchify/subject_path.py` models subjects and nested attribute/index paths.
 - `src/matchify/pattern_builder.py` lowers predicates into pattern facts and
   residual guards.
