@@ -43,7 +43,16 @@ matchify path/to/project/ -v
 
 # Use parallel processing (default: number of CPUs)
 matchify path/to/project/ -j 8
+
+# Assume condition subjects are pure and combine them into tuple matches
+matchify path/to/project/ --assume-pure-subjects
 ```
+
+`--assume-pure-subjects` permits transformations such as
+`a.x == 1 and b.y == 2` into a match on `(a.x, b.y)`. This evaluates every
+subject eagerly, so enable it only when those name, attribute, and subscript
+reads cannot raise exceptions or produce observable side effects. Without the
+option, later `and` operands remain guards and preserve short-circuiting.
 
 ### Examples
 
