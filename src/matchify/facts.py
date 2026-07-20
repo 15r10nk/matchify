@@ -215,7 +215,10 @@ class PatternTree:
     def with_capture(self, fact: CaptureFact) -> PatternTree | None:
         node = insert_capture_node(
             self.node,
-            SubjectPath((*fact.path.parts, SubscriptPathPart(fact.index))),
+            SubjectPath(
+                fact.path.root,
+                (*fact.path.parts, SubscriptPathPart(fact.index)),
+            ),
             CaptureNode(fact.name),
         )
         return None if node is None else PatternTree(node)

@@ -6,6 +6,79 @@ from helpers import check_code
 class TestEdgeCases:
     """Test edge cases and error handling."""
 
+    def test_typed_predicate_outside_subject_remains_guard(self):
+        source = dedent(
+            """
+            class A:
+                pass
+
+            class B:
+                pass
+
+            class C:
+                pass
+
+            x = A()
+            y = B()
+            if isinstance(x, A) and isinstance(y, B):
+                print("both")
+            elif isinstance(x, C):
+                print("c")
+            """
+        ).strip()
+
+        expected = dedent(
+            """
+            class A:
+                pass
+
+            class B:
+                pass
+
+            class C:
+                pass
+
+            x = A()
+            y = B()
+            match x:
+                case A() if isinstance(y, B):
+                    print("both")
+                case C():
+                    print("c")
+            """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_different_dynamic_subscript_subjects_are_not_converted(self):
+        source = dedent(
+            """
+            items = [1, 2]
+            i = 0
+            j = 1
+            if items[i] == 1:
+                print("i")
+            elif items[j] == 2:
+                print("j")
+            """
+        ).strip()
+
+        check_code(source, source)
+
+    def test_dynamic_and_slice_subscript_subjects_are_not_conflated(self):
+        source = dedent(
+            """
+            items = [1, 2]
+            i = 0
+            if items[i] == 1:
+                print("index")
+            elif items[0:1] == 2:
+                print("slice")
+            """
+        ).strip()
+
+        check_code(source, source)
+
     def test_isinstance_with_starred_element_not_converted(self):
         """Test that isinstance with *args in tuple is not converted."""
         source = dedent(

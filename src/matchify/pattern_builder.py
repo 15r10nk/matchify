@@ -17,6 +17,7 @@ from .conditions import (
     Predicate,
     SequenceTypePredicate,
     bind_condition_subject,
+    has_unknown_subscript,
     remove_implied_checks,
     residual_condition,
 )
@@ -135,22 +136,26 @@ def build_or_pattern(expr: OrExpr) -> PatternBuildResult:
 
 def fact_from_predicate(predicate: Predicate) -> PathFact | None:
     if isinstance(predicate, EqualsPredicate | IsPredicate):
-        if predicate.path is None:
+        if not path_is_patternable(predicate.path):
             return None
         return ValueFact(predicate.path, predicate.value)
     if isinstance(predicate, IsInstancePredicate):
-        if predicate.path is None:
+        if not path_is_patternable(predicate.path):
             return None
         return ClassFact(predicate.path, predicate.classes)
     if isinstance(predicate, LenEqualsPredicate):
-        if predicate.path is None:
+        if not path_is_patternable(predicate.path):
             return None
         return SequenceFact(predicate.path, predicate.length)
     if isinstance(predicate, LenAtLeastPredicate):
-        if predicate.path is None:
+        if not path_is_patternable(predicate.path):
             return None
         return SequenceFact(predicate.path, predicate.minimum, use_star=True)
     return None
+
+
+def path_is_patternable(path: SubjectPath | None) -> bool:
+    return path is not None and path.is_bound and not has_unknown_subscript(path)
 
 
 def drop_redundant_sequence_type_residuals(

@@ -11,11 +11,12 @@ from .capture_patterns import (
     prepend_aliases,
     remove_statements,
 )
-from .conditions import infer_subject, parse_condition
+from .conditions import BoolExpr, infer_subject, parse_condition
 from .facts import BranchFacts
 from .pattern_builder import normalize_condition
 from .patterns import build_wildcard_pattern, extract_isinstance_classes
 from .safety import is_safe_condition
+from .subject_path import AccessPath
 
 
 class IfBranch(NamedTuple):
@@ -35,6 +36,15 @@ class IfChain(NamedTuple):
     else_leading_lines: tuple[cst.EmptyLine, ...]
 
 
+class ParsedBranch(NamedTuple):
+    """One branch before its access paths are bound to a match subject."""
+
+    test: cst.BaseExpression
+    condition: BoolExpr
+    body: cst.IndentedBlock
+    leading_lines: tuple[cst.EmptyLine, ...]
+
+
 class IfChainCompiler:
     """Analyze an if-chain once, then compile it to a match statement.
 
@@ -48,31 +58,24 @@ class IfChainCompiler:
         self.ignore_types_pattern = ignore_types_pattern
 
     def extract_chain(self, node: cst.If) -> IfChain | None:
-        first_condition = parse_condition(node.test, self.ignore_types_pattern)
-        subject = infer_subject(first_condition)
-        if subject is None or not isinstance(node.orelse, cst.If):
+        if not isinstance(node.orelse, cst.If):
             return None
 
-        branches: list[IfBranch] = []
+        parsed_branches: list[ParsedBranch] = []
         current = node
-        condition = first_condition
         while True:
-            branch_subject = infer_subject(condition)
-            if branch_subject is None or not branch_subject.deep_equals(subject):
-                return None
-            if not is_safe_condition(current.test, subject):
-                return None
-            if self._has_problematic_isinstance(current.test, subject):
-                return None
-
-            facts = normalize_condition(condition, subject)
-
             leading_lines = () if current is node else current.leading_lines
-            branches.append(IfBranch(current.body, leading_lines, facts))
+            parsed_branches.append(
+                ParsedBranch(
+                    current.test,
+                    parse_condition(current.test, self.ignore_types_pattern),
+                    current.body,
+                    leading_lines,
+                )
+            )
 
             if isinstance(current.orelse, cst.If):
                 current = current.orelse
-                condition = parse_condition(current.test, self.ignore_types_pattern)
                 continue
             if isinstance(current.orelse, cst.Else):
                 else_body = current.orelse.body
@@ -80,15 +83,52 @@ class IfChainCompiler:
             else:
                 else_body = None
                 else_leading_lines = ()
+            break
 
-            if not any(branch.facts.pattern is not None for branch in branches):
+        subject = self._infer_chain_subject(parsed_branches)
+        if subject is None:
+            return None
+
+        branches: list[IfBranch] = []
+        for branch in parsed_branches:
+            if not is_safe_condition(branch.test, subject):
                 return None
-            return IfChain(
-                subject=subject,
-                branches=tuple(branches),
-                else_body=else_body,
-                else_leading_lines=else_leading_lines,
+            if self._has_problematic_isinstance(branch.test, subject):
+                return None
+            branches.append(
+                IfBranch(
+                    branch.body,
+                    branch.leading_lines,
+                    normalize_condition(branch.condition, subject),
+                )
             )
+
+        if not any(branch.facts.pattern is not None for branch in branches):
+            return None
+        return IfChain(
+            subject=subject,
+            branches=tuple(branches),
+            else_body=else_body,
+            else_leading_lines=else_leading_lines,
+        )
+
+    def _infer_chain_subject(
+        self, branches: list[ParsedBranch]
+    ) -> cst.BaseExpression | None:
+        """Choose one subject only after every branch has typed condition IR."""
+        subjects = [infer_subject(branch.condition) for branch in branches]
+        first = subjects[0]
+        if first is None:
+            return None
+        first_path = AccessPath.from_expression(first)
+        if first_path is None:
+            return None
+        for subject in subjects[1:]:
+            if subject is None:
+                return None
+            if AccessPath.from_expression(subject) != first_path:
+                return None
+        return first
 
     def compile(
         self, chain: IfChain, leading_lines: tuple[cst.EmptyLine, ...]

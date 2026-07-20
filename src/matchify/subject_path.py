@@ -28,71 +28,120 @@ class AttributePathPart:
 @dataclass(frozen=True)
 class SubscriptPathPart:
     index: int | None
-
-
-SubjectPathPart = AttributePathPart | SubscriptPathPart
+    expression_key: str | None = None
 
 
 @dataclass(frozen=True)
-class SubjectPath:
-    """Path from the match subject to a derived expression.
+class NameRoot:
+    """Root of an access path that has not been bound to a match subject."""
+
+    name: str
+
+
+@dataclass(frozen=True)
+class MatchSubjectRoot:
+    """Root of an access path bound to one match subject."""
+
+    index: int = 0
+
+
+@dataclass(frozen=True)
+class ExpressionRoot:
+    """Root expression that is not a plain name, compared by source shape."""
+
+    code: str
+
+
+PathRoot = NameRoot | ExpressionRoot | MatchSubjectRoot
+AccessPathPart = AttributePathPart | SubscriptPathPart
+
+
+@dataclass(frozen=True)
+class AccessPath:
+    """A statically representable expression access path.
 
     Examples:
-        subject          -> ()
-        subject.node     -> (AttributePathPart("node"),)
-        subject.args[0]  -> (AttributePathPart("args"), SubscriptPathPart(0))
-
-    Keeping this analysis in one place makes condition lowering easier to reason
-    about: they can ask about paths instead of re-walking LibCST nodes.
+        node             -> NameRoot("node"), ()
+        node.value       -> NameRoot("node"), (AttributePathPart("value"),)
+        bound node.value -> MatchSubjectRoot(), (AttributePathPart("value"),)
     """
 
-    parts: tuple[SubjectPathPart, ...]
+    root: PathRoot
+    parts: tuple[AccessPathPart, ...] = ()
 
     def __bool__(self) -> bool:
         return bool(self.parts)
 
     @classmethod
-    def from_expression(
-        cls, node: cst.BaseExpression, subject: cst.BaseExpression
-    ) -> SubjectPath | None:
-        parts: list[SubjectPathPart] = []
+    def from_expression(cls, node: cst.BaseExpression) -> AccessPath | None:
+        parts: list[AccessPathPart] = []
         current = node
 
         while True:
-            if current.deep_equals(subject):
-                return cls(tuple(reversed(parts)))
+            if isinstance(current, cst.Name):
+                return cls(NameRoot(current.value), tuple(reversed(parts)))
             if isinstance(current, cst.Attribute):
                 parts.append(AttributePathPart(current.attr.value))
                 current = current.value
                 continue
             if isinstance(current, cst.Subscript):
+                index = extract_integer_subscript_index(current)
                 parts.append(
-                    SubscriptPathPart(extract_integer_subscript_index(current))
+                    SubscriptPathPart(
+                        index,
+                        expression_key=(
+                            None
+                            if index is not None
+                            else cst.Module([]).code_for_node(current)
+                        ),
+                    )
                 )
                 current = current.value
                 continue
-            return None
+            return cls(
+                ExpressionRoot(cst.Module([]).code_for_node(current)),
+                tuple(reversed(parts)),
+            )
+
+    def bind(self, subject: AccessPath, index: int = 0) -> AccessPath:
+        """Replace a matching subject prefix while preserving unrelated paths."""
+        if self.root != subject.root or not self.starts_with(subject):
+            return self
+        return AccessPath(MatchSubjectRoot(index), self.parts[len(subject.parts) :])
+
+    @property
+    def is_bound(self) -> bool:
+        return isinstance(self.root, MatchSubjectRoot)
 
     @property
     def is_subject(self) -> bool:
-        return not self
+        return self.is_bound and not self.parts
 
     @property
-    def first_part(self) -> SubjectPathPart | None:
+    def first_part(self) -> AccessPathPart | None:
         return self.parts[0] if self.parts else None
 
-    def tail(self) -> SubjectPath:
-        return SubjectPath(self.parts[1:])
+    def tail(self) -> AccessPath:
+        return AccessPath(self.root, self.parts[1:])
 
-    def parent(self) -> SubjectPath:
-        return SubjectPath(self.parts[:-1])
+    def parent(self) -> AccessPath:
+        return AccessPath(self.root, self.parts[:-1])
 
-    def starts_with(self, prefix: SubjectPath) -> bool:
-        return self.parts[: len(prefix.parts)] == prefix.parts
+    def starts_with(self, prefix: AccessPath) -> bool:
+        return (
+            self.root == prefix.root and self.parts[: len(prefix.parts)] == prefix.parts
+        )
 
-    def strip_prefix(self, prefix: SubjectPath) -> SubjectPath:
-        return SubjectPath(self.parts[len(prefix.parts) :])
+    def strip_prefix(self, prefix: AccessPath) -> AccessPath:
+        if self.root != prefix.root:
+            raise ValueError("Cannot strip a path with a different root")
+        return AccessPath(self.root, self.parts[len(prefix.parts) :])
 
     @property
     def starts_with_subscript(self) -> bool:
         return isinstance(self.first_part, SubscriptPathPart)
+
+
+# Pattern facts use AccessPath values whose root is MatchSubjectRoot. Keeping the
+# alias makes that invariant explicit at their call sites.
+SubjectPath = AccessPath

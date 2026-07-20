@@ -3,7 +3,7 @@
 import libcst as cst
 
 from .facts import CaptureFact
-from .subject_path import SubjectPath, extract_integer_subscript_index
+from .subject_path import AccessPath, SubjectPath, extract_integer_subscript_index
 
 
 def detect_captures(
@@ -28,8 +28,12 @@ def detect_captures(
         if not isinstance(assign.value, cst.Subscript):
             break
 
-        path = SubjectPath.from_expression(assign.value.value, subject)
-        if path is None:
+        path = AccessPath.from_expression(assign.value.value)
+        subject_path = AccessPath.from_expression(subject)
+        if path is None or subject_path is None:
+            break
+        path = path.bind(subject_path)
+        if not path.is_bound:
             break
         index = extract_integer_subscript_index(assign.value)
         if index is None:
