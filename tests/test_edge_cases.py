@@ -79,6 +79,28 @@ class TestEdgeCases:
 
         check_code(source, source)
 
+    def test_multiple_subjects_preserve_short_circuiting_in_guards(self):
+        source = dedent(
+            """
+            if a.x == 1 and b.y == 2:
+                print("first")
+            elif a.x == 3 and b.y == 4:
+                print("second")
+            """
+        ).strip()
+
+        expected = dedent(
+            """
+            match a.x:
+                case 1 if b.y == 2:
+                    print("first")
+                case 3 if b.y == 4:
+                    print("second")
+            """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_isinstance_with_starred_element_not_converted(self):
         """Test that isinstance with *args in tuple is not converted."""
         source = dedent(
