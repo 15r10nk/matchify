@@ -73,9 +73,23 @@ conditions.
 Predicate paths are initially absolute `AccessPath` values. For example,
 `value.child.kind` is represented by a `NameRoot("value")` followed by two
 attribute parts. After all branches have been parsed, the compiler selects a
-common subject prefix and replaces that prefix with `MatchSubjectRoot(0)`.
-Paths outside the selected subject keep their original root and remain eligible
+common subject prefix and replaces that prefix with `MatchSubjectRoot()`.
+For an eagerly evaluated composite subject, each selected path is additionally
+prefixed with a synthetic `SubscriptPathPart` describing its tuple slot. Paths
+outside the selected subject plan keep their original root and remain eligible
 for residual guards.
+
+For example, the subject plan for `(a.x, b.y)` binds paths as follows:
+
+```text
+a.x.value -> MatchSubjectRoot(), SubscriptPathPart(0), AttributePathPart("value")
+b.y.kind  -> MatchSubjectRoot(), SubscriptPathPart(1), AttributePathPart("kind")
+```
+
+Composite subjects are selected only from conditions that already evaluate all
+components eagerly, such as explicit tuple comparisons. An `and` condition
+continues to use one subject plus residual guards so its short-circuit behavior
+is preserved.
 
 ## Pattern Anchors
 

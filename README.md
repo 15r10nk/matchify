@@ -25,6 +25,7 @@ pip install matchify
   - Nested sequences (`[[1, 2], 3]`)
   - Sequence attributes in class patterns (`Data(value=[1, 2, 3])`)
   - Or patterns for isinstance tuples (`isinstance(x, (int, float))`)
+  - Composite match subjects for eager tuple comparisons
 - **Parallel processing** for fast conversion of large codebases
 - **Safe transformations** - only converts when semantics are preserved
 
