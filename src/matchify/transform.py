@@ -8,10 +8,18 @@ from .compiler import IfChainCompiler
 class IfToMatchTransformer(cst.CSTTransformer):
     """Generic guard-first if-chain transformer."""
 
-    def __init__(self, ignore_types_pattern: str | None = r".*_TYPES$"):
+    def __init__(
+        self,
+        ignore_types_pattern: str | None = r".*_TYPES$",
+        *,
+        assume_pure_subjects: bool = False,
+    ):
         super().__init__()
         self._elif_nodes: set[int] = set()
-        self.compiler = IfChainCompiler(ignore_types_pattern=ignore_types_pattern)
+        self.compiler = IfChainCompiler(
+            ignore_types_pattern=ignore_types_pattern,
+            assume_pure_subjects=assume_pure_subjects,
+        )
 
     def visit_If(self, node: cst.If) -> bool:
         """Track elif nodes so only the chain root performs replacement."""
@@ -37,12 +45,18 @@ class IfToMatchTransformer(cst.CSTTransformer):
         return match_stmt
 
 
-def transform_code(source: str, ignore_types_pattern: str | None = None) -> str:
+def transform_code(
+    source: str,
+    ignore_types_pattern: str | None = None,
+    *,
+    assume_pure_subjects: bool = False,
+) -> str:
     """Transform Python source code by converting if/elif/else chains to match statements.
 
     Args:
         source: Python source code as a string
         ignore_types_pattern: Optional regex pattern for isinstance type variables to ignore
+        assume_pure_subjects: Allow eager composite subjects from boolean conditions
 
     Returns:
         Transformed source code as a string
@@ -50,7 +64,10 @@ def transform_code(source: str, ignore_types_pattern: str | None = None) -> str:
     module = cst.parse_module(source)
 
     transformed = module.visit(
-        IfToMatchTransformer(ignore_types_pattern=ignore_types_pattern)
+        IfToMatchTransformer(
+            ignore_types_pattern=ignore_types_pattern,
+            assume_pure_subjects=assume_pure_subjects,
+        )
     )
 
     return transformed.code

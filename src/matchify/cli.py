@@ -9,7 +9,10 @@ from .transform import transform_code
 
 
 def convert_file(
-    path: pathlib.Path, ignore_types_pattern: str | None = None
+    path: pathlib.Path,
+    ignore_types_pattern: str | None = None,
+    *,
+    assume_pure_subjects: bool = False,
 ) -> tuple[pathlib.Path, bool, str | None]:
     """Convert a single file.
 
@@ -19,7 +22,9 @@ def convert_file(
     try:
         source = path.read_text(encoding="utf-8")
         transformed_code = transform_code(
-            source, ignore_types_pattern=ignore_types_pattern
+            source,
+            ignore_types_pattern=ignore_types_pattern,
+            assume_pure_subjects=assume_pure_subjects,
         )
 
         if transformed_code != source:
@@ -68,6 +73,11 @@ def main() -> None:
         help="Python files or directories to process",
     )
     parser.add_argument(
+        "--assume-pure-subjects",
+        action="store_true",
+        help="Allow eager tuple matches for subjects assumed free of side effects",
+    )
+    parser.add_argument(
         "-j",
         "--jobs",
         type=int,
@@ -97,14 +107,22 @@ def main() -> None:
     error_count = 0
 
     if len(python_files) == 1:
-        result = convert_file(python_files[0], ignore_types_pattern=args.no_types)
+        result = convert_file(
+            python_files[0],
+            ignore_types_pattern=args.no_types,
+            assume_pure_subjects=args.assume_pure_subjects,
+        )
         converted, unchanged, errors = report_result(*result, verbose=args.verbose)
         converted_count += converted
         unchanged_count += unchanged
         error_count += errors
     else:
         with ProcessPoolExecutor(max_workers=args.jobs or None) as executor:
-            convert = partial(convert_file, ignore_types_pattern=args.no_types)
+            convert = partial(
+                convert_file,
+                ignore_types_pattern=args.no_types,
+                assume_pure_subjects=args.assume_pure_subjects,
+            )
             for result in executor.map(convert, python_files):
                 converted, unchanged, errors = report_result(
                     *result, verbose=args.verbose

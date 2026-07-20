@@ -62,6 +62,42 @@ class TestTransformCode:
 
         check_code(source, expected)
 
+    def test_assumed_pure_and_subjects_use_a_composite_match_subject(self):
+        source = dedent(
+            """
+            class Box:
+                def __init__(self, x=None, y=None):
+                    self.x = x
+                    self.y = y
+
+            a = Box(x=1)
+            b = Box(y=2)
+            if a.x == 1 and b.y == 2:
+                print("first")
+            elif a.x == 3 and b.y == 4:
+                print("second")
+            """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Box:
+                def __init__(self, x=None, y=None):
+                    self.x = x
+                    self.y = y
+
+            a = Box(x=1)
+            b = Box(y=2)
+            match (a.x, b.y):
+                case 1, 2:
+                    print("first")
+                case 3, 4:
+                    print("second")
+            """
+        ).strip()
+
+        check_code(source, expected, assume_pure_subjects=True)
+
     def test_common_subject_is_built_from_branch_path_prefixes(self):
         source = dedent(
             """

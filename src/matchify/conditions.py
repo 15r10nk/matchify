@@ -306,6 +306,35 @@ def select_subject_paths(expr: BoolExpr) -> tuple[AccessPath, ...] | None:
     return None if subject is None else (subject,)
 
 
+def select_assumed_pure_subject_paths(expr: BoolExpr) -> tuple[AccessPath, ...] | None:
+    """Select every independent subject when eager evaluation is permitted."""
+    if isinstance(expr, ProductExpr):
+        return tuple(part.path for part in expr.parts)
+
+    primary = select_subject_path(expr)
+    if primary is None:
+        return None
+    subjects = [primary]
+    if isinstance(expr, AndExpr):
+        for part in expr.parts:
+            candidates = select_subject_paths(part)
+            if candidates is None:
+                continue
+            for candidate in candidates:
+                merge_subject_candidate(subjects, candidate)
+    return tuple(subjects)
+
+
+def merge_subject_candidate(subjects: list[AccessPath], candidate: AccessPath) -> None:
+    for index, subject in enumerate(subjects):
+        if candidate.starts_with(subject):
+            return
+        if subject.starts_with(candidate):
+            subjects[index] = candidate
+            return
+    subjects.append(candidate)
+
+
 def find_isinstance_subject_path(
     expr: BoolExpr, *, include_subscripts: bool
 ) -> AccessPath | None:

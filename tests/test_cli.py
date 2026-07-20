@@ -83,6 +83,26 @@ class TestConvertFile:
             assert "café" in result
             assert "☕" in result
 
+    def test_convert_file_can_assume_pure_subjects(self, tmp_path):
+        test_file = tmp_path / "test.py"
+        test_file.write_text(
+            dedent(
+                """
+                if a.x == 1 and b.y == 2:
+                    print("first")
+                elif a.x == 3 and b.y == 4:
+                    print("second")
+                """
+            ).strip(),
+            encoding="utf-8",
+        )
+
+        _, changed, error = convert_file(test_file, assume_pure_subjects=True)
+
+        assert changed is True
+        assert error is None
+        assert "match (a.x, b.y):" in test_file.read_text(encoding="utf-8")
+
 
 class TestMain:
     """Test the main function."""
@@ -137,6 +157,34 @@ class TestMain:
                 assert "Converted:" in captured.out
             finally:
                 sys.argv = original_argv
+
+    def test_main_with_assume_pure_subjects(self, capsys, tmp_path):
+        test_file = tmp_path / "test.py"
+        test_file.write_text(
+            dedent(
+                """
+                if a.x == 1 and b.y == 2:
+                    print("first")
+                elif a.x == 3 and b.y == 4:
+                    print("second")
+                """
+            ).strip(),
+            encoding="utf-8",
+        )
+
+        original_argv = sys.argv
+        try:
+            sys.argv = [
+                "matchify",
+                "--assume-pure-subjects",
+                str(test_file),
+            ]
+            main()
+        finally:
+            sys.argv = original_argv
+
+        assert "match (a.x, b.y):" in test_file.read_text(encoding="utf-8")
+        assert "Converted:" in capsys.readouterr().out
 
     def test_module_entrypoint_with_single_file(self, capsys):
         """Test running the package module invokes the CLI entry point."""

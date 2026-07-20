@@ -12,7 +12,12 @@ from .capture_patterns import (
     prepend_aliases,
     remove_statements,
 )
-from .conditions import BoolExpr, parse_condition, select_subject_paths
+from .conditions import (
+    BoolExpr,
+    parse_condition,
+    select_assumed_pure_subject_paths,
+    select_subject_paths,
+)
 from .facts import BranchFacts
 from .pattern_builder import normalize_condition
 from .patterns import build_wildcard_pattern, extract_isinstance_classes
@@ -54,8 +59,14 @@ class IfChainCompiler:
     fail closed instead of silently dropping conditions.
     """
 
-    def __init__(self, ignore_types_pattern: str | None = r".*_TYPES$") -> None:
+    def __init__(
+        self,
+        ignore_types_pattern: str | None = r".*_TYPES$",
+        *,
+        assume_pure_subjects: bool = False,
+    ) -> None:
         self.ignore_types_pattern = ignore_types_pattern
+        self.assume_pure_subjects = assume_pure_subjects
 
     def extract_chain(self, node: cst.If) -> IfChain | None:
         if not isinstance(node.orelse, cst.If):
@@ -116,6 +127,13 @@ class IfChainCompiler:
         self, branches: list[ParsedBranch]
     ) -> MatchSubjectPlan | None:
         """Build a subject from the common prefix of all branch candidates."""
+        if self.assume_pure_subjects:
+            candidates = tuple(
+                select_assumed_pure_subject_paths(branch.condition)
+                for branch in branches
+            )
+            return self._select_shared_subjects(candidates)
+
         candidates = tuple(
             select_subject_paths(branch.condition) for branch in branches
         )
@@ -137,6 +155,40 @@ class IfChainCompiler:
             return MatchSubjectPlan.from_subjects(
                 tuple(subject for subject in subjects if subject is not None)
             )
+        except ValueError:
+            return None
+
+    def _select_shared_subjects(
+        self,
+        candidates: tuple[tuple[AccessPath, ...] | None, ...],
+    ) -> MatchSubjectPlan | None:
+        if not candidates or any(paths is None for paths in candidates):
+            return None
+        paths_by_branch = tuple(paths for paths in candidates if paths is not None)
+        subjects = []
+        for first in paths_by_branch[0]:
+            matches = [first]
+            for paths in paths_by_branch[1:]:
+                compatible = next(
+                    (
+                        path
+                        for path in paths
+                        if path.starts_with(first) or first.starts_with(path)
+                    ),
+                    None,
+                )
+                if compatible is None:
+                    break
+                matches.append(compatible)
+            else:
+                subject = AccessPath.common_prefix(tuple(matches))
+                if subject is not None and subject not in subjects:
+                    subjects.append(subject)
+
+        if not subjects:
+            return None
+        try:
+            return MatchSubjectPlan.from_subjects(tuple(subjects))
         except ValueError:
             return None
 

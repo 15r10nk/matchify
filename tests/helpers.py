@@ -5,10 +5,18 @@ from matchify.transform import transform_code
 
 
 def check_code(
-    source: str, expected: str, ignore_types_pattern: str | None = r".*_TYPES$"
+    source: str,
+    expected: str,
+    ignore_types_pattern: str | None = r".*_TYPES$",
+    *,
+    assume_pure_subjects: bool = False,
 ) -> None:
     """Verify transformed code and runtime behavior."""
-    transformed_code = transform_code(source, ignore_types_pattern=ignore_types_pattern)
+    transformed_code = transform_code(
+        source,
+        ignore_types_pattern=ignore_types_pattern,
+        assume_pure_subjects=assume_pure_subjects,
+    )
 
     assert transformed_code.strip() == expected.strip(), (
         f"Transformation mismatch:\n"
