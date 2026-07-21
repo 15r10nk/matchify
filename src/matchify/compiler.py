@@ -3,7 +3,6 @@
 from typing import NamedTuple
 
 import libcst as cst
-from libcst import matchers as m
 
 from .access_path import AccessPath, MatchSubjectPlan
 from .capture_patterns import (
@@ -20,7 +19,7 @@ from .conditions import (
 )
 from .facts import BranchFacts
 from .pattern_builder import normalize_condition
-from .patterns import build_wildcard_pattern, extract_isinstance_classes
+from .patterns import build_wildcard_pattern
 from .safety import is_safe_condition
 
 
@@ -102,9 +101,11 @@ class IfChainCompiler:
 
         branches: list[IfBranch] = []
         for branch in parsed_branches:
-            if not is_safe_condition(branch.test, subject):
-                return None
-            if self._has_problematic_isinstance(branch.test, subject):
+            if not is_safe_condition(
+                branch.test,
+                subject,
+                ignore_types_pattern=self.ignore_types_pattern,
+            ):
                 return None
             branches.append(
                 IfBranch(
@@ -255,22 +256,3 @@ class IfChainCompiler:
                 cst.SimpleWhitespace("") if guard is None else cst.SimpleWhitespace(" ")
             ),
         )
-
-    def _has_problematic_isinstance(
-        self, test: cst.BaseExpression, subject: MatchSubjectPlan
-    ) -> bool:
-        for call in m.findall(test, m.Call(func=m.Name(value="isinstance"))):
-            if len(call.args) < 2:
-                return True
-            if AccessPath.from_expression(call.args[0].value) not in subject.subjects:
-                continue
-
-            if (
-                extract_isinstance_classes(
-                    call.args[1].value, self.ignore_types_pattern
-                )
-                is None
-            ):
-                return True
-
-        return False

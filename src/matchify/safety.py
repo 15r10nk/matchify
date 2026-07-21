@@ -1,14 +1,23 @@
 """Safety checks that decide whether a condition can be converted."""
 
 import libcst as cst
+from libcst import matchers as m
 
 from .access_path import AccessPath, AttributePathPart, MatchSubjectPlan
-from .patterns import flatten_boolean, is_len_call, is_literal_value, is_singleton_name
+from .patterns import (
+    extract_isinstance_classes,
+    flatten_boolean,
+    is_len_call,
+    is_literal_value,
+    is_singleton_name,
+)
 
 
 def is_safe_condition(
     condition: cst.BaseExpression,
     subject: MatchSubjectPlan,
+    *,
+    ignore_types_pattern: str | None,
 ) -> bool:
     for component in flatten_boolean(condition):
         if isinstance(component, cst.Comparison) and len(component.comparisons) == 1:
@@ -37,4 +46,24 @@ def is_safe_condition(
                 ):
                     return False
 
-    return True
+    return not has_problematic_isinstance(
+        condition,
+        subject,
+        ignore_types_pattern=ignore_types_pattern,
+    )
+
+
+def has_problematic_isinstance(
+    condition: cst.BaseExpression,
+    subject: MatchSubjectPlan,
+    *,
+    ignore_types_pattern: str | None,
+) -> bool:
+    for call in m.findall(condition, m.Call(func=m.Name(value="isinstance"))):
+        if len(call.args) < 2:
+            return True
+        if AccessPath.from_expression(call.args[0].value) not in subject.subjects:
+            continue
+        if extract_isinstance_classes(call.args[1].value, ignore_types_pattern) is None:
+            return True
+    return False
