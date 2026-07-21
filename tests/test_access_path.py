@@ -43,6 +43,14 @@ def test_binding_can_target_a_synthetic_tuple_slot():
     )
 
 
+def test_strip_prefix_rejects_a_non_prefix_path():
+    path = AccessPath.from_expression(parse_expression("node.left"))
+    unrelated = AccessPath.from_expression(parse_expression("node.right"))
+
+    with pytest.raises(ValueError, match="not a prefix"):
+        path.strip_prefix(unrelated)
+
+
 def test_dynamic_subscript_paths_preserve_their_expression_identity():
     left = AccessPath.from_expression(parse_expression("items[i]"))
     right = AccessPath.from_expression(parse_expression("items[j]"))

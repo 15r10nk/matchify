@@ -104,7 +104,7 @@ class AccessPath:
         target: tuple[AccessPathPart, ...] = (),
     ) -> AccessPath:
         """Replace a matching subject prefix with a bound target prefix."""
-        if self.root != subject.root or not self.starts_with(subject):
+        if not self.starts_with(subject):
             return self
         return AccessPath(
             MatchSubjectRoot(),
@@ -180,8 +180,8 @@ class AccessPath:
         )
 
     def strip_prefix(self, prefix: AccessPath) -> AccessPath:
-        if self.root != prefix.root:
-            raise ValueError("Cannot strip a path with a different root")
+        if not self.starts_with(prefix):
+            raise ValueError("Cannot strip a path that is not a prefix")
         return AccessPath(self.root, self.parts[len(prefix.parts) :])
 
 
