@@ -158,6 +158,13 @@ class AccessPath:
         return self.is_bound and not self.parts
 
     @property
+    def is_patternable(self) -> bool:
+        return self.is_bound and all(
+            not isinstance(part, SubscriptPathPart) or part.index is not None
+            for part in self.parts
+        )
+
+    @property
     def first_part(self) -> AccessPathPart | None:
         return self.parts[0] if self.parts else None
 

@@ -497,9 +497,6 @@ def bind_predicate_subject(
             path.root, (*path.parts, AttributePathPart(predicate.attribute))
         )
     path = subject.bind(path)
-    if not path.is_bound or has_unknown_subscript(path):
-        return replace(predicate, path=path)
-
     return replace(predicate, path=path)
 
 
@@ -528,11 +525,3 @@ def residual_condition(expr: BoolExpr | None) -> cst.BaseExpression | None:
     if isinstance(expr, OrExpr):
         return expr.original
     return expr.original
-
-
-def has_unknown_subscript(path: AccessPath) -> bool:
-    """Return true when a path contains a subscript that cannot become a pattern index."""
-    return any(
-        isinstance(part, SubscriptPathPart) and part.index is None
-        for part in path.parts
-    )

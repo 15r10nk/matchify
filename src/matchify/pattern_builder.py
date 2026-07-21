@@ -21,9 +21,9 @@ from .conditions import (
     LenEqualsPredicate,
     OrExpr,
     Predicate,
+    RawPredicate,
     SequenceTypePredicate,
     bind_condition_subject,
-    has_unknown_subscript,
     remove_implied_checks,
     residual_condition,
 )
@@ -149,27 +149,19 @@ def build_or_pattern(expr: OrExpr) -> PatternBuildResult:
 
 
 def fact_from_predicate(predicate: Predicate) -> PathFact | None:
+    if isinstance(predicate, RawPredicate | SequenceTypePredicate):
+        return None
+    if not predicate.path.is_patternable:
+        return None
     if isinstance(predicate, EqualsPredicate | IsPredicate):
-        if not path_is_patternable(predicate.path):
-            return None
         return ValueFact(predicate.path, predicate.value)
     if isinstance(predicate, IsInstancePredicate):
-        if not path_is_patternable(predicate.path):
-            return None
         return ClassFact(predicate.path, predicate.classes)
     if isinstance(predicate, LenEqualsPredicate):
-        if not path_is_patternable(predicate.path):
-            return None
         return SequenceFact(predicate.path, predicate.length)
     if isinstance(predicate, LenAtLeastPredicate):
-        if not path_is_patternable(predicate.path):
-            return None
         return SequenceFact(predicate.path, predicate.minimum, use_star=True)
     return None
-
-
-def path_is_patternable(path: AccessPath) -> bool:
-    return path.is_bound and not has_unknown_subscript(path)
 
 
 def drop_redundant_sequence_type_residuals(
