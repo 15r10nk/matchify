@@ -6,6 +6,30 @@ from helpers import check_code
 class TestEdgeCases:
     """Test edge cases and error handling."""
 
+    def test_path_bearing_guard_can_anchor_sequence_subject(self):
+        source = dedent(
+            """
+            data = [object()]
+            if len(data) == 1 and hasattr(data[0], "value"):
+                print("attribute")
+            elif len(data) == 1 and data[0] == 0:
+                print("zero")
+            """
+        ).strip()
+
+        expected = dedent(
+            """
+            data = [object()]
+            match data:
+                case _, if hasattr(data[0], "value"):
+                    print("attribute")
+                case 0,:
+                    print("zero")
+            """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_typed_predicate_outside_subject_remains_guard(self):
         source = dedent(
             """

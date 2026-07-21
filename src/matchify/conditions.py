@@ -88,9 +88,10 @@ class HasAttrPredicate:
 @dataclass(frozen=True)
 class RawPredicate:
     original: cst.BaseExpression
+    path: AccessPath | None = None
 
 
-Predicate = (
+PathPredicate = (
     IsInstancePredicate
     | LenEqualsPredicate
     | LenAtLeastPredicate
@@ -98,8 +99,8 @@ Predicate = (
     | EqualsPredicate
     | IsPredicate
     | HasAttrPredicate
-    | RawPredicate
 )
+Predicate = PathPredicate | RawPredicate
 BoolExpr = AndExpr | OrExpr | Predicate
 
 
@@ -149,7 +150,17 @@ def parse_predicate(
         if (parsed := parse_value_predicate(predicate)) is not None:
             return parsed
 
-    return RawPredicate(predicate)
+    return RawPredicate(predicate, raw_predicate_path(predicate))
+
+
+def raw_predicate_path(predicate: cst.BaseExpression) -> AccessPath | None:
+    if is_isinstance_call(predicate):
+        return AccessPath.from_expression(predicate.args[0].value)
+    if not isinstance(predicate, cst.Comparison) or len(predicate.comparisons) != 1:
+        return None
+    if is_len_call(predicate.left):
+        return AccessPath.from_expression(predicate.left.args[0].value)
+    return AccessPath.from_expression(predicate.left)
 
 
 def parse_product_predicate(predicate: cst.Comparison) -> AndExpr | None:
@@ -359,36 +370,13 @@ def has_direct_sequence_element_check(expr: BoolExpr, subject: AccessPath) -> bo
         return all(
             has_direct_sequence_element_check(part, subject) for part in expr.parts
         )
-    if isinstance(
-        expr,
-        (
-            EqualsPredicate,
-            IsPredicate,
-            IsInstancePredicate,
-            LenEqualsPredicate,
-            LenAtLeastPredicate,
-            SequenceTypePredicate,
-        ),
-    ):
+    if isinstance(expr, PathPredicate | RawPredicate):
         path = expr.path
-    elif isinstance(expr, RawPredicate):
-        path = raw_predicate_access_path(expr)
     else:
         return False
     if path is None or not path.starts_with(subject) or path == subject:
         return False
     return isinstance(path.parts[len(subject.parts)], SubscriptPathPart)
-
-
-def raw_predicate_access_path(predicate: RawPredicate) -> AccessPath | None:
-    node = predicate.original
-    if is_isinstance_call(node):
-        return AccessPath.from_expression(node.args[0].value)
-    if not isinstance(node, cst.Comparison) or len(node.comparisons) != 1:
-        return None
-    if is_len_call(node.left):
-        return AccessPath.from_expression(node.left.args[0].value)
-    return AccessPath.from_expression(node.left)
 
 
 def find_value_subject_path(expr: BoolExpr) -> AccessPath | None:
