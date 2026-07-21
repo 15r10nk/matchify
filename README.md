@@ -52,6 +52,9 @@ matchify path/to/project/ --assume-pure-subjects
 subject eagerly, so enable it only when those name, attribute, and subscript
 reads cannot raise exceptions or produce observable side effects. Without the
 option, later `and` operands remain guards and preserve short-circuiting.
+The option also permits generic attribute patterns such as `object(x=1)` when
+different branches inspect attributes of a common object without an explicit
+`isinstance` check.
 
 ### Examples
 

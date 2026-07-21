@@ -228,23 +228,19 @@ class MatchSubjectPlan:
             return None
         subjects = []
         for first in candidates[0]:
-            matches = [first]
-            for paths in candidates[1:]:
-                compatible = next(
-                    (
-                        path
-                        for path in paths
-                        if path.starts_with(first) or first.starts_with(path)
-                    ),
-                    None,
-                )
-                if compatible is None:
-                    break
-                matches.append(compatible)
-            else:
-                subject = AccessPath.common_prefix(tuple(matches))
-                if subject is not None and subject not in subjects:
-                    subjects.append(subject)
+            if any(subject.root == first.root for subject in subjects):
+                continue
+            matching_groups = tuple(
+                tuple(path for path in paths if path.root == first.root)
+                for paths in candidates
+            )
+            if any(not group for group in matching_groups):
+                continue
+            subject = AccessPath.common_prefix(
+                tuple(path for group in matching_groups for path in group)
+            )
+            if subject is not None:
+                subjects.append(subject)
         return cls._from_optional_subjects(tuple(subjects))
 
     @classmethod

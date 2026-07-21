@@ -111,7 +111,11 @@ class IfChainCompiler:
                 IfBranch(
                     branch.body,
                     branch.leading_lines,
-                    normalize_condition(branch.condition, subject),
+                    normalize_condition(
+                        branch.condition,
+                        subject,
+                        allow_object_anchors=self.assume_pure_subjects,
+                    ),
                 )
             )
 

@@ -135,3 +135,33 @@ def test_subject_plan_keeps_only_shared_candidates():
 
     assert plan is not None
     assert cst.Module([]).code_for_node(plan.to_expression()) == "x"
+
+
+def test_subject_plan_builds_prefixes_for_sibling_pure_candidates():
+    plan = MatchSubjectPlan.from_shared_candidates(
+        (
+            (AccessPath.from_expression(parse_expression("value.left")),),
+            (AccessPath.from_expression(parse_expression("value.right")),),
+        )
+    )
+
+    assert plan is not None
+    assert cst.Module([]).code_for_node(plan.to_expression()) == "value"
+
+
+def test_subject_plan_groups_multiple_pure_candidates_by_root():
+    plan = MatchSubjectPlan.from_shared_candidates(
+        (
+            (
+                AccessPath.from_expression(parse_expression("value.left")),
+                AccessPath.from_expression(parse_expression("value.right")),
+            ),
+            (
+                AccessPath.from_expression(parse_expression("value.left")),
+                AccessPath.from_expression(parse_expression("value.right")),
+            ),
+        )
+    )
+
+    assert plan is not None
+    assert cst.Module([]).code_for_node(plan.to_expression()) == "value"

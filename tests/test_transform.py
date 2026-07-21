@@ -6,6 +6,7 @@ from helpers import check_code
 from matchify.access_path import AccessPath, MatchSubjectPlan
 from matchify.conditions import parse_condition
 from matchify.pattern_builder import normalize_condition
+from matchify.transform import transform_code
 
 
 class TestTransformCode:
@@ -80,6 +81,83 @@ class TestTransformCode:
         ).strip()
 
         check_code(source, expected, assume_pure_subjects=True)
+
+    def test_assumed_pure_attribute_subject_uses_object_patterns(self):
+        source = dedent(
+            """
+            class Value:
+                i = 5
+                j = 6
+
+            value = Value()
+            if value.i == 5:
+                print("i")
+            elif value.j == 6:
+                print("j")
+            """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Value:
+                i = 5
+                j = 6
+
+            value = Value()
+            match value:
+                case object(i=5):
+                    print("i")
+                case object(j=6):
+                    print("j")
+            """
+        ).strip()
+
+        check_code(source, source)
+        check_code(source, expected, assume_pure_subjects=True)
+
+    def test_assumed_pure_nested_attributes_get_recursive_object_patterns(self):
+        source = dedent(
+            """
+            if value.left.i == 5:
+                print("left")
+            elif value.right.j == 6:
+                print("right")
+            """
+        ).strip()
+
+        expected = dedent(
+            """
+            match value:
+                case object(left=object(i=5)):
+                    print("left")
+                case object(right=object(j=6)):
+                    print("right")
+            """
+        ).strip()
+
+        assert transform_code(source, assume_pure_subjects=True).strip() == expected
+
+    def test_assumed_pure_attributes_with_one_root_share_one_object_pattern(self):
+        source = dedent(
+            """
+            if value.x == 1 and value.y == 2:
+                print("first")
+            elif value.x == 3 and value.y == 4:
+                print("second")
+            """
+        ).strip()
+
+        expected = dedent(
+            """
+            match value:
+                case object(x=1, y=2):
+                    print("first")
+                case object(x=3, y=4):
+                    print("second")
+            """
+        ).strip()
+
+        assert transform_code(source, assume_pure_subjects=True).strip() == expected
 
     def test_common_subject_is_built_from_branch_path_prefixes(self):
         source = dedent(

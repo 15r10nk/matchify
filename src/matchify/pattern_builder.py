@@ -7,6 +7,7 @@ from libcst import matchers as m
 
 from .access_path import (
     AccessPath,
+    AttributePathPart,
     MatchSubjectPlan,
     MatchSubjectRoot,
     SubscriptPathPart,
@@ -47,12 +48,19 @@ class PatternBuildResult:
 def normalize_condition(
     expr: BoolExpr,
     subject: MatchSubjectPlan,
+    *,
+    allow_object_anchors: bool = False,
 ) -> BranchFacts:
     """Bind and lower a parsed condition into a pattern and residual guard."""
     expr = bind_condition_subject(expr, subject)
     expr = remove_implied_checks(expr)
-    result = build_pattern(expr, require_anchored=not subject.is_composite)
+    result = build_pattern(
+        expr,
+        require_anchored=not (subject.is_composite or allow_object_anchors),
+    )
     facts = result.facts
+    if allow_object_anchors:
+        facts = add_object_anchors(facts)
     if subject.is_composite:
         facts = (
             SequenceFact(
@@ -69,6 +77,33 @@ def normalize_condition(
 
     guard = residual_condition(result.residual)
     return BranchFacts(pattern=pattern, guard=guard)
+
+
+def add_object_anchors(facts: tuple[PathFact, ...]) -> tuple[PathFact, ...]:
+    """Add generic class-pattern parents for otherwise unanchored attributes."""
+    anchored_paths = {fact.path for fact in facts if fact_is_anchor(fact)}
+    object_paths: list[AccessPath] = []
+
+    for fact in facts:
+        parent = AccessPath(fact.path.root)
+        for part in fact.path.parts:
+            if (
+                isinstance(part, AttributePathPart)
+                and parent not in anchored_paths
+                and parent not in object_paths
+            ):
+                object_paths.append(parent)
+            parent = AccessPath(parent.root, (*parent.parts, part))
+
+    object_facts = tuple(
+        ClassFact(path, (cst.Name("object"),)) for path in object_paths
+    )
+    return tuple(
+        sorted(
+            (*object_facts, *facts),
+            key=lambda fact: (len(fact.path.parts), fact_priority(fact)),
+        )
+    )
 
 
 def build_pattern(
