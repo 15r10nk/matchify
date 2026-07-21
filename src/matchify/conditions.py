@@ -504,7 +504,7 @@ def checked_pattern_paths(expr: BoolExpr) -> set[AccessPath]:
         return set()
     return (
         {expr.path}
-        if expr.path and isinstance(expr.path.parts[-1], AttributePathPart)
+        if expr.path.parts and isinstance(expr.path.parts[-1], AttributePathPart)
         else set()
     )
 

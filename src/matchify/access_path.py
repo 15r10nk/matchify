@@ -67,9 +67,6 @@ class AccessPath:
     root: PathRoot
     parts: tuple[AccessPathPart, ...] = ()
 
-    def __bool__(self) -> bool:
-        return bool(self.parts)
-
     @classmethod
     def from_expression(cls, node: cst.BaseExpression) -> AccessPath:
         parts: list[AccessPathPart] = []
@@ -180,29 +177,12 @@ class AccessPath:
             raise ValueError("Cannot strip a path with a different root")
         return AccessPath(self.root, self.parts[len(prefix.parts) :])
 
-    @property
-    def starts_with_subscript(self) -> bool:
-        return isinstance(self.first_part, SubscriptPathPart)
-
-
-@dataclass(frozen=True)
-class SubjectBinding:
-    """Map one absolute subject path into the combined match subject."""
-
-    source: AccessPath
-    target: tuple[AccessPathPart, ...]
-
-    def bind(self, path: AccessPath) -> AccessPath | None:
-        if not path.starts_with(self.source):
-            return None
-        return path.bind(self.source, self.target)
-
 
 @dataclass(frozen=True)
 class MatchSubjectPlan:
     """Ordered subjects and their relative locations in one match value."""
 
-    bindings: tuple[SubjectBinding, ...]
+    subjects: tuple[AccessPath, ...]
 
     @classmethod
     def from_subjects(cls, subjects: tuple[AccessPath, ...]) -> MatchSubjectPlan:
@@ -214,34 +194,18 @@ class MatchSubjectPlan:
                 for other in subjects[index + 1 :]
             ):
                 raise ValueError("Match subjects must not overlap")
-        if len(subjects) == 1:
-            return cls((SubjectBinding(subjects[0], ()),))
-        return cls(
-            tuple(
-                SubjectBinding(subject, (SubscriptPathPart(index),))
-                for index, subject in enumerate(subjects)
-            )
-        )
-
-    @property
-    def subjects(self) -> tuple[AccessPath, ...]:
-        return tuple(binding.source for binding in self.bindings)
+        return cls(subjects)
 
     @property
     def is_composite(self) -> bool:
-        return len(self.bindings) > 1
+        return len(self.subjects) > 1
 
     def bind(self, path: AccessPath) -> AccessPath:
-        candidates = [
-            binding for binding in self.bindings if path.starts_with(binding.source)
-        ]
-        if not candidates:
-            return path
-        binding = max(candidates, key=lambda candidate: len(candidate.source.parts))
-        bound = binding.bind(path)
-        if bound is None:  # pragma: no cover
-            raise AssertionError("Selected subject binding no longer matches")
-        return bound
+        for index, subject in enumerate(self.subjects):
+            if path.starts_with(subject):
+                target = () if not self.is_composite else (SubscriptPathPart(index),)
+                return path.bind(subject, target)
+        return path
 
     def to_expression(self) -> cst.BaseExpression:
         expressions = tuple(subject.to_expression() for subject in self.subjects)

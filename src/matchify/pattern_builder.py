@@ -58,7 +58,7 @@ def normalize_condition(
         facts = (
             SequenceFact(
                 AccessPath(MatchSubjectRoot()),
-                len(subject.bindings),
+                len(subject.subjects),
             ),
             *facts,
         )
