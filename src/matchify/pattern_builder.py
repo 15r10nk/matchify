@@ -114,7 +114,7 @@ def build_and_pattern(
     if len(residuals) == 1:
         residual = residuals[0]
     elif residuals:
-        residual = AndExpr(tuple(residuals), expr.original, expr.eager)
+        residual = AndExpr(tuple(residuals), expr.original)
 
     return PatternBuildResult(ordered_facts, residual)
 

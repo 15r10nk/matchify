@@ -26,7 +26,7 @@ class TestTransformCode:
         assert cst.Module([]).code_for_node(facts.pattern.render()) == "1, 2"
         assert facts.guard is None
 
-    def test_eager_tuple_comparisons_use_a_composite_match_subject(self):
+    def test_tuple_comparisons_are_not_converted(self):
         source = dedent(
             """
             class Box:
@@ -43,24 +43,7 @@ class TestTransformCode:
             """
         ).strip()
 
-        expected = dedent(
-            """
-            class Box:
-                def __init__(self, x=None, y=None):
-                    self.x = x
-                    self.y = y
-
-            a = Box(x=1)
-            b = Box(y=2)
-            match (a.x, b.y):
-                case 1, 2:
-                    print("first")
-                case 3, 4:
-                    print("second")
-            """
-        ).strip()
-
-        check_code(source, expected)
+        check_code(source, source)
 
     def test_assumed_pure_and_subjects_use_a_composite_match_subject(self):
         source = dedent(
