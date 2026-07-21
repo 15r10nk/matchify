@@ -58,7 +58,7 @@ class OrFact:
     """Multiple alternative facts for the same subject path."""
 
     path: AccessPath
-    alternatives: tuple[ValueFact | ClassFact | tuple[PathFact, ...], ...]
+    alternatives: tuple[tuple[PathFact, ...], ...]
 
 
 PathFact = ValueFact | ClassFact | SequenceFact | OrFact
@@ -244,19 +244,10 @@ def node_from_fact(fact: PathFact) -> PatternNode:
         return SequenceNode(fact.length, fact.use_star)
     return OrNode(
         tuple(
-            node_from_or_alternative(alternative) for alternative in fact.alternatives
+            PatternTree.from_facts(alternative).node
+            for alternative in fact.alternatives
         )
     )
-
-
-def node_from_or_alternative(
-    alternative: ValueFact | ClassFact | tuple[PathFact, ...],
-) -> PatternNode:
-    if isinstance(alternative, ValueFact):
-        return ValueNode(alternative.value)
-    if isinstance(alternative, ClassFact):
-        return ClassNode(alternative.classes)
-    return PatternTree.from_facts(alternative).node
 
 
 def insert_node(root: PatternNode, path: AccessPath, node: PatternNode) -> PatternNode:

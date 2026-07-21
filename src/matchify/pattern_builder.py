@@ -221,14 +221,8 @@ def fact_is_anchor(fact: PathFact) -> bool:
     )
 
 
-def alternative_is_anchor(
-    alternative: ValueFact | ClassFact | tuple[PathFact, ...],
-) -> bool:
-    return isinstance(alternative, ClassFact) or (
-        isinstance(alternative, tuple)
-        and bool(alternative)
-        and isinstance(alternative[0], ClassFact | SequenceFact)
-    )
+def alternative_is_anchor(alternative: tuple[PathFact, ...]) -> bool:
+    return bool(alternative) and isinstance(alternative[0], ClassFact | SequenceFact)
 
 
 def facts_are_anchored(facts: tuple[PathFact, ...]) -> bool:
@@ -301,16 +295,8 @@ def common_alternative_path(
 
 def strip_alternative_prefix(
     path: AccessPath, facts: tuple[PathFact, ...]
-) -> ValueFact | ClassFact | tuple[PathFact, ...]:
-    stripped = tuple(strip_fact_prefix(path, fact) for fact in facts)
-    if len(stripped) != 1:
-        return stripped
-    fact = stripped[0]
-    if isinstance(fact, ValueFact):
-        return fact
-    if isinstance(fact, ClassFact):
-        return fact
-    return stripped
+) -> tuple[PathFact, ...]:
+    return tuple(strip_fact_prefix(path, fact) for fact in facts)
 
 
 def strip_fact_prefix(path: AccessPath, fact: PathFact) -> PathFact:
