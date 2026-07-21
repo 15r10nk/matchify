@@ -28,19 +28,12 @@ from .patterns import (
 class AndExpr:
     parts: tuple[BoolExpr, ...]
     original: cst.BaseExpression
+    eager: bool = False
 
 
 @dataclass(frozen=True)
 class OrExpr:
     parts: tuple[BoolExpr, ...]
-    original: cst.BaseExpression
-
-
-@dataclass(frozen=True)
-class ProductExpr:
-    """Predicates from one eagerly evaluated tuple comparison."""
-
-    parts: tuple[Predicate, ...]
     original: cst.BaseExpression
 
 
@@ -107,7 +100,7 @@ Predicate = (
     | HasAttrPredicate
     | RawPredicate
 )
-BoolExpr = AndExpr | OrExpr | ProductExpr | Predicate
+BoolExpr = AndExpr | OrExpr | Predicate
 
 
 def parse_condition(
@@ -159,7 +152,7 @@ def parse_predicate(
     return RawPredicate(predicate)
 
 
-def parse_product_predicate(predicate: cst.Comparison) -> ProductExpr | None:
+def parse_product_predicate(predicate: cst.Comparison) -> AndExpr | None:
     target = predicate.comparisons[0]
     if (
         not isinstance(target.operator, cst.Equal)
@@ -195,7 +188,7 @@ def parse_product_predicate(predicate: cst.Comparison) -> ProductExpr | None:
                 original,
             )
         )
-    return ProductExpr(tuple(predicates), predicate)
+    return AndExpr(tuple(predicates), predicate, eager=True)
 
 
 def parse_hasattr_predicate(predicate: cst.BaseExpression) -> HasAttrPredicate | None:
@@ -300,17 +293,19 @@ def select_subject_path(expr: BoolExpr) -> AccessPath | None:
 
 def select_subject_paths(expr: BoolExpr) -> tuple[AccessPath, ...] | None:
     """Select one or more eagerly evaluated subjects from condition IR."""
-    if isinstance(expr, ProductExpr):
-        return tuple(part.path for part in expr.parts)
+    if isinstance(expr, AndExpr) and expr.eager:
+        paths = tuple(
+            part.path
+            for part in expr.parts
+            if isinstance(part, EqualsPredicate | IsPredicate | IsInstancePredicate)
+        )
+        return paths or None
     subject = select_subject_path(expr)
     return None if subject is None else (subject,)
 
 
 def select_assumed_pure_subject_paths(expr: BoolExpr) -> tuple[AccessPath, ...] | None:
     """Select every independent subject when eager evaluation is permitted."""
-    if isinstance(expr, ProductExpr):
-        return tuple(part.path for part in expr.parts)
-
     primary = select_subject_path(expr)
     if primary is None:
         return None
@@ -426,15 +421,11 @@ def bind_condition_subject(expr: BoolExpr, subject: MatchSubjectPlan) -> BoolExp
         return AndExpr(
             tuple(bind_condition_subject(part, subject) for part in expr.parts),
             expr.original,
+            expr.eager,
         )
     if isinstance(expr, OrExpr):
         return OrExpr(
             tuple(bind_condition_subject(part, subject) for part in expr.parts),
-            expr.original,
-        )
-    if isinstance(expr, ProductExpr):
-        return ProductExpr(
-            tuple(bind_predicate_subject(part, subject) for part in expr.parts),
             expr.original,
         )
     return bind_predicate_subject(expr, subject)
@@ -447,22 +438,6 @@ def remove_implied_checks(expr: BoolExpr) -> BoolExpr:
             tuple(remove_implied_checks(part) for part in expr.parts),
             expr.original,
         )
-    if isinstance(expr, ProductExpr):
-        return ProductExpr(
-            tuple(
-                part
-                for part in expr.parts
-                if not condition_is_implied(
-                    part,
-                    {
-                        path
-                        for candidate in expr.parts
-                        for path in checked_pattern_paths(candidate)
-                    },
-                )
-            ),
-            expr.original,
-        )
     if not isinstance(expr, AndExpr):
         return expr
 
@@ -471,6 +446,7 @@ def remove_implied_checks(expr: BoolExpr) -> BoolExpr:
     return AndExpr(
         tuple(part for part in parts if not condition_is_implied(part, checked_paths)),
         expr.original,
+        expr.eager,
     )
 
 
@@ -490,7 +466,7 @@ def condition_is_implied(
 
 
 def checked_pattern_paths(expr: BoolExpr) -> set[AccessPath]:
-    if isinstance(expr, AndExpr | ProductExpr):
+    if isinstance(expr, AndExpr):
         return set().union(*(checked_pattern_paths(part) for part in expr.parts))
     if isinstance(expr, OrExpr):
         paths = [checked_pattern_paths(part) for part in expr.parts]
@@ -532,6 +508,8 @@ def residual_condition(expr: BoolExpr | None) -> cst.BaseExpression | None:
     if expr is None:
         return None
     if isinstance(expr, AndExpr):
+        if expr.eager:
+            return expr.original
         rendered = [
             condition for part in expr.parts if (condition := residual_condition(part))
         ]
@@ -548,8 +526,6 @@ def residual_condition(expr: BoolExpr | None) -> cst.BaseExpression | None:
             )
         return expression
     if isinstance(expr, OrExpr):
-        return expr.original
-    if isinstance(expr, ProductExpr):
         return expr.original
     return expr.original
 

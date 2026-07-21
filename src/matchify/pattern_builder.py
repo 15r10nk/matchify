@@ -21,7 +21,6 @@ from .conditions import (
     LenEqualsPredicate,
     OrExpr,
     Predicate,
-    ProductExpr,
     SequenceTypePredicate,
     bind_condition_subject,
     has_unknown_subscript,
@@ -77,11 +76,6 @@ def build_pattern(
 ) -> PatternBuildResult:
     if isinstance(expr, AndExpr):
         return build_and_pattern(expr, require_anchored=require_anchored)
-    if isinstance(expr, ProductExpr):
-        return build_and_pattern(
-            AndExpr(expr.parts, expr.original),
-            require_anchored=require_anchored,
-        )
     if isinstance(expr, OrExpr):
         return build_or_pattern(expr)
     fact = fact_from_predicate(expr)
@@ -120,7 +114,7 @@ def build_and_pattern(
     if len(residuals) == 1:
         residual = residuals[0]
     elif residuals:
-        residual = AndExpr(tuple(residuals), expr.original)
+        residual = AndExpr(tuple(residuals), expr.original, expr.eager)
 
     return PatternBuildResult(ordered_facts, residual)
 
