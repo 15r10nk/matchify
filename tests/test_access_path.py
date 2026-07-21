@@ -94,3 +94,36 @@ def test_subject_plan_rejects_overlapping_subjects():
 
     with pytest.raises(ValueError, match="must not overlap"):
         MatchSubjectPlan.from_subjects((parent, child))
+
+
+def test_subject_plan_builds_common_aligned_subjects():
+    plan = MatchSubjectPlan.from_aligned_candidates(
+        (
+            (
+                AccessPath.from_expression(parse_expression("a.x")),
+                AccessPath.from_expression(parse_expression("b.y")),
+            ),
+            (
+                AccessPath.from_expression(parse_expression("a.x")),
+                AccessPath.from_expression(parse_expression("b.y")),
+            ),
+        )
+    )
+
+    assert plan is not None
+    assert cst.Module([]).code_for_node(plan.to_expression()) == "(a.x, b.y)"
+
+
+def test_subject_plan_keeps_only_shared_candidates():
+    plan = MatchSubjectPlan.from_shared_candidates(
+        (
+            (
+                AccessPath.from_expression(parse_expression("x")),
+                AccessPath.from_expression(parse_expression("y")),
+            ),
+            (AccessPath.from_expression(parse_expression("x")),),
+        )
+    )
+
+    assert plan is not None
+    assert cst.Module([]).code_for_node(plan.to_expression()) == "x"

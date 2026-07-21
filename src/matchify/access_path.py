@@ -203,6 +203,62 @@ class MatchSubjectPlan:
                 raise ValueError("Match subjects must not overlap")
         return cls(subjects)
 
+    @classmethod
+    def from_aligned_candidates(
+        cls, candidates: tuple[tuple[AccessPath, ...], ...]
+    ) -> MatchSubjectPlan | None:
+        if not candidates or not candidates[0]:
+            return None
+        size = len(candidates[0])
+        if any(len(paths) != size for paths in candidates[1:]):
+            return None
+        subjects = tuple(
+            AccessPath.common_prefix(tuple(paths[index] for paths in candidates))
+            for index in range(size)
+        )
+        if any(subject is None for subject in subjects):
+            return None
+        return cls._from_optional_subjects(subjects)
+
+    @classmethod
+    def from_shared_candidates(
+        cls, candidates: tuple[tuple[AccessPath, ...], ...]
+    ) -> MatchSubjectPlan | None:
+        if not candidates or not candidates[0]:
+            return None
+        subjects = []
+        for first in candidates[0]:
+            matches = [first]
+            for paths in candidates[1:]:
+                compatible = next(
+                    (
+                        path
+                        for path in paths
+                        if path.starts_with(first) or first.starts_with(path)
+                    ),
+                    None,
+                )
+                if compatible is None:
+                    break
+                matches.append(compatible)
+            else:
+                subject = AccessPath.common_prefix(tuple(matches))
+                if subject is not None and subject not in subjects:
+                    subjects.append(subject)
+        return cls._from_optional_subjects(tuple(subjects))
+
+    @classmethod
+    def _from_optional_subjects(
+        cls, subjects: tuple[AccessPath | None, ...]
+    ) -> MatchSubjectPlan | None:
+        concrete = tuple(subject for subject in subjects if subject is not None)
+        if len(concrete) != len(subjects) or not concrete:
+            return None
+        try:
+            return cls.from_subjects(concrete)
+        except ValueError:
+            return None
+
     @property
     def is_composite(self) -> bool:
         return len(self.subjects) > 1
