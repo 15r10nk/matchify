@@ -7,6 +7,7 @@ from libcst import matchers as m
 
 from .access_path import (
     AccessPath,
+    AccessPathPart,
     AttributePathPart,
     MatchSubjectPlan,
     MatchSubjectRoot,
@@ -54,13 +55,8 @@ def normalize_condition(
     """Bind and lower a parsed condition into a pattern and residual guard."""
     expr = bind_condition_subject(expr, subject)
     expr = remove_implied_checks(expr)
-    result = build_pattern(
-        expr,
-        require_anchored=not (subject.is_composite or allow_object_anchors),
-    )
+    result = build_pattern(expr)
     facts = result.facts
-    if allow_object_anchors:
-        facts = add_object_anchors(facts)
     if subject.is_composite:
         facts = (
             SequenceFact(
@@ -69,8 +65,14 @@ def normalize_condition(
             ),
             *facts,
         )
+    completed_facts = complete_pattern_parents(
+        facts,
+        infer_attribute_parents=allow_object_anchors,
+    )
+    if completed_facts is None:
+        return BranchFacts(pattern=None, guard=expr.original)
     try:
-        pattern = PatternTree.from_facts(facts)
+        pattern = PatternTree.from_facts(completed_facts)
         pattern.render()
     except ValueError:
         return BranchFacts(pattern=None, guard=expr.original)
@@ -79,38 +81,64 @@ def normalize_condition(
     return BranchFacts(pattern=pattern, guard=guard)
 
 
-def add_object_anchors(facts: tuple[PathFact, ...]) -> tuple[PathFact, ...]:
-    """Add generic class-pattern parents for otherwise unanchored attributes."""
-    anchored_paths = {fact.path for fact in facts if fact_is_anchor(fact)}
-    object_paths: list[AccessPath] = []
+def complete_pattern_parents(
+    facts: tuple[PathFact, ...],
+    *,
+    infer_attribute_parents: bool,
+) -> tuple[PathFact, ...] | None:
+    """Ensure every path edge has a compatible structural parent fact."""
+    if not facts:
+        return None
 
+    parents = {fact.path: fact for fact in facts if fact_is_anchor(fact)}
+    inferred: list[ClassFact] = []
     for fact in facts:
-        parent = AccessPath(fact.path.root)
+        parent_path = AccessPath(fact.path.root)
         for part in fact.path.parts:
-            if (
-                isinstance(part, AttributePathPart)
-                and parent not in anchored_paths
-                and parent not in object_paths
-            ):
-                object_paths.append(parent)
-            parent = AccessPath(parent.root, (*parent.parts, part))
+            parent = parents.get(parent_path)
+            if parent is None:
+                if not infer_attribute_parents or not isinstance(
+                    part, AttributePathPart
+                ):
+                    return None
+                parent = ClassFact(parent_path, (cst.Name("object"),))
+                parents[parent_path] = parent
+                inferred.append(parent)
+            if not fact_supports_child(parent, part):
+                return None
+            parent_path = AccessPath(parent_path.root, (*parent_path.parts, part))
 
-    object_facts = tuple(
-        ClassFact(path, (cst.Name("object"),)) for path in object_paths
-    )
     return tuple(
         sorted(
-            (*object_facts, *facts),
+            (*inferred, *facts),
             key=lambda fact: (len(fact.path.parts), fact_priority(fact)),
         )
     )
 
 
-def build_pattern(
-    expr: BoolExpr, *, require_anchored: bool = True
-) -> PatternBuildResult:
+def fact_supports_child(fact: PathFact, part: AccessPathPart) -> bool:
+    if isinstance(part, AttributePathPart):
+        return isinstance(fact, ClassFact) or (
+            isinstance(fact, OrFact)
+            and all(
+                alternative and fact_supports_child(alternative[0], part)
+                for alternative in fact.alternatives
+            )
+        )
+    if isinstance(part, SubscriptPathPart):
+        return isinstance(fact, SequenceFact) or (
+            isinstance(fact, OrFact)
+            and all(
+                alternative and fact_supports_child(alternative[0], part)
+                for alternative in fact.alternatives
+            )
+        )
+    return False
+
+
+def build_pattern(expr: BoolExpr) -> PatternBuildResult:
     if isinstance(expr, AndExpr):
-        return build_and_pattern(expr, require_anchored=require_anchored)
+        return build_and_pattern(expr)
     if isinstance(expr, OrExpr):
         return build_or_pattern(expr)
     fact = fact_from_predicate(expr)
@@ -119,9 +147,7 @@ def build_pattern(
     return PatternBuildResult((fact,))
 
 
-def build_and_pattern(
-    expr: AndExpr, *, require_anchored: bool = True
-) -> PatternBuildResult:
+def build_and_pattern(expr: AndExpr) -> PatternBuildResult:
     facts: list[PathFact] = []
     residuals: list[BoolExpr] = []
     class_paths: set[AccessPath] = set()
@@ -142,9 +168,6 @@ def build_and_pattern(
         sorted(facts, key=lambda fact: (len(fact.path.parts), fact_priority(fact)))
     )
     residuals = drop_redundant_sequence_type_residuals(residuals, ordered_facts)
-    if require_anchored and not facts_are_anchored(ordered_facts):
-        return PatternBuildResult((), expr)
-
     residual = None
     if len(residuals) == 1:
         residual = residuals[0]
@@ -159,7 +182,7 @@ def build_or_pattern(expr: OrExpr) -> PatternBuildResult:
     residuals: list[BoolExpr | None] = []
 
     for part in expr.parts:
-        result = build_pattern(part, require_anchored=False)
+        result = build_pattern(part)
         if not result.facts:
             return PatternBuildResult((), expr)
         alternatives.append(result.facts)
@@ -258,28 +281,6 @@ def fact_is_anchor(fact: PathFact) -> bool:
 
 def alternative_is_anchor(alternative: tuple[PathFact, ...]) -> bool:
     return bool(alternative) and isinstance(alternative[0], ClassFact | SequenceFact)
-
-
-def facts_are_anchored(facts: tuple[PathFact, ...]) -> bool:
-    if not facts:
-        return False
-
-    anchored_paths: set[AccessPath] = set()
-    for fact in facts:
-        if fact.path.is_subject:
-            if fact_is_anchor(fact):
-                anchored_paths.add(fact.path)
-            continue
-
-        parent = fact.path.parent()
-        if not any(
-            parent == anchor or parent.starts_with(anchor) for anchor in anchored_paths
-        ):
-            return False
-        if fact_is_anchor(fact):
-            anchored_paths.add(fact.path)
-
-    return True
 
 
 def or_fact_is_anchor(fact: OrFact) -> bool:
