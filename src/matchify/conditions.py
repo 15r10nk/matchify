@@ -19,8 +19,8 @@ from .patterns import (
     is_isinstance_call,
     is_len_call,
     is_list_tuple_classes,
-    is_literal_value,
     is_singleton_name,
+    is_value_pattern_expr,
 )
 
 
@@ -223,7 +223,9 @@ def parse_value_predicate(
     predicate: cst.Comparison,
 ) -> EqualsPredicate | IsPredicate | None:
     target = predicate.comparisons[0]
-    if isinstance(target.operator, cst.Equal) and is_literal_value(target.comparator):
+    if isinstance(target.operator, cst.Equal) and is_value_pattern_expr(
+        target.comparator
+    ):
         return EqualsPredicate(
             AccessPath.from_expression(predicate.left), target.comparator, predicate
         )

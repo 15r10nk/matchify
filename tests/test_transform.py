@@ -747,6 +747,59 @@ class TestTransformCode:
 
         check_code(source, expected)
 
+    def test_qualified_constants_become_value_patterns(self):
+        """Qualified constants can be compared by match value patterns."""
+        source = dedent(
+            """
+            class Kind:
+                START = 1
+                STOP = 2
+
+            kind = Kind.START
+            if kind == Kind.START:
+                print("start")
+            elif kind == Kind.STOP:
+                print("stop")
+            else:
+                print("other")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Kind:
+                START = 1
+                STOP = 2
+
+            kind = Kind.START
+            match kind:
+                case Kind.START:
+                    print("start")
+                case Kind.STOP:
+                    print("stop")
+                case _:
+                    print("other")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_bare_constants_are_not_value_patterns(self):
+        """Bare names in patterns would capture instead of compare."""
+        source = dedent(
+            """
+            START = 1
+            STOP = 2
+            kind = START
+            if kind == START:
+                print("start")
+            elif kind == STOP:
+                print("stop")
+        """
+        ).strip()
+
+        check_code(source, source)
+
     def test_other_isinstance_classinfo_call_becomes_guard(self):
         """Other classinfo calls cannot be rendered as class patterns."""
         source = dedent(

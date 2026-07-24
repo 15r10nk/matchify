@@ -8,8 +8,8 @@ from .patterns import (
     extract_isinstance_classes,
     flatten_boolean,
     is_len_call,
-    is_literal_value,
     is_singleton_name,
+    is_value_pattern_expr,
 )
 
 
@@ -25,7 +25,7 @@ def is_safe_condition(
             comparator = target.comparator
             left_path = AccessPath.from_expression(component.left)
             if left_path in subject.subjects:
-                if isinstance(target.operator, cst.Equal) and not is_literal_value(
+                if isinstance(target.operator, cst.Equal) and not is_value_pattern_expr(
                     comparator
                 ):
                     return False

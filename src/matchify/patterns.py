@@ -37,6 +37,18 @@ def is_literal_value(node: cst.BaseExpression) -> bool:
     )
 
 
+def is_value_pattern_expr(node: cst.BaseExpression) -> bool:
+    """Return whether an expression can be rendered as a match value pattern."""
+    return is_literal_value(node) or is_qualified_value_expr(node)
+
+
+def is_qualified_value_expr(node: cst.BaseExpression) -> bool:
+    """Return whether an expression is a dotted name that cannot capture."""
+    if isinstance(node, cst.Attribute):
+        return isinstance(node.value, cst.Name) or is_qualified_value_expr(node.value)
+    return False
+
+
 def is_isinstance_call(node: cst.CSTNode) -> bool:
     return isinstance(node, cst.Call) and m.matches(
         node, m.Call(func=m.Name(value="isinstance"), args=[m.Arg(), m.Arg()])
