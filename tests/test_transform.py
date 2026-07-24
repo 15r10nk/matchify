@@ -747,6 +747,62 @@ class TestTransformCode:
 
         check_code(source, expected)
 
+    def test_plain_list_tuple_isinstance_becomes_class_pattern(self):
+        """Bare list/tuple isinstance dispatch can use class patterns."""
+        source = dedent(
+            """
+            def perform_import(val):
+                if val is None:
+                    return None
+                elif isinstance(val, str):
+                    return import_string(val)
+                elif isinstance(val, (list, tuple)):
+                    return [import_string(item) for item in val]
+                return val
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            def perform_import(val):
+                match val:
+                    case None:
+                        return None
+                    case str():
+                        return import_string(val)
+                    case list() | tuple():
+                        return [import_string(item) for item in val]
+                return val
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_list_tuple_sequence_checks_still_use_sequence_pattern(self):
+        """list/tuple guards with length and item facts keep sequence lowering."""
+        source = dedent(
+            """
+            value = [1, 2]
+            if isinstance(value, (list, tuple)) and len(value) == 2 and value[0] == 1:
+                print("one")
+            elif isinstance(value, (list, tuple)) and len(value) == 2 and value[0] == 2:
+                print("two")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            value = [1, 2]
+            match value:
+                case 1, _:
+                    print("one")
+                case 2, _:
+                    print("two")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_qualified_constants_become_value_patterns(self):
         """Qualified constants can be compared by match value patterns."""
         source = dedent(

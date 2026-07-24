@@ -60,6 +60,7 @@ class LenAtLeastPredicate:
 @dataclass(frozen=True)
 class SequenceTypePredicate:
     path: AccessPath
+    classes: tuple[cst.BaseExpression, ...]
     original: cst.BaseExpression
 
 
@@ -189,7 +190,9 @@ def parse_isinstance_predicate(
         return None
     if is_list_tuple_classes(classes):
         expression = predicate.args[0].value
-        return SequenceTypePredicate(AccessPath.from_expression(expression), predicate)
+        return SequenceTypePredicate(
+            AccessPath.from_expression(expression), classes, predicate
+        )
     expression = predicate.args[0].value
     return IsInstancePredicate(
         AccessPath.from_expression(expression), classes, predicate
@@ -256,6 +259,8 @@ def select_subject_path(expr: BoolExpr) -> AccessPath | None:
             return subject
         return find_isinstance_subject_path(expr, include_subscripts=True)
     if isinstance(expr, IsInstancePredicate):
+        return expr.path
+    if isinstance(expr, SequenceTypePredicate):
         return expr.path
     if isinstance(expr, EqualsPredicate | IsPredicate):
         return expr.path

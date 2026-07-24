@@ -154,6 +154,11 @@ def build_and_pattern(expr: AndExpr) -> PatternBuildResult:
     class_paths: set[AccessPath] = set()
 
     for part in expr.parts:
+        if isinstance(part, SequenceTypePredicate) and sequence_type_has_len_fact(
+            part, expr.parts
+        ):
+            residuals.append(part)
+            continue
         if isinstance(part, IsInstancePredicate) and part.path in class_paths:
             residuals.append(part)
             continue
@@ -208,8 +213,10 @@ def build_or_pattern(expr: OrExpr) -> PatternBuildResult:
 
 
 def fact_from_predicate(predicate: Predicate) -> PathFact | None:
-    if isinstance(predicate, RawPredicate | SequenceTypePredicate):
+    if isinstance(predicate, RawPredicate):
         return None
+    if isinstance(predicate, SequenceTypePredicate):
+        return ClassFact(predicate.path, predicate.classes)
     if not predicate.path.is_patternable:
         return None
     if isinstance(predicate, EqualsPredicate | IsPredicate):
@@ -243,6 +250,16 @@ def fact_from_predicate(predicate: Predicate) -> PathFact | None:
     if isinstance(predicate, LenAtLeastPredicate):
         return SequenceFact(predicate.path, predicate.minimum, use_star=True)
     return None
+
+
+def sequence_type_has_len_fact(
+    predicate: SequenceTypePredicate, parts: tuple[BoolExpr, ...]
+) -> bool:
+    return any(
+        isinstance(part, LenEqualsPredicate | LenAtLeastPredicate)
+        and part.path == predicate.path
+        for part in parts
+    )
 
 
 def drop_redundant_sequence_type_residuals(
