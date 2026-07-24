@@ -634,6 +634,37 @@ class TestTransformCode:
 
         check_code(source, expected)
 
+    def test_parenthesized_isinstance_class_converted(self):
+        """Parentheses around classinfo are not emitted before pattern parentheses."""
+        source = dedent(
+            """
+            class SomeClass:
+                pass
+
+            value = SomeClass()
+            if isinstance(value, (SomeClass)):
+                print("some")
+            elif isinstance(value, str):
+                print("string")
+            """
+        ).strip()
+
+        expected = dedent(
+            """
+            class SomeClass:
+                pass
+
+            value = SomeClass()
+            match value:
+                case SomeClass():
+                    print("some")
+                case str():
+                    print("string")
+            """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_isinstance_tuple_converted(self):
         """Test that isinstance with tuple of classes is converted to MatchOr pattern.
 

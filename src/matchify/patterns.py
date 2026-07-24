@@ -142,6 +142,11 @@ def build_class_pattern(
         for name, pattern in (keyword_patterns or [])
     ]
     patterns = [
-        cst.MatchClass(cls=class_expr, patterns=[], kwds=kwds) for class_expr in classes
+        cst.MatchClass(
+            cls=class_expr.with_changes(lpar=(), rpar=()),
+            patterns=[],
+            kwds=kwds,
+        )
+        for class_expr in classes
     ]
     return build_or_pattern(patterns)
