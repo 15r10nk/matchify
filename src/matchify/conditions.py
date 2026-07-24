@@ -44,6 +44,12 @@ class IsInstancePredicate:
 
 
 @dataclass(frozen=True)
+class NotIsInstancePredicate:
+    path: AccessPath
+    original: cst.BaseExpression
+
+
+@dataclass(frozen=True)
 class LenEqualsPredicate:
     path: AccessPath
     length: int
@@ -100,6 +106,7 @@ class RawPredicate:
 
 PathPredicate = (
     IsInstancePredicate
+    | NotIsInstancePredicate
     | LenEqualsPredicate
     | LenAtLeastPredicate
     | SequenceTypePredicate
@@ -145,6 +152,9 @@ def parse_predicate(
     if (parsed := parse_hasattr_predicate(predicate)) is not None:
         return parsed
 
+    if (parsed := parse_not_isinstance_predicate(predicate)) is not None:
+        return parsed
+
     if is_isinstance_call(predicate):
         parsed = parse_isinstance_predicate(predicate, ignore_types_pattern)
         if parsed is not None:
@@ -188,6 +198,21 @@ def parse_hasattr_predicate(predicate: cst.BaseExpression) -> HasAttrPredicate |
     expression = predicate.args[0].value
     return HasAttrPredicate(
         AccessPath.from_expression(expression), attribute, predicate
+    )
+
+
+def parse_not_isinstance_predicate(
+    predicate: cst.BaseExpression,
+) -> NotIsInstancePredicate | None:
+    if not isinstance(predicate, cst.UnaryOperation) or not isinstance(
+        predicate.operator, cst.Not
+    ):
+        return None
+    expression = predicate.expression
+    if not is_isinstance_call(expression):
+        return None
+    return NotIsInstancePredicate(
+        AccessPath.from_expression(expression.args[0].value), predicate
     )
 
 
@@ -297,6 +322,8 @@ def select_subject_path(expr: BoolExpr) -> AccessPath | None:
             return subject
         return find_isinstance_subject_path(expr, include_subscripts=True)
     if isinstance(expr, IsInstancePredicate):
+        return expr.path
+    if isinstance(expr, NotIsInstancePredicate):
         return expr.path
     if isinstance(expr, SequenceTypePredicate):
         return expr.path

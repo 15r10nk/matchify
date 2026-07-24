@@ -932,6 +932,49 @@ class TestTransformCode:
 
         check_code(source, source)
 
+    def test_negated_isinstance_becomes_guard_when_chain_has_pattern(self):
+        """Negated isinstance can participate as a guard-only branch."""
+        source = dedent(
+            """
+            value = "x"
+            if isinstance(value, int):
+                print("int")
+            elif not isinstance(value, str):
+                print("not string")
+            else:
+                print("other")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            value = "x"
+            match value:
+                case int():
+                    print("int")
+                case _ if not isinstance(value, str):
+                    print("not string")
+                case _:
+                    print("other")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_all_negated_isinstance_chain_is_not_converted(self):
+        """A chain with no structural pattern still remains unchanged."""
+        source = dedent(
+            """
+            value = "x"
+            if not isinstance(value, int):
+                print("not int")
+            elif not isinstance(value, str):
+                print("not string")
+        """
+        ).strip()
+
+        check_code(source, source)
+
     def test_other_isinstance_classinfo_call_becomes_guard(self):
         """Other classinfo calls cannot be rendered as class patterns."""
         source = dedent(
