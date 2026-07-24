@@ -40,7 +40,7 @@ from .facts import (
     SequenceFact,
     ValueFact,
 )
-from .patterns import is_class_pattern_expr, is_none_type_expr
+from .patterns import is_class_pattern_expr, is_none_type_expr, is_qualified_value_expr
 
 
 @dataclass(frozen=True)
@@ -220,6 +220,12 @@ def fact_from_predicate(predicate: Predicate) -> PathFact | None:
     if isinstance(predicate, SequenceTypePredicate):
         return ClassFact(predicate.path, predicate.classes)
     if not predicate.path.is_patternable:
+        return None
+    if (
+        isinstance(predicate, EqualsPredicate)
+        and is_qualified_value_expr(predicate.value)
+        and not predicate.path.is_subject
+    ):
         return None
     if isinstance(predicate, EqualsPredicate | IsPredicate):
         return ValueFact(predicate.path, predicate.value)
