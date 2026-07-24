@@ -666,6 +666,62 @@ class TestTransformCode:
 
         check_code(source, expected)
 
+    def test_isinstance_none_type_becomes_singleton_pattern(self):
+        """The exact type(None) classinfo becomes a None singleton pattern."""
+        source = dedent(
+            """
+            x = None
+            if isinstance(x, type(None)):
+                print("none")
+            elif x == 5:
+                print("five")
+            """
+        ).strip()
+
+        expected = dedent(
+            """
+            x = None
+            match x:
+                case None:
+                    print("none")
+                case 5:
+                    print("five")
+            """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_other_isinstance_classinfo_call_becomes_guard(self):
+        """Other classinfo calls cannot be rendered as class patterns."""
+        source = dedent(
+            """
+            def get_type():
+                return int
+
+            x = 1
+            if isinstance(x, get_type()):
+                print("dynamic")
+            elif x == 5:
+                print("five")
+            """
+        ).strip()
+
+        expected = dedent(
+            """
+            def get_type():
+                return int
+
+            x = 1
+            match x:
+                case _ if isinstance(x, get_type()):
+                    print("dynamic")
+                case 5:
+                    print("five")
+            """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_is_none_converted(self):
         """Test that 'is None' comparisons are converted to match with None singleton.
 

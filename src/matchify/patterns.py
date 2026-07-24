@@ -103,6 +103,26 @@ def is_list_tuple_classes(classes: tuple[cst.BaseExpression, ...]) -> bool:
     } == {"list", "tuple"}
 
 
+def is_class_pattern_expr(expr: cst.BaseExpression) -> bool:
+    """Return whether an expression is valid before ``()`` in a class pattern."""
+    if isinstance(expr, cst.Name):
+        return True
+    if isinstance(expr, cst.Attribute):
+        return is_class_pattern_expr(expr.value)
+    return False
+
+
+def is_none_type_expr(expr: cst.BaseExpression) -> bool:
+    """Return whether an expression is exactly ``type(None)``."""
+    return m.matches(
+        expr,
+        m.Call(
+            func=m.Name(value="type"),
+            args=[m.Arg(value=m.Name(value="None"))],
+        ),
+    )
+
+
 def is_ignored_type_expr(
     expr: cst.BaseExpression, ignore_types_pattern: str | None
 ) -> bool:

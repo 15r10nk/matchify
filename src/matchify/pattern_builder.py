@@ -38,6 +38,7 @@ from .facts import (
     SequenceFact,
     ValueFact,
 )
+from .patterns import is_class_pattern_expr, is_none_type_expr
 
 
 @dataclass(frozen=True)
@@ -214,6 +215,10 @@ def fact_from_predicate(predicate: Predicate) -> PathFact | None:
     if isinstance(predicate, EqualsPredicate | IsPredicate):
         return ValueFact(predicate.path, predicate.value)
     if isinstance(predicate, IsInstancePredicate):
+        if len(predicate.classes) == 1 and is_none_type_expr(predicate.classes[0]):
+            return ValueFact(predicate.path, cst.Name("None"))
+        if not all(is_class_pattern_expr(cls) for cls in predicate.classes):
+            return None
         return ClassFact(predicate.path, predicate.classes)
     if isinstance(predicate, LenEqualsPredicate):
         return SequenceFact(predicate.path, predicate.length)
