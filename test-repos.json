@@ -1,0 +1,102 @@
+{
+  "django-rest-framework": {
+    "url": "https://github.com/encode/django-rest-framework.git",
+    "ref": "main",
+    "clone_args": ["--depth", "1"],
+    "paths": ["rest_framework"],
+    "exclude_paths": [],
+    "matchify_args": ["-j", "1"],
+    "setup_commands": [
+      ["uv", "venv", "--python", "3.13"],
+      [
+        "uv",
+        "pip",
+        "install",
+        "-e",
+        ".",
+        "dj-database-url>=3.1.0",
+        "importlib-metadata<10.0",
+        "pytest==9.*",
+        "pytest-cov==7.*",
+        "pytest-django>=4.5.2,<5",
+        "pytz"
+      ]
+    ],
+    "python_command": [".venv/bin/python"],
+    "test_command": [".venv/bin/python", "-m", "pytest", "-q"],
+    "environment": {
+      "UV_CACHE_DIR": "{workspace}/uv-cache"
+    },
+    "timeout": 3600
+  },
+  "libcst": {
+    "url": "https://github.com/Instagram/LibCST.git",
+    "ref": "main",
+    "clone_args": ["--depth", "1"],
+    "paths": ["libcst"],
+    "exclude_paths": ["libcst/_parser"],
+    "matchify_args": ["-j", "1"],
+    "setup_commands": [
+      ["uv", "sync", "--group", "dev"]
+    ],
+    "python_command": [".venv/bin/python"],
+    "test_command": ["uv", "run", "--no-sync", "poe", "test"],
+    "environment": {
+      "UV_CACHE_DIR": "{workspace}/uv-cache",
+      "CARGO_HOME": "{workspace}/cargo-home"
+    },
+    "timeout": 3600
+  },
+  "mypy": {
+    "url": "https://github.com/python/mypy.git",
+    "ref": "master",
+    "clone_args": ["--depth", "1"],
+    "paths": ["mypy", "mypyc"],
+    "exclude_paths": [],
+    "matchify_args": ["-j", "1"],
+    "setup_commands": [
+      ["uv", "venv"],
+      ["uv", "pip", "install", "-r", "test-requirements.txt", "-e", "."]
+    ],
+    "python_command": [".venv/bin/python"],
+    "test_command": [".venv/bin/python", "-m", "pytest", "-q"],
+    "environment": {
+      "UV_CACHE_DIR": "{workspace}/uv-cache"
+    },
+    "timeout": 3600
+  },
+  "cpython": {
+    "url": "https://github.com/python/cpython.git",
+    "ref": "3.15",
+    "clone_args": ["--depth", "1"],
+    "paths": ["Lib", "Tools"],
+    "exclude_paths": ["Lib/test"],
+    "matchify_args": ["-j", "1"],
+    "setup_commands": [
+      ["./configure", "--quiet"],
+      ["make", "-j2"]
+    ],
+    "python_command": ["./python"],
+    "test_command": ["./python", "-m", "test", "-j2"],
+    "environment": {},
+    "timeout": 7200
+  },
+  "home-assistant": {
+    "url": "https://github.com/home-assistant/core.git",
+    "ref": "dev",
+    "clone_args": ["--depth", "1"],
+    "paths": ["homeassistant"],
+    "exclude_paths": [],
+    "matchify_args": ["-j", "1"],
+    "setup_commands": [
+      ["uv", "venv", "--python", "3.14.2"],
+      ["uv", "pip", "install", "-r", "requirements_test.txt", "-e", "."]
+    ],
+    "python_command": [".venv/bin/python"],
+    "test_command": [".venv/bin/python", "-m", "pytest", "-q"],
+    "environment": {
+      "UV_CACHE_DIR": "{workspace}/uv-cache"
+    },
+    "timeout": 14400
+  }
+}
