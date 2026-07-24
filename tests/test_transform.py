@@ -856,6 +856,82 @@ class TestTransformCode:
 
         check_code(source, source)
 
+    def test_literal_membership_becomes_or_pattern(self):
+        """Membership in a literal tuple can become an OR value pattern."""
+        source = dedent(
+            """
+            option = "-h"
+            if option in ("-h", "--help"):
+                print("help")
+            elif option in ("-V", "--version"):
+                print("version")
+            else:
+                print("other")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            option = "-h"
+            match option:
+                case "-h" | "--help":
+                    print("help")
+                case "-V" | "--version":
+                    print("version")
+                case _:
+                    print("other")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_nested_literal_membership_becomes_or_pattern(self):
+        """Literal membership can be lowered inside class attributes."""
+        source = dedent(
+            """
+            class Token:
+                def __init__(self, kind):
+                    self.kind = kind
+
+            token = Token("add")
+            if isinstance(token, Token) and token.kind in ["add", "sub"]:
+                print("math")
+            elif isinstance(token, Token) and token.kind in ["load", "store"]:
+                print("memory")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Token:
+                def __init__(self, kind):
+                    self.kind = kind
+
+            token = Token("add")
+            match token:
+                case Token(kind="add" | "sub"):
+                    print("math")
+                case Token(kind="load" | "store"):
+                    print("memory")
+        """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_singleton_membership_is_not_converted(self):
+        """Membership uses equality while singleton patterns use identity."""
+        source = dedent(
+            """
+            value = 1
+            if value in (True,):
+                print("true-ish")
+            elif value in (False,):
+                print("false-ish")
+        """
+        ).strip()
+
+        check_code(source, source)
+
     def test_other_isinstance_classinfo_call_becomes_guard(self):
         """Other classinfo calls cannot be rendered as class patterns."""
         source = dedent(

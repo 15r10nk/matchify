@@ -65,6 +65,13 @@ class SequenceTypePredicate:
 
 
 @dataclass(frozen=True)
+class MembershipPredicate:
+    path: AccessPath
+    values: tuple[cst.BaseExpression, ...]
+    original: cst.BaseExpression
+
+
+@dataclass(frozen=True)
 class EqualsPredicate:
     path: AccessPath
     value: cst.BaseExpression
@@ -96,6 +103,7 @@ PathPredicate = (
     | LenEqualsPredicate
     | LenAtLeastPredicate
     | SequenceTypePredicate
+    | MembershipPredicate
     | EqualsPredicate
     | IsPredicate
     | HasAttrPredicate
@@ -143,6 +151,8 @@ def parse_predicate(
             return parsed
 
     if isinstance(predicate, cst.Comparison) and len(predicate.comparisons) == 1:
+        if (parsed := parse_membership_predicate(predicate)) is not None:
+            return parsed
         if (parsed := parse_len_predicate(predicate)) is not None:
             return parsed
         if (parsed := parse_value_predicate(predicate)) is not None:
@@ -222,6 +232,34 @@ def parse_len_predicate(
     return None
 
 
+def parse_membership_predicate(predicate: cst.Comparison) -> MembershipPredicate | None:
+    target = predicate.comparisons[0]
+    if not isinstance(target.operator, cst.In):
+        return None
+    values = extract_literal_membership_values(target.comparator)
+    if values is None:
+        return None
+    return MembershipPredicate(
+        AccessPath.from_expression(predicate.left), values, predicate
+    )
+
+
+def extract_literal_membership_values(
+    container: cst.BaseExpression,
+) -> tuple[cst.BaseExpression, ...] | None:
+    if not isinstance(container, cst.Tuple | cst.List):
+        return None
+    values: list[cst.BaseExpression] = []
+    for element in container.elements:
+        if isinstance(element, cst.StarredElement):
+            return None
+        value = element.value
+        if is_singleton_name(value) or not is_value_pattern_expr(value):
+            return None
+        values.append(value)
+    return tuple(values) or None
+
+
 def parse_value_predicate(
     predicate: cst.Comparison,
 ) -> EqualsPredicate | IsPredicate | None:
@@ -261,6 +299,8 @@ def select_subject_path(expr: BoolExpr) -> AccessPath | None:
     if isinstance(expr, IsInstancePredicate):
         return expr.path
     if isinstance(expr, SequenceTypePredicate):
+        return expr.path
+    if isinstance(expr, MembershipPredicate):
         return expr.path
     if isinstance(expr, EqualsPredicate | IsPredicate):
         return expr.path
@@ -420,7 +460,10 @@ def checked_pattern_paths(expr: BoolExpr) -> set[AccessPath]:
         return {expr.path} if expr.path.is_bound else set()
     if isinstance(expr, LenEqualsPredicate | LenAtLeastPredicate):
         return {expr.path} if expr.path.is_bound else set()
-    if not isinstance(expr, EqualsPredicate | IsPredicate) or not expr.path.is_bound:
+    if (
+        not isinstance(expr, EqualsPredicate | IsPredicate | MembershipPredicate)
+        or not expr.path.is_bound
+    ):
         return set()
     return (
         {expr.path}
