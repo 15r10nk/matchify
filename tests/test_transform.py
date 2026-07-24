@@ -691,6 +691,31 @@ class TestTransformCode:
 
         check_code(source, expected)
 
+    def test_isinstance_tuple_with_none_type_becomes_or_pattern(self):
+        """type(None) can participate in a mixed singleton and class OR pattern."""
+        source = dedent(
+            """
+            x = None
+            if isinstance(x, (type(None), str)):
+                print("optional string")
+            elif x == 5:
+                print("five")
+            """
+        ).strip()
+
+        expected = dedent(
+            """
+            x = None
+            match x:
+                case None | str():
+                    print("optional string")
+                case 5:
+                    print("five")
+            """
+        ).strip()
+
+        check_code(source, expected)
+
     def test_other_isinstance_classinfo_call_becomes_guard(self):
         """Other classinfo calls cannot be rendered as class patterns."""
         source = dedent(

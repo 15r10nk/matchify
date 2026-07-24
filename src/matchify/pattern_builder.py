@@ -217,6 +217,24 @@ def fact_from_predicate(predicate: Predicate) -> PathFact | None:
     if isinstance(predicate, IsInstancePredicate):
         if len(predicate.classes) == 1 and is_none_type_expr(predicate.classes[0]):
             return ValueFact(predicate.path, cst.Name("None"))
+        if any(is_none_type_expr(cls) for cls in predicate.classes):
+            if not all(
+                is_none_type_expr(cls) or is_class_pattern_expr(cls)
+                for cls in predicate.classes
+            ):
+                return None
+            relative_path = predicate.path.strip_prefix(predicate.path)
+            alternatives = tuple(
+                (
+                    (
+                        ValueFact(relative_path, cst.Name("None"))
+                        if is_none_type_expr(cls)
+                        else ClassFact(relative_path, (cls,))
+                    ),
+                )
+                for cls in predicate.classes
+            )
+            return OrFact(predicate.path, alternatives)
         if not all(is_class_pattern_expr(cls) for cls in predicate.classes):
             return None
         return ClassFact(predicate.path, predicate.classes)
