@@ -317,12 +317,11 @@ def fact_is_anchor(fact: PathFact) -> bool:
     )
 
 
-def alternative_is_anchor(alternative: tuple[PathFact, ...]) -> bool:
-    return bool(alternative) and isinstance(alternative[0], ClassFact | SequenceFact)
-
-
 def or_fact_is_anchor(fact: OrFact) -> bool:
-    return all(alternative_is_anchor(alternative) for alternative in fact.alternatives)
+    return all(
+        alternative and isinstance(alternative[0], ClassFact | SequenceFact)
+        for alternative in fact.alternatives
+    )
 
 
 _MIXED_RESIDUALS = object()
