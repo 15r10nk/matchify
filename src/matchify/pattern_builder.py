@@ -248,18 +248,10 @@ def drop_redundant_residuals(
 def residual_is_implied_by_facts(
     residual: BoolExpr,
     facts: tuple[PathFact, ...],
-    *,
-    allow_sequence_anchor: bool = False,
 ) -> bool:
     return bool(
         is_sequence_pattern_type_check(residual)
-        and (
-            sequence_path_has_element_fact(residual.path, facts)
-            or (
-                allow_sequence_anchor
-                and sequence_path_has_anchor_fact(residual.path, facts)
-            )
-        )
+        and sequence_path_has_element_fact(residual.path, facts)
     )
 
 
@@ -279,16 +271,23 @@ def all_residuals_are_implied_by_alternatives(
     alternatives: list[tuple[PathFact, ...]],
 ) -> bool:
     return all(
-        residual is not None
-        and residual_is_implied_by_facts(
-            residual,
-            facts,
-            allow_sequence_anchor=True,
-        )
+        residual is not None and residual_is_implied_by_alternative(residual, facts)
         for residual, facts in zip(
             residuals,
             alternatives,
             strict=True,
+        )
+    )
+
+
+def residual_is_implied_by_alternative(
+    residual: BoolExpr, facts: tuple[PathFact, ...]
+) -> bool:
+    return bool(
+        is_sequence_pattern_type_check(residual)
+        and (
+            sequence_path_has_element_fact(residual.path, facts)
+            or sequence_path_has_anchor_fact(residual.path, facts)
         )
     )
 
