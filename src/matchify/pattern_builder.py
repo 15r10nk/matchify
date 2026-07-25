@@ -217,52 +217,80 @@ def fact_from_predicate(predicate: Predicate) -> PathFact | None:
     if isinstance(predicate, RawPredicate):
         return None
     if isinstance(predicate, SequenceTypePredicate):
-        return ClassFact(predicate.path, predicate.classes)
+        return fact_from_sequence_type_predicate(predicate)
     if not predicate.path.is_patternable:
         return None
+    if isinstance(predicate, EqualsPredicate | IsPredicate):
+        return fact_from_value_predicate(predicate)
+    if isinstance(predicate, MembershipPredicate):
+        return fact_from_membership_predicate(predicate)
+    if isinstance(predicate, IsInstancePredicate):
+        return fact_from_isinstance_predicate(predicate)
+    if isinstance(predicate, LenEqualsPredicate | LenAtLeastPredicate):
+        return fact_from_len_predicate(predicate)
+    return None
+
+
+def fact_from_sequence_type_predicate(
+    predicate: SequenceTypePredicate,
+) -> ClassFact:
+    return ClassFact(predicate.path, predicate.classes)
+
+
+def fact_from_value_predicate(
+    predicate: EqualsPredicate | IsPredicate,
+) -> ValueFact | None:
     if (
         isinstance(predicate, EqualsPredicate)
         and is_qualified_value_expr(predicate.value)
         and not predicate.path.is_subject
     ):
         return None
-    if isinstance(predicate, EqualsPredicate | IsPredicate):
-        return ValueFact(predicate.path, predicate.value)
-    if isinstance(predicate, MembershipPredicate):
-        relative_path = predicate.path.strip_prefix(predicate.path)
-        return OrFact(
-            predicate.path,
-            tuple((ValueFact(relative_path, value),) for value in predicate.values),
-        )
-    if isinstance(predicate, IsInstancePredicate):
-        if len(predicate.classes) == 1 and is_none_type_expr(predicate.classes[0]):
-            return ValueFact(predicate.path, cst.Name("None"))
-        if any(is_none_type_expr(cls) for cls in predicate.classes):
-            if not all(
-                is_none_type_expr(cls) or is_class_pattern_expr(cls)
-                for cls in predicate.classes
-            ):
-                return None
-            relative_path = predicate.path.strip_prefix(predicate.path)
-            alternatives = tuple(
-                (
-                    (
-                        ValueFact(relative_path, cst.Name("None"))
-                        if is_none_type_expr(cls)
-                        else ClassFact(relative_path, (cls,))
-                    ),
-                )
-                for cls in predicate.classes
-            )
-            return OrFact(predicate.path, alternatives)
-        if not all(is_class_pattern_expr(cls) for cls in predicate.classes):
+    return ValueFact(predicate.path, predicate.value)
+
+
+def fact_from_membership_predicate(predicate: MembershipPredicate) -> OrFact:
+    relative_path = predicate.path.strip_prefix(predicate.path)
+    return OrFact(
+        predicate.path,
+        tuple((ValueFact(relative_path, value),) for value in predicate.values),
+    )
+
+
+def fact_from_isinstance_predicate(
+    predicate: IsInstancePredicate,
+) -> ValueFact | ClassFact | OrFact | None:
+    if len(predicate.classes) == 1 and is_none_type_expr(predicate.classes[0]):
+        return ValueFact(predicate.path, cst.Name("None"))
+    if any(is_none_type_expr(cls) for cls in predicate.classes):
+        if not all(
+            is_none_type_expr(cls) or is_class_pattern_expr(cls)
+            for cls in predicate.classes
+        ):
             return None
-        return ClassFact(predicate.path, predicate.classes)
+        relative_path = predicate.path.strip_prefix(predicate.path)
+        alternatives = tuple(
+            (
+                (
+                    ValueFact(relative_path, cst.Name("None"))
+                    if is_none_type_expr(cls)
+                    else ClassFact(relative_path, (cls,))
+                ),
+            )
+            for cls in predicate.classes
+        )
+        return OrFact(predicate.path, alternatives)
+    if not all(is_class_pattern_expr(cls) for cls in predicate.classes):
+        return None
+    return ClassFact(predicate.path, predicate.classes)
+
+
+def fact_from_len_predicate(
+    predicate: LenEqualsPredicate | LenAtLeastPredicate,
+) -> SequenceFact:
     if isinstance(predicate, LenEqualsPredicate):
         return SequenceFact(predicate.path, predicate.length)
-    if isinstance(predicate, LenAtLeastPredicate):
-        return SequenceFact(predicate.path, predicate.minimum, use_star=True)
-    return None
+    return SequenceFact(predicate.path, predicate.minimum, use_star=True)
 
 
 def sequence_type_has_len_fact(
