@@ -213,18 +213,14 @@ def fact_from_predicate(predicate: PathPredicate) -> PathFact | None:
     if not predicate.path.is_patternable:
         return None
     if isinstance(predicate, ValuePredicate):
-        return fact_from_value_predicate(predicate)
+        if not predicate.allow_nested_pattern and not predicate.path.is_subject:
+            return None
+        return ValueFact(predicate.path, predicate.value)
     if isinstance(predicate, IsInstancePredicate):
         return fact_from_isinstance_predicate(predicate)
     if isinstance(predicate, LenPredicate):
-        return fact_from_len_predicate(predicate)
+        return SequenceFact(predicate.path, predicate.length, predicate.use_star)
     return None
-
-
-def fact_from_value_predicate(predicate: ValuePredicate) -> ValueFact | None:
-    if not predicate.allow_nested_pattern and not predicate.path.is_subject:
-        return None
-    return ValueFact(predicate.path, predicate.value)
 
 
 def fact_from_isinstance_predicate(
@@ -233,10 +229,6 @@ def fact_from_isinstance_predicate(
     if not all(is_class_pattern_expr(cls) for cls in predicate.classes):
         return None
     return ClassFact(predicate.path, predicate.classes)
-
-
-def fact_from_len_predicate(predicate: LenPredicate) -> SequenceFact:
-    return SequenceFact(predicate.path, predicate.length, predicate.use_star)
 
 
 def is_sequence_pattern_type_check(expr: BoolExpr | None) -> bool:
