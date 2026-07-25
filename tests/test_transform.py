@@ -932,8 +932,22 @@ class TestTransformCode:
 
         check_code(source, source)
 
-    def test_negated_isinstance_becomes_guard_when_chain_has_pattern(self):
-        """Negated isinstance can participate as a guard-only branch."""
+    def test_negated_isinstance_chain_is_not_converted(self):
+        """Negated isinstance does not introduce a guard-only predicate."""
+        source = dedent(
+            """
+            value = "x"
+            if isinstance(value, int):
+                print("int")
+            elif not isinstance(value, str):
+                print("not string")
+        """
+        ).strip()
+
+        check_code(source, source)
+
+    def test_guard_branch_with_else_is_not_converted(self):
+        """A chain must not emit both a guarded wildcard and an else wildcard."""
         source = dedent(
             """
             value = "x"
@@ -946,20 +960,21 @@ class TestTransformCode:
         """
         ).strip()
 
-        expected = dedent(
+        check_code(source, source)
+
+    def test_leading_guard_branch_is_not_converted(self):
+        """Do not evaluate a later match subject before a leading guard branch."""
+        source = dedent(
             """
             value = "x"
-            match value:
-                case int():
-                    print("int")
-                case _ if not isinstance(value, str):
-                    print("not string")
-                case _:
-                    print("other")
+            if not isinstance(value, str):
+                print("not string")
+            elif isinstance(value, int):
+                print("int")
         """
         ).strip()
 
-        check_code(source, expected)
+        check_code(source, source)
 
     def test_all_negated_isinstance_chain_is_not_converted(self):
         """A chain with no structural pattern still remains unchanged."""

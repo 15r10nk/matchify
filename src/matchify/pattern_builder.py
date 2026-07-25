@@ -22,7 +22,6 @@ from .conditions import (
     LenAtLeastPredicate,
     LenEqualsPredicate,
     MembershipPredicate,
-    NotIsInstancePredicate,
     OrExpr,
     Predicate,
     RawPredicate,
@@ -215,7 +214,7 @@ def build_or_pattern(expr: OrExpr) -> PatternBuildResult:
 
 
 def fact_from_predicate(predicate: Predicate) -> PathFact | None:
-    if isinstance(predicate, RawPredicate | NotIsInstancePredicate):
+    if isinstance(predicate, RawPredicate):
         return None
     if isinstance(predicate, SequenceTypePredicate):
         return ClassFact(predicate.path, predicate.classes)

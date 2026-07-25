@@ -121,6 +121,12 @@ class IfChainCompiler:
 
         if not any(branch.facts.pattern is not None for branch in branches):
             return None
+        wildcard_branch_count = sum(branch.facts.pattern is None for branch in branches)
+        if chain_would_emit_too_many_wildcards(
+            wildcard_branch_count,
+            has_else=else_body is not None,
+        ):
+            return None
         return IfChain(
             subject=subject,
             branches=tuple(branches),
@@ -215,3 +221,9 @@ class IfChainCompiler:
                 cst.SimpleWhitespace("") if guard is None else cst.SimpleWhitespace(" ")
             ),
         )
+
+
+def chain_would_emit_too_many_wildcards(
+    wildcard_branch_count: int, *, has_else: bool
+) -> bool:
+    return wildcard_branch_count + int(has_else) > 1
