@@ -154,13 +154,11 @@ def parse_isinstance_predicate(
     if classes is None:
         return None
     path = AccessPath.from_expression(predicate.args[0].value)
-    if not any(is_none_type_expr(class_expr) for class_expr in classes):
+    has_none_type, remaining_classes = split_none_type_classes(classes)
+    if not has_none_type:
         return IsInstancePredicate(path, classes, predicate)
 
     none_predicate = ValuePredicate(path, cst.Name("None"), predicate)
-    remaining_classes = tuple(
-        class_expr for class_expr in classes if not is_none_type_expr(class_expr)
-    )
     if not remaining_classes:
         return none_predicate
     return OrExpr(
@@ -170,6 +168,19 @@ def parse_isinstance_predicate(
         ),
         predicate,
     )
+
+
+def split_none_type_classes(
+    classes: tuple[cst.BaseExpression, ...],
+) -> tuple[bool, tuple[cst.BaseExpression, ...]]:
+    has_none_type = False
+    remaining_classes: list[cst.BaseExpression] = []
+    for class_expr in classes:
+        if is_none_type_expr(class_expr):
+            has_none_type = True
+        else:
+            remaining_classes.append(class_expr)
+    return has_none_type, tuple(remaining_classes)
 
 
 def parse_len_predicate(
