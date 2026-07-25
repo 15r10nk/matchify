@@ -18,6 +18,7 @@ from .patterns import (
     flatten_boolean,
     is_isinstance_call,
     is_len_call,
+    is_none_type_expr,
     is_qualified_value_expr,
     is_singleton_name,
     is_value_pattern_expr,
@@ -133,7 +134,7 @@ def parse_condition(
 def parse_predicate(
     predicate: cst.BaseExpression,
     ignore_types_pattern: str | None = r".*_TYPES$",
-) -> Predicate:
+) -> BoolExpr:
     if (parsed := parse_hasattr_predicate(predicate)) is not None:
         return parsed
 
@@ -176,14 +177,25 @@ def parse_hasattr_predicate(predicate: cst.BaseExpression) -> HasAttrPredicate |
 def parse_isinstance_predicate(
     predicate: cst.Call,
     ignore_types_pattern: str | None,
-) -> IsInstancePredicate | None:
+) -> BoolExpr | None:
     classes = extract_isinstance_classes(predicate.args[1].value, ignore_types_pattern)
     if classes is None:
         return None
     expression = predicate.args[0].value
-    return IsInstancePredicate(
-        AccessPath.from_expression(expression), classes, predicate
+    path = AccessPath.from_expression(expression)
+    none_predicate = IsPredicate(path, cst.Name("None"), predicate)
+    class_predicate = IsInstancePredicate(
+        path,
+        tuple(
+            class_expr for class_expr in classes if not is_none_type_expr(class_expr)
+        ),
+        predicate,
     )
+    if len(class_predicate.classes) == len(classes):
+        return class_predicate
+    if not class_predicate.classes:
+        return none_predicate
+    return OrExpr((none_predicate, class_predicate), predicate)
 
 
 def parse_len_predicate(

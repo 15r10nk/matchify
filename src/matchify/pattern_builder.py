@@ -38,7 +38,7 @@ from .facts import (
     SequenceFact,
     ValueFact,
 )
-from .patterns import is_class_pattern_expr, is_list_tuple_classes, is_none_type_expr
+from .patterns import is_class_pattern_expr, is_list_tuple_classes
 
 
 @dataclass(frozen=True)
@@ -250,27 +250,7 @@ def fact_from_membership_predicate(predicate: MembershipPredicate) -> OrFact:
 
 def fact_from_isinstance_predicate(
     predicate: IsInstancePredicate,
-) -> ValueFact | ClassFact | OrFact | None:
-    if len(predicate.classes) == 1 and is_none_type_expr(predicate.classes[0]):
-        return ValueFact(predicate.path, cst.Name("None"))
-    if any(is_none_type_expr(cls) for cls in predicate.classes):
-        if not all(
-            is_none_type_expr(cls) or is_class_pattern_expr(cls)
-            for cls in predicate.classes
-        ):
-            return None
-        relative_path = predicate.path.strip_prefix(predicate.path)
-        alternatives = tuple(
-            (
-                (
-                    ValueFact(relative_path, cst.Name("None"))
-                    if is_none_type_expr(cls)
-                    else ClassFact(relative_path, (cls,))
-                ),
-            )
-            for cls in predicate.classes
-        )
-        return OrFact(predicate.path, alternatives)
+) -> ClassFact | None:
     if not all(is_class_pattern_expr(cls) for cls in predicate.classes):
         return None
     return ClassFact(predicate.path, predicate.classes)
