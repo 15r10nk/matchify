@@ -217,18 +217,12 @@ def fact_from_predicate(predicate: PathPredicate) -> PathFact | None:
             return None
         return ValueFact(predicate.path, predicate.value)
     if isinstance(predicate, IsInstancePredicate):
-        return fact_from_isinstance_predicate(predicate)
+        if not all(is_class_pattern_expr(cls) for cls in predicate.classes):
+            return None
+        return ClassFact(predicate.path, predicate.classes)
     if isinstance(predicate, LenPredicate):
         return SequenceFact(predicate.path, predicate.length, predicate.use_star)
     return None
-
-
-def fact_from_isinstance_predicate(
-    predicate: IsInstancePredicate,
-) -> ClassFact | None:
-    if not all(is_class_pattern_expr(cls) for cls in predicate.classes):
-        return None
-    return ClassFact(predicate.path, predicate.classes)
 
 
 def is_sequence_pattern_type_check(expr: BoolExpr | None) -> bool:
