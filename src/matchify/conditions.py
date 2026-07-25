@@ -193,16 +193,20 @@ def parse_len_predicate(
     if not isinstance(target.comparator, cst.Integer):
         return None
     length = int(target.comparator.value)
-    if isinstance(target.operator, cst.Equal):
-        expression = len_call.args[0].value
-        return LenPredicate(
-            AccessPath.from_expression(expression), length, False, predicate
-        )
-    if isinstance(target.operator, cst.GreaterThanEqual):
-        expression = len_call.args[0].value
-        return LenPredicate(
-            AccessPath.from_expression(expression), length, True, predicate
-        )
+    use_star = len_operator_uses_star(target.operator)
+    if use_star is None:
+        return None
+    expression = len_call.args[0].value
+    return LenPredicate(
+        AccessPath.from_expression(expression), length, use_star, predicate
+    )
+
+
+def len_operator_uses_star(operator: cst.BaseCompOp) -> bool | None:
+    if isinstance(operator, cst.Equal):
+        return False
+    if isinstance(operator, cst.GreaterThanEqual):
+        return True
     return None
 
 
