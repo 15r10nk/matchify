@@ -23,7 +23,7 @@ from .conditions import (
     LenEqualsPredicate,
     MembershipPredicate,
     OrExpr,
-    Predicate,
+    PathPredicate,
     RawPredicate,
     bind_condition_subject,
     remove_implied_checks,
@@ -142,6 +142,8 @@ def build_pattern(expr: BoolExpr) -> PatternBuildResult:
         return build_and_pattern(expr)
     if isinstance(expr, OrExpr):
         return build_or_pattern(expr)
+    if isinstance(expr, RawPredicate):
+        return PatternBuildResult((), expr)
     fact = fact_from_predicate(expr)
     if fact is None:
         return PatternBuildResult((), expr)
@@ -212,9 +214,7 @@ def build_or_pattern(expr: OrExpr) -> PatternBuildResult:
     return PatternBuildResult((OrFact(common_path, stripped),), residual)
 
 
-def fact_from_predicate(predicate: Predicate) -> PathFact | None:
-    if isinstance(predicate, RawPredicate):
-        return None
+def fact_from_predicate(predicate: PathPredicate) -> PathFact | None:
     if not predicate.path.is_patternable:
         return None
     if isinstance(predicate, EqualsPredicate | IsPredicate):
