@@ -1,5 +1,6 @@
 """Normalize if/elif chains and compile them to match statements."""
 
+from collections.abc import Sequence
 from typing import NamedTuple
 
 import libcst as cst
@@ -29,6 +30,11 @@ class IfBranch(NamedTuple):
     body: cst.IndentedBlock
     leading_lines: tuple[cst.EmptyLine, ...]
     facts: BranchFacts
+
+    @property
+    def is_wildcard_case(self) -> bool:
+        """Whether this branch compiles to `case _`."""
+        return self.facts.pattern is None
 
 
 class IfChain(NamedTuple):
@@ -119,11 +125,10 @@ class IfChainCompiler:
                 )
             )
 
-        if not any(branch.facts.pattern is not None for branch in branches):
+        if not any(not branch.is_wildcard_case for branch in branches):
             return None
-        wildcard_branch_count = sum(branch.facts.pattern is None for branch in branches)
         if chain_would_emit_too_many_wildcards(
-            wildcard_branch_count,
+            branches,
             has_else=else_body is not None,
         ):
             return None
@@ -204,7 +209,7 @@ class IfChainCompiler:
 
         pattern = (
             build_wildcard_pattern()
-            if facts.pattern is None
+            if branch.is_wildcard_case
             else facts.pattern.render()
         )
         guard = facts.guard
@@ -224,6 +229,7 @@ class IfChainCompiler:
 
 
 def chain_would_emit_too_many_wildcards(
-    wildcard_branch_count: int, *, has_else: bool
+    branches: Sequence[IfBranch], *, has_else: bool
 ) -> bool:
-    return wildcard_branch_count + int(has_else) > 1
+    wildcard_case_count = sum(branch.is_wildcard_case for branch in branches)
+    return wildcard_case_count + int(has_else) > 1
