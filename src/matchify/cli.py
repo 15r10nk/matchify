@@ -5,6 +5,12 @@ import pathlib
 from concurrent.futures import ProcessPoolExecutor
 from functools import partial
 
+from .assumptions import (
+    ALL_RISKY_ASSUMPTIONS,
+    AssumptionDiagnostic,
+    Assumptions,
+    parse_assumption_names,
+)
 from .transform import transform_code
 
 
@@ -12,7 +18,9 @@ def convert_file(
     path: pathlib.Path,
     ignore_types_pattern: str | None = None,
     *,
+    assumptions: Assumptions | None = None,
     assume_pure_subjects: bool = False,
+    report_assumption_diagnostics: bool = False,
 ) -> tuple[pathlib.Path, bool, str | None]:
     """Convert a single file.
 
@@ -21,12 +29,17 @@ def convert_file(
     """
     try:
         source = path.read_text(encoding="utf-8")
+        diagnostics: list[AssumptionDiagnostic] = []
         transformed_code = transform_code(
             source,
             ignore_types_pattern=ignore_types_pattern,
+            assumptions=assumptions,
             assume_pure_subjects=assume_pure_subjects,
+            diagnostics=diagnostics,
         )
 
+        if report_assumption_diagnostics:
+            report_assumption_requirements(path, diagnostics)
         if transformed_code != source:
             path.write_text(transformed_code, encoding="utf-8")
             return (path, True, None)
@@ -46,6 +59,29 @@ def collect_python_files(paths: list[pathlib.Path]) -> list[pathlib.Path]:
         else:
             print(f"Skipping (not a Python file): {arg}")
     return python_files
+
+
+def resolve_assumptions(args: argparse.Namespace) -> Assumptions:
+    """Resolve CLI assumption flags into an assumption set."""
+    if args.risky:
+        return Assumptions.risky()
+    if args.safe_assumptions:
+        return Assumptions.safe()
+    if args.assume is not None:
+        return Assumptions.from_names(parse_assumption_names(args.assume))
+    return Assumptions.from_names()
+
+
+def report_assumption_requirements(
+    path: pathlib.Path, diagnostics: list[AssumptionDiagnostic]
+) -> None:
+    """Print skipped conversions that require risky assumptions."""
+    for diagnostic in diagnostics:
+        assumptions = ",".join(sorted(diagnostic.assumptions))
+        print(
+            f"Info: {path}:{diagnostic.line}:{diagnostic.column + 1}: "
+            f"if/elif chain requires --assume {assumptions}"
+        )
 
 
 def report_result(
@@ -72,10 +108,25 @@ def main() -> None:
         type=pathlib.Path,
         help="Python files or directories to process",
     )
-    parser.add_argument(
-        "--assume-pure-subjects",
+    assumption_group = parser.add_mutually_exclusive_group()
+    assumption_group.add_argument(
+        "--assume",
+        metavar="NAMES",
+        help=(
+            "Comma-separated risky assumptions to enable "
+            f"(available: {', '.join(sorted(ALL_RISKY_ASSUMPTIONS))})"
+        ),
+    )
+    assumption_group.add_argument(
+        "--safe",
+        dest="safe_assumptions",
         action="store_true",
-        help="Allow eager tuple matches for subjects assumed free of side effects",
+        help="Disable all risky assumptions",
+    )
+    assumption_group.add_argument(
+        "--risky",
+        action="store_true",
+        help="Enable all risky assumptions",
     )
     parser.add_argument(
         "-j",
@@ -95,6 +146,10 @@ def main() -> None:
     )
 
     args = parser.parse_args()
+    try:
+        assumptions = resolve_assumptions(args)
+    except ValueError as error:
+        parser.error(str(error))
 
     python_files = collect_python_files(args.paths)
 
@@ -110,7 +165,8 @@ def main() -> None:
         result = convert_file(
             python_files[0],
             ignore_types_pattern=args.no_types,
-            assume_pure_subjects=args.assume_pure_subjects,
+            assumptions=assumptions,
+            report_assumption_diagnostics=True,
         )
         converted, unchanged, errors = report_result(*result, verbose=args.verbose)
         converted_count += converted
@@ -121,7 +177,8 @@ def main() -> None:
             convert = partial(
                 convert_file,
                 ignore_types_pattern=args.no_types,
-                assume_pure_subjects=args.assume_pure_subjects,
+                assumptions=assumptions,
+                report_assumption_diagnostics=True,
             )
             for result in executor.map(convert, python_files):
                 converted, unchanged, errors = report_result(

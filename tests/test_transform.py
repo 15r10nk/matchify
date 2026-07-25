@@ -4,6 +4,7 @@ import libcst as cst
 from helpers import check_code
 
 from matchify.access_path import AccessPath, MatchSubjectPlan
+from matchify.assumptions import Assumptions
 from matchify.conditions import parse_condition
 from matchify.pattern_builder import normalize_condition
 from matchify.transform import transform_code
@@ -63,7 +64,31 @@ class TestTransformCode:
             """
         ).strip()
 
-        expected = dedent(
+        expected_without_flag = dedent(
+            """
+            class Box:
+                def __init__(self, x=None, y=None):
+                    self.x = x
+                    self.y = y
+
+            a = Box(x=1)
+            b = Box(y=2)
+            match a.x:
+                case 1 if b.y == 2:
+                    print("first")
+                case 3 if b.y == 4:
+                    print("second")
+            """
+        ).strip()
+
+        check_code(source, expected_without_flag)
+        check_code(
+            source,
+            expected_without_flag,
+            assumptions=Assumptions.from_names({"use-object"}),
+        )
+
+        expected_with_flag = dedent(
             """
             class Box:
                 def __init__(self, x=None, y=None):
@@ -80,7 +105,7 @@ class TestTransformCode:
             """
         ).strip()
 
-        check_code(source, expected, assume_pure_subjects=True)
+        check_code(source, expected_with_flag, assume_pure_subjects=True)
 
     def test_assumed_pure_attribute_subject_uses_object_patterns(self):
         source = dedent(
@@ -113,7 +138,12 @@ class TestTransformCode:
         ).strip()
 
         check_code(source, source)
-        check_code(source, expected, assume_pure_subjects=True)
+        check_code(source, source, assume_pure_subjects=True)
+        check_code(
+            source,
+            expected,
+            assumptions=Assumptions.from_names({"use-object"}),
+        )
 
     def test_assumed_pure_nested_attributes_get_recursive_object_patterns(self):
         source = dedent(
@@ -135,7 +165,13 @@ class TestTransformCode:
             """
         ).strip()
 
-        assert transform_code(source, assume_pure_subjects=True).strip() == expected
+        assert (
+            transform_code(
+                source,
+                assumptions=Assumptions.from_names({"use-object"}),
+            ).strip()
+            == expected
+        )
 
     def test_assumed_pure_attributes_with_one_root_share_one_object_pattern(self):
         source = dedent(
@@ -157,7 +193,13 @@ class TestTransformCode:
             """
         ).strip()
 
-        assert transform_code(source, assume_pure_subjects=True).strip() == expected
+        assert (
+            transform_code(
+                source,
+                assumptions=Assumptions.from_names({"use-object"}),
+            ).strip()
+            == expected
+        )
 
     def test_common_subject_is_built_from_branch_path_prefixes(self):
         source = dedent(

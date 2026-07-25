@@ -43,18 +43,34 @@ matchify path/to/project/ -v
 # Use parallel processing (default: number of CPUs)
 matchify path/to/project/ -j 8
 
-# Assume condition subjects are pure and combine them into tuple matches
-matchify path/to/project/ --assume-pure-subjects
+# Enable one risky assumption explicitly
+matchify path/to/project/ --assume pure-subjects
+
+# Disable all risky assumptions
+matchify path/to/project/ --safe
+
+# Enable all risky assumptions
+matchify path/to/project/ --risky
 ```
 
-`--assume-pure-subjects` permits transformations such as
-`a.x == 1 and b.y == 2` into a match on `(a.x, b.y)`. This evaluates every
-subject eagerly, so enable it only when those name, attribute, and subscript
-reads cannot raise exceptions or produce observable side effects. Without the
-option, later `and` operands remain guards and preserve short-circuiting.
-The option also permits generic attribute patterns such as `object(x=1)` when
-different branches inspect attributes of a common object without an explicit
-`isinstance` check.
+By default, Matchify enables no risky assumptions. `--safe` makes that explicit.
+`--risky` enables all available risky assumptions.
+When a skipped `if`/`elif` chain would require a risky assumption, the CLI
+prints the file location and the required `--assume` value instead of converting
+that chain.
+
+Available risky assumptions:
+
+- `pure-subjects`: permits transformations such as
+  `a.x == 1 and b.y == 2` into a match on `(a.x, b.y)`. This evaluates every
+  subject eagerly, so enable it only when those name, attribute, and subscript
+  reads cannot raise exceptions or produce observable side effects. Without the
+  option, later `and` operands remain guards and preserve short-circuiting.
+- `use-object`: permits generic attribute patterns such as `object(x=1)` when
+  different branches inspect attributes of a common object without an explicit
+  `isinstance` check. This performs pattern-time attribute lookups, so enable it
+  only when those lookups cannot raise exceptions or produce observable side
+  effects.
 
 ## Testing against external repositories
 

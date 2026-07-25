@@ -6,6 +6,7 @@ from typing import NamedTuple
 import libcst as cst
 
 from .access_path import MatchSubjectPlan
+from .assumptions import PURE_SUBJECTS, Assumptions
 from .capture_patterns import (
     detect_captures,
     normalize_duplicate_captures,
@@ -16,7 +17,6 @@ from .conditions import (
     BoolExpr,
     parse_condition,
     select_assumed_pure_subject_paths,
-    select_subject_paths,
 )
 from .facts import BranchFacts
 from .pattern_builder import normalize_condition
@@ -68,10 +68,15 @@ class IfChainCompiler:
         self,
         ignore_types_pattern: str | None = r".*_TYPES$",
         *,
+        assumptions: Assumptions | None = None,
         assume_pure_subjects: bool = False,
     ) -> None:
         self.ignore_types_pattern = ignore_types_pattern
-        self.assume_pure_subjects = assume_pure_subjects
+        self.assumptions = assumptions or Assumptions.from_names()
+        if assume_pure_subjects:
+            self.assumptions = Assumptions.from_names(
+                (*self.assumptions.names, PURE_SUBJECTS)
+            )
 
     def extract_chain(self, node: cst.If) -> IfChain | None:
         if not isinstance(node.orelse, cst.If):
@@ -125,24 +130,22 @@ class IfChainCompiler:
         self, branches: list[ParsedBranch]
     ) -> MatchSubjectPlan | None:
         """Build a subject from the common prefix of all branch candidates."""
-        if self.assume_pure_subjects:
-            candidates = tuple(
-                select_assumed_pure_subject_paths(branch.condition)
-                for branch in branches
-            )
-            if any(paths is None for paths in candidates):
-                return None
-            return MatchSubjectPlan.from_shared_candidates(
-                tuple(paths for paths in candidates if paths is not None)
-            )
-
         candidates = tuple(
-            select_subject_paths(branch.condition) for branch in branches
+            select_assumed_pure_subject_paths(branch.condition) for branch in branches
         )
-        if any(candidate is None for candidate in candidates):
+        if any(paths is None for paths in candidates):
             return None
+        concrete_candidates = tuple(paths for paths in candidates if paths is not None)
+        if self.assumptions.assume_pure_subjects:
+            return MatchSubjectPlan.from_shared_candidates(concrete_candidates)
+
+        if self.assumptions.use_object:
+            subject = MatchSubjectPlan.from_shared_candidates(concrete_candidates)
+            if subject is not None and not subject.is_composite:
+                return subject
+
         return MatchSubjectPlan.from_aligned_candidates(
-            tuple(candidate for candidate in candidates if candidate is not None)
+            tuple((paths[0],) for paths in concrete_candidates)
         )
 
     def _analyze_branches(
@@ -168,7 +171,7 @@ class IfChainCompiler:
         facts = normalize_condition(
             branch.condition,
             subject,
-            allow_object_anchors=self.assume_pure_subjects,
+            allow_object_anchors=self.assumptions.use_object,
         )
         return IfBranch(branch.body, branch.leading_lines, facts)
 

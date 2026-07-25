@@ -7,6 +7,7 @@ from textwrap import dedent
 
 import pytest
 
+from matchify.assumptions import Assumptions
 from matchify.cli import convert_file, main
 
 
@@ -103,6 +104,29 @@ class TestConvertFile:
         assert error is None
         assert "match (a.x, b.y):" in test_file.read_text(encoding="utf-8")
 
+    def test_convert_file_accepts_assumptions(self, tmp_path):
+        test_file = tmp_path / "test.py"
+        test_file.write_text(
+            dedent(
+                """
+                if a.x == 1 and b.y == 2:
+                    print("first")
+                elif a.x == 3 and b.y == 4:
+                    print("second")
+                """
+            ).strip(),
+            encoding="utf-8",
+        )
+
+        _, changed, error = convert_file(
+            test_file,
+            assumptions=Assumptions.from_names({"pure-subjects"}),
+        )
+
+        assert changed is True
+        assert error is None
+        assert "match (a.x, b.y):" in test_file.read_text(encoding="utf-8")
+
 
 class TestMain:
     """Test the main function."""
@@ -158,7 +182,28 @@ class TestMain:
             finally:
                 sys.argv = original_argv
 
-    def test_main_with_assume_pure_subjects(self, capsys, tmp_path):
+    def test_main_rejects_removed_assume_pure_subjects_flag(self, capsys, tmp_path):
+        test_file = tmp_path / "test.py"
+        test_file.write_text("print('x')", encoding="utf-8")
+
+        original_argv = sys.argv
+        try:
+            sys.argv = [
+                "matchify",
+                "--assume-pure-subjects",
+                str(test_file),
+            ]
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+        finally:
+            sys.argv = original_argv
+
+        assert exc_info.value.code == 2
+        assert (
+            "unrecognized arguments: --assume-pure-subjects" in capsys.readouterr().err
+        )
+
+    def test_main_with_assume_list(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
         test_file.write_text(
             dedent(
@@ -176,7 +221,8 @@ class TestMain:
         try:
             sys.argv = [
                 "matchify",
-                "--assume-pure-subjects",
+                "--assume",
+                "pure-subjects",
                 str(test_file),
             ]
             main()
@@ -185,6 +231,122 @@ class TestMain:
 
         assert "match (a.x, b.y):" in test_file.read_text(encoding="utf-8")
         assert "Converted:" in capsys.readouterr().out
+
+    def test_main_reports_required_assumption_for_skipped_chain(self, capsys, tmp_path):
+        test_file = tmp_path / "test.py"
+        source = dedent(
+            """
+            if value.i == 5:
+                print("i")
+            elif value.j == 6:
+                print("j")
+            """
+        ).strip()
+        test_file.write_text(source, encoding="utf-8")
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", str(test_file)]
+            main()
+        finally:
+            sys.argv = original_argv
+
+        output = capsys.readouterr().out
+        assert test_file.read_text(encoding="utf-8") == source
+        assert (
+            f"Info: {test_file}:1:1: if/elif chain requires --assume use-object"
+            in output
+        )
+        assert "0 converted, 1 unchanged, 0 errors" in output
+
+    def test_main_does_not_report_enabled_assumption(self, capsys, tmp_path):
+        test_file = tmp_path / "test.py"
+        test_file.write_text(
+            dedent(
+                """
+                if value.i == 5:
+                    print("i")
+                elif value.j == 6:
+                    print("j")
+                """
+            ).strip(),
+            encoding="utf-8",
+        )
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", "--assume", "use-object", str(test_file)]
+            main()
+        finally:
+            sys.argv = original_argv
+
+        output = capsys.readouterr().out
+        assert "requires --assume" not in output
+        assert "match value:" in test_file.read_text(encoding="utf-8")
+
+    def test_main_with_risky_enables_all_assumptions(self, capsys, tmp_path):
+        test_file = tmp_path / "test.py"
+        test_file.write_text(
+            dedent(
+                """
+                if a.x == 1 and b.y == 2:
+                    print("first")
+                elif a.x == 3 and b.y == 4:
+                    print("second")
+                """
+            ).strip(),
+            encoding="utf-8",
+        )
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", "--risky", str(test_file)]
+            main()
+        finally:
+            sys.argv = original_argv
+
+        assert "match (a.x, b.y):" in test_file.read_text(encoding="utf-8")
+        assert "Converted:" in capsys.readouterr().out
+
+    def test_main_with_safe_disables_risky_assumptions(self, capsys, tmp_path):
+        test_file = tmp_path / "test.py"
+        test_file.write_text(
+            dedent(
+                """
+                if a.x == 1 and b.y == 2:
+                    print("first")
+                elif a.x == 3 and b.y == 4:
+                    print("second")
+                """
+            ).strip(),
+            encoding="utf-8",
+        )
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", "--safe", str(test_file)]
+            main()
+        finally:
+            sys.argv = original_argv
+
+        assert "match a.x:" in test_file.read_text(encoding="utf-8")
+        assert "match (a.x, b.y):" not in test_file.read_text(encoding="utf-8")
+        assert "Converted:" in capsys.readouterr().out
+
+    def test_main_rejects_unknown_assumption(self, capsys, tmp_path):
+        test_file = tmp_path / "test.py"
+        test_file.write_text("print('x')", encoding="utf-8")
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", "--assume", "unknown", str(test_file)]
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+        finally:
+            sys.argv = original_argv
+
+        assert exc_info.value.code == 2
+        assert "Unknown risky assumption: unknown" in capsys.readouterr().err
 
     def test_module_entrypoint_with_single_file(self, capsys):
         """Test running the package module invokes the CLI entry point."""
