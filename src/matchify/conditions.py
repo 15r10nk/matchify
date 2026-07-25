@@ -205,15 +205,7 @@ def parse_membership_predicate(predicate: cst.Comparison) -> BoolExpr | None:
     if values is None:
         return None
     path = AccessPath.from_expression(predicate.left)
-    alternatives = tuple(
-        ValuePredicate(
-            path,
-            value,
-            predicate,
-            allow_nested_pattern=not is_qualified_value_expr(value),
-        )
-        for value in values
-    )
+    alternatives = tuple(value_predicate(path, value, predicate) for value in values)
     if len(alternatives) == 1:
         return alternatives[0]
     return OrExpr(alternatives, predicate)
@@ -242,17 +234,27 @@ def parse_value_predicate(
     if isinstance(target.operator, cst.Equal) and is_value_pattern_expr(
         target.comparator
     ):
-        return ValuePredicate(
-            AccessPath.from_expression(predicate.left),
-            target.comparator,
-            predicate,
-            allow_nested_pattern=not is_qualified_value_expr(target.comparator),
+        return value_predicate(
+            AccessPath.from_expression(predicate.left), target.comparator, predicate
         )
     if isinstance(target.operator, cst.Is) and is_singleton_name(target.comparator):
         return ValuePredicate(
             AccessPath.from_expression(predicate.left), target.comparator, predicate
         )
     return None
+
+
+def value_predicate(
+    path: AccessPath,
+    value: cst.BaseExpression,
+    original: cst.BaseExpression,
+) -> ValuePredicate:
+    return ValuePredicate(
+        path,
+        value,
+        original,
+        allow_nested_pattern=not is_qualified_value_expr(value),
+    )
 
 
 def select_subject_path(expr: BoolExpr) -> AccessPath | None:
