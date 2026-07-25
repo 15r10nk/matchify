@@ -191,7 +191,7 @@ def build_or_pattern(expr: OrExpr) -> PatternBuildResult:
         alternatives.append(result.facts)
         residuals.append(result.residual)
 
-    residuals = drop_common_implied_residuals(residuals, alternatives)
+    residuals = drop_implied_or_residuals(residuals, alternatives)
     residual = common_residual(residuals)
     if residual is _MIXED_RESIDUALS:
         return PatternBuildResult((), expr)
@@ -260,18 +260,18 @@ def residual_is_implied_by_facts(
     )
 
 
-def drop_common_implied_residuals(
+def drop_implied_or_residuals(
     residuals: list[BoolExpr | None],
     alternatives: list[tuple[PathFact, ...]],
 ) -> list[BoolExpr | None]:
-    if not residuals or not common_residual_is_implied_by_alternatives(
+    if not residuals or not all_residuals_are_implied_by_alternatives(
         residuals, alternatives
     ):
         return residuals
     return [None] * len(residuals)
 
 
-def common_residual_is_implied_by_alternatives(
+def all_residuals_are_implied_by_alternatives(
     residuals: list[BoolExpr | None],
     alternatives: list[tuple[PathFact, ...]],
 ) -> bool:
