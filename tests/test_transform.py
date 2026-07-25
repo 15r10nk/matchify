@@ -1500,7 +1500,7 @@ class TestTransformCode:
         check_code(source, expected)
 
     def test_f_string_sequence_element_check_becomes_guard(self):
-        """Test f-string sequence element comparisons stay guards."""
+        """F-string sequence element comparisons do not drive subject selection."""
         source = dedent(
             """
             value = [f"ready"]
@@ -1511,18 +1511,7 @@ class TestTransformCode:
         """
         ).strip()
 
-        expected = dedent(
-            """
-            value = [f"ready"]
-            match value:
-                case _, if value[0] == f"ready":
-                    print("ready")
-                case 0:
-                    print("zero")
-        """
-        ).strip()
-
-        check_code(source, expected)
+        check_code(source, source)
 
     def test_sequence_pattern_missing_index_not_converted(self):
         """Test that incomplete sequence patterns are not converted.
@@ -1683,7 +1672,7 @@ class TestTransformCode:
         check_code(source, expected)
 
     def test_sequence_pattern_with_variable_element_guard(self):
-        """Test subscript comparisons against variables stay guards."""
+        """Variable element comparisons do not drive sequence subject selection."""
         source = dedent(
             """
             expected = 1
@@ -1695,19 +1684,7 @@ class TestTransformCode:
         """
         ).strip()
 
-        expected = dedent(
-            """
-            expected = 1
-            point = (1, 2)
-            match point:
-                case _, _ if point[0] == expected:
-                    print("expected first")
-                case 0, _:
-                    print("zero")
-        """
-        ).strip()
-
-        check_code(source, expected)
+        check_code(source, source)
 
     def test_sequence_pattern_with_class_element_attributes(self):
         """Test class attributes on an element inside a sequence pattern."""

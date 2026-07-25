@@ -95,7 +95,6 @@ class HasAttrPredicate:
 @dataclass(frozen=True)
 class RawPredicate:
     original: cst.BaseExpression
-    path: AccessPath | None = None
 
 
 PathPredicate = (
@@ -158,17 +157,7 @@ def parse_predicate(
         if (parsed := parse_value_predicate(predicate)) is not None:
             return parsed
 
-    return RawPredicate(predicate, raw_predicate_path(predicate))
-
-
-def raw_predicate_path(predicate: cst.BaseExpression) -> AccessPath | None:
-    if is_isinstance_call(predicate):
-        return AccessPath.from_expression(predicate.args[0].value)
-    if not isinstance(predicate, cst.Comparison) or len(predicate.comparisons) != 1:
-        return None
-    if is_len_call(predicate.left):
-        return AccessPath.from_expression(predicate.left.args[0].value)
-    return AccessPath.from_expression(predicate.left)
+    return RawPredicate(predicate)
 
 
 def parse_hasattr_predicate(predicate: cst.BaseExpression) -> HasAttrPredicate | None:
@@ -368,11 +357,11 @@ def has_direct_sequence_element_check(expr: BoolExpr, subject: AccessPath) -> bo
         return all(
             has_direct_sequence_element_check(part, subject) for part in expr.parts
         )
-    if isinstance(expr, PathPredicate | RawPredicate):
+    if isinstance(expr, PathPredicate):
         path = expr.path
     else:
         return False
-    if path is None or not path.starts_with(subject) or path == subject:
+    if not path.starts_with(subject) or path == subject:
         return False
     return isinstance(path.parts[len(subject.parts)], SubscriptPathPart)
 
