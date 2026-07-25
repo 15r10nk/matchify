@@ -184,6 +184,12 @@ class AccessPath:
             raise ValueError("Cannot strip a path that is not a prefix")
         return AccessPath(self.root, self.parts[len(prefix.parts) :])
 
+    def first_part_after(self, prefix: AccessPath) -> AccessPathPart | None:
+        if not self.starts_with(prefix):
+            return None
+        index = len(prefix.parts)
+        return self.parts[index] if index < len(self.parts) else None
+
 
 @dataclass(frozen=True)
 class MatchSubjectPlan:

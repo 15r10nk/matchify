@@ -301,10 +301,7 @@ def sequence_path_has_element_fact(
     path: AccessPath, facts: tuple[PathFact, ...]
 ) -> bool:
     for fact in facts:
-        if not fact.path.starts_with(path) or fact.path == path:
-            continue
-        relative = fact.path.strip_prefix(path)
-        if isinstance(relative.first_part, SubscriptPathPart):
+        if isinstance(fact.path.first_part_after(path), SubscriptPathPart):
             return True
     return False
 

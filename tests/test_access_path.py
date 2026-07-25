@@ -51,6 +51,16 @@ def test_strip_prefix_rejects_a_non_prefix_path():
         path.strip_prefix(unrelated)
 
 
+def test_first_part_after_returns_suffix_boundary_part():
+    path = AccessPath.from_expression(parse_expression("items[0].value"))
+    subject = AccessPath.from_expression(parse_expression("items"))
+    unrelated = AccessPath.from_expression(parse_expression("other"))
+
+    assert path.first_part_after(subject) == SubscriptPathPart(0)
+    assert subject.first_part_after(subject) is None
+    assert path.first_part_after(unrelated) is None
+
+
 def test_dynamic_subscript_paths_preserve_their_expression_identity():
     left = AccessPath.from_expression(parse_expression("items[i]"))
     right = AccessPath.from_expression(parse_expression("items[j]"))

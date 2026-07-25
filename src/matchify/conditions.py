@@ -348,9 +348,7 @@ def has_direct_sequence_element_check(expr: BoolExpr, subject: AccessPath) -> bo
         path = expr.path
     else:
         return False
-    if not path.starts_with(subject) or path == subject:
-        return False
-    return isinstance(path.parts[len(subject.parts)], SubscriptPathPart)
+    return isinstance(path.first_part_after(subject), SubscriptPathPart)
 
 
 def find_value_subject_path(expr: BoolExpr) -> AccessPath | None:
