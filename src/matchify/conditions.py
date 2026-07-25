@@ -19,6 +19,7 @@ from .patterns import (
     is_isinstance_call,
     is_len_call,
     is_list_tuple_classes,
+    is_qualified_value_expr,
     is_singleton_name,
     is_value_pattern_expr,
 )
@@ -76,6 +77,7 @@ class EqualsPredicate:
     path: AccessPath
     value: cst.BaseExpression
     original: cst.BaseExpression
+    allow_nested_pattern: bool = True
 
 
 @dataclass(frozen=True)
@@ -257,7 +259,10 @@ def parse_value_predicate(
         target.comparator
     ):
         return EqualsPredicate(
-            AccessPath.from_expression(predicate.left), target.comparator, predicate
+            AccessPath.from_expression(predicate.left),
+            target.comparator,
+            predicate,
+            allow_nested_pattern=not is_qualified_value_expr(target.comparator),
         )
     if isinstance(target.operator, cst.Is) and is_singleton_name(target.comparator):
         return IsPredicate(

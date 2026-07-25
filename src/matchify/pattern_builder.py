@@ -39,7 +39,7 @@ from .facts import (
     SequenceFact,
     ValueFact,
 )
-from .patterns import is_class_pattern_expr, is_none_type_expr, is_qualified_value_expr
+from .patterns import is_class_pattern_expr, is_none_type_expr
 
 
 @dataclass(frozen=True)
@@ -242,7 +242,7 @@ def fact_from_value_predicate(
 ) -> ValueFact | None:
     if (
         isinstance(predicate, EqualsPredicate)
-        and is_qualified_value_expr(predicate.value)
+        and not predicate.allow_nested_pattern
         and not predicate.path.is_subject
     ):
         return None
