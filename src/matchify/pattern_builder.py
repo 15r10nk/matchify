@@ -19,8 +19,7 @@ from .conditions import (
     EqualsPredicate,
     IsInstancePredicate,
     IsPredicate,
-    LenAtLeastPredicate,
-    LenEqualsPredicate,
+    LenPredicate,
     OrExpr,
     PathPredicate,
     RawPredicate,
@@ -220,7 +219,7 @@ def fact_from_predicate(predicate: PathPredicate) -> PathFact | None:
         return fact_from_value_predicate(predicate)
     if isinstance(predicate, IsInstancePredicate):
         return fact_from_isinstance_predicate(predicate)
-    if isinstance(predicate, LenEqualsPredicate | LenAtLeastPredicate):
+    if isinstance(predicate, LenPredicate):
         return fact_from_len_predicate(predicate)
     return None
 
@@ -245,12 +244,8 @@ def fact_from_isinstance_predicate(
     return ClassFact(predicate.path, predicate.classes)
 
 
-def fact_from_len_predicate(
-    predicate: LenEqualsPredicate | LenAtLeastPredicate,
-) -> SequenceFact:
-    if isinstance(predicate, LenEqualsPredicate):
-        return SequenceFact(predicate.path, predicate.length)
-    return SequenceFact(predicate.path, predicate.minimum, use_star=True)
+def fact_from_len_predicate(predicate: LenPredicate) -> SequenceFact:
+    return SequenceFact(predicate.path, predicate.length, predicate.use_star)
 
 
 def is_sequence_type_predicate(expr: BoolExpr | None) -> bool:
@@ -261,9 +256,7 @@ def sequence_type_has_len_fact(
     predicate: IsInstancePredicate, parts: tuple[BoolExpr, ...]
 ) -> bool:
     return any(
-        isinstance(part, LenEqualsPredicate | LenAtLeastPredicate)
-        and part.path == predicate.path
-        for part in parts
+        isinstance(part, LenPredicate) and part.path == predicate.path for part in parts
     )
 
 

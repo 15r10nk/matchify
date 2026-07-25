@@ -45,16 +45,10 @@ class IsInstancePredicate:
 
 
 @dataclass(frozen=True)
-class LenEqualsPredicate:
+class LenPredicate:
     path: AccessPath
     length: int
-    original: cst.BaseExpression
-
-
-@dataclass(frozen=True)
-class LenAtLeastPredicate:
-    path: AccessPath
-    minimum: int
+    use_star: bool
     original: cst.BaseExpression
 
 
@@ -87,8 +81,7 @@ class RawPredicate:
 
 PathPredicate = (
     IsInstancePredicate
-    | LenEqualsPredicate
-    | LenAtLeastPredicate
+    | LenPredicate
     | EqualsPredicate
     | IsPredicate
     | HasAttrPredicate
@@ -196,7 +189,7 @@ def parse_isinstance_predicate(
 
 def parse_len_predicate(
     predicate: cst.Comparison,
-) -> LenEqualsPredicate | LenAtLeastPredicate | None:
+) -> LenPredicate | None:
     if not is_len_call(predicate.left):
         return None
     len_call = predicate.left
@@ -206,13 +199,13 @@ def parse_len_predicate(
     length = int(target.comparator.value)
     if isinstance(target.operator, cst.Equal):
         expression = len_call.args[0].value
-        return LenEqualsPredicate(
-            AccessPath.from_expression(expression), length, predicate
+        return LenPredicate(
+            AccessPath.from_expression(expression), length, False, predicate
         )
     if isinstance(target.operator, cst.GreaterThanEqual):
         expression = len_call.args[0].value
-        return LenAtLeastPredicate(
-            AccessPath.from_expression(expression), length, predicate
+        return LenPredicate(
+            AccessPath.from_expression(expression), length, True, predicate
         )
     return None
 
@@ -346,7 +339,7 @@ def find_isinstance_subject_path(
 def find_sequence_subject_path(expr: BoolExpr) -> AccessPath | None:
     parts = tuple(iter_and_parts(expr))
     for part in parts:
-        if not isinstance(part, LenEqualsPredicate | LenAtLeastPredicate):
+        if not isinstance(part, LenPredicate):
             continue
         if any(has_direct_sequence_element_check(other, part.path) for other in parts):
             return part.path
@@ -454,7 +447,7 @@ def checked_pattern_paths(expr: BoolExpr) -> set[AccessPath]:
         return merged if len(merged) == 1 else set()
     if isinstance(expr, IsInstancePredicate):
         return {expr.path} if expr.path.is_bound else set()
-    if isinstance(expr, LenEqualsPredicate | LenAtLeastPredicate):
+    if isinstance(expr, LenPredicate):
         return {expr.path} if expr.path.is_bound else set()
     if not isinstance(expr, EqualsPredicate | IsPredicate) or not expr.path.is_bound:
         return set()
