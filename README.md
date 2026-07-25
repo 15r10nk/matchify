@@ -147,14 +147,14 @@ match node:
 # Before
 if len(point) == 2 and point[0] == 0 and point[1] == 1:
     print("origin offset")
-elif len(point) == 2:
+elif len(point) == 2 and point[0] == 1:
     print("other pair")
 
 # After
 match point:
     case 0, 1:
         print("origin offset")
-    case _, _:
+    case 1, _:
         print("other pair")
 ```
 
