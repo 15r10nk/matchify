@@ -66,6 +66,7 @@ def test_dynamic_subscript_paths_preserve_their_expression_identity():
     right = AccessPath.from_expression(parse_expression("items[j]"))
     sliced = AccessPath.from_expression(parse_expression("items[0:1]"))
 
+    assert left.contains_subscript
     assert left != right
     assert left != sliced
     assert right != sliced

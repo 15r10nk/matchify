@@ -165,6 +165,10 @@ class AccessPath:
         )
 
     @property
+    def contains_subscript(self) -> bool:
+        return any(isinstance(part, SubscriptPathPart) for part in self.parts)
+
+    @property
     def first_part(self) -> AccessPathPart | None:
         return self.parts[0] if self.parts else None
 

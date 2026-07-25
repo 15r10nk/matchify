@@ -333,7 +333,7 @@ def find_isinstance_subject_path(
 ) -> AccessPath | None:
     for part in iter_and_parts(expr):
         if isinstance(part, IsInstancePredicate):
-            if include_subscripts or not path_contains_subscript(part.path):
+            if include_subscripts or not part.path.contains_subscript:
                 return part.path
     return None
 
@@ -368,16 +368,12 @@ def find_value_subject_path(expr: BoolExpr) -> AccessPath | None:
     for part in iter_and_parts(expr):
         if isinstance(part, OrExpr):
             subject = select_subject_path(part)
-            if subject is not None and not path_contains_subscript(subject):
+            if subject is not None and not subject.contains_subscript:
                 return subject
             continue
-        if isinstance(part, ValuePredicate) and not path_contains_subscript(part.path):
+        if isinstance(part, ValuePredicate) and not part.path.contains_subscript:
             return part.path
     return None
-
-
-def path_contains_subscript(path: AccessPath) -> bool:
-    return any(isinstance(part, SubscriptPathPart) for part in path.parts)
 
 
 def iter_and_parts(expr: BoolExpr) -> tuple[BoolExpr, ...]:
