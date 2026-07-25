@@ -18,7 +18,6 @@ from .patterns import (
     flatten_boolean,
     is_isinstance_call,
     is_len_call,
-    is_list_tuple_classes,
     is_qualified_value_expr,
     is_singleton_name,
     is_value_pattern_expr,
@@ -55,13 +54,6 @@ class LenEqualsPredicate:
 class LenAtLeastPredicate:
     path: AccessPath
     minimum: int
-    original: cst.BaseExpression
-
-
-@dataclass(frozen=True)
-class SequenceTypePredicate:
-    path: AccessPath
-    classes: tuple[cst.BaseExpression, ...]
     original: cst.BaseExpression
 
 
@@ -103,7 +95,6 @@ PathPredicate = (
     IsInstancePredicate
     | LenEqualsPredicate
     | LenAtLeastPredicate
-    | SequenceTypePredicate
     | MembershipPredicate
     | EqualsPredicate
     | IsPredicate
@@ -185,15 +176,10 @@ def parse_hasattr_predicate(predicate: cst.BaseExpression) -> HasAttrPredicate |
 def parse_isinstance_predicate(
     predicate: cst.Call,
     ignore_types_pattern: str | None,
-) -> IsInstancePredicate | SequenceTypePredicate | None:
+) -> IsInstancePredicate | None:
     classes = extract_isinstance_classes(predicate.args[1].value, ignore_types_pattern)
     if classes is None:
         return None
-    if is_list_tuple_classes(classes):
-        expression = predicate.args[0].value
-        return SequenceTypePredicate(
-            AccessPath.from_expression(expression), classes, predicate
-        )
     expression = predicate.args[0].value
     return IsInstancePredicate(
         AccessPath.from_expression(expression), classes, predicate
@@ -291,8 +277,6 @@ def select_subject_path(expr: BoolExpr) -> AccessPath | None:
             return subject
         return find_isinstance_subject_path(expr, include_subscripts=True)
     if isinstance(expr, IsInstancePredicate):
-        return expr.path
-    if isinstance(expr, SequenceTypePredicate):
         return expr.path
     if isinstance(expr, MembershipPredicate):
         return expr.path
@@ -436,11 +420,7 @@ def condition_is_implied(
         return any(
             path == expr.path or path.starts_with(expr.path) for path in checked_paths
         )
-    return bool(
-        isinstance(expr, SequenceTypePredicate)
-        and expr.path.is_subject
-        and expr.path in checked_paths
-    )
+    return False
 
 
 def checked_pattern_paths(expr: BoolExpr) -> set[AccessPath]:

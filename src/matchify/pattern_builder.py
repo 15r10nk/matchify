@@ -25,7 +25,6 @@ from .conditions import (
     OrExpr,
     Predicate,
     RawPredicate,
-    SequenceTypePredicate,
     bind_condition_subject,
     remove_implied_checks,
     residual_condition,
@@ -39,7 +38,7 @@ from .facts import (
     SequenceFact,
     ValueFact,
 )
-from .patterns import is_class_pattern_expr, is_none_type_expr
+from .patterns import is_class_pattern_expr, is_list_tuple_classes, is_none_type_expr
 
 
 @dataclass(frozen=True)
@@ -155,7 +154,7 @@ def build_and_pattern(expr: AndExpr) -> PatternBuildResult:
     class_paths: set[AccessPath] = set()
 
     for part in expr.parts:
-        if isinstance(part, SequenceTypePredicate) and sequence_type_has_len_fact(
+        if is_sequence_type_predicate(part) and sequence_type_has_len_fact(
             part, expr.parts
         ):
             residuals.append(part)
@@ -216,8 +215,6 @@ def build_or_pattern(expr: OrExpr) -> PatternBuildResult:
 def fact_from_predicate(predicate: Predicate) -> PathFact | None:
     if isinstance(predicate, RawPredicate):
         return None
-    if isinstance(predicate, SequenceTypePredicate):
-        return fact_from_sequence_type_predicate(predicate)
     if not predicate.path.is_patternable:
         return None
     if isinstance(predicate, EqualsPredicate | IsPredicate):
@@ -229,12 +226,6 @@ def fact_from_predicate(predicate: Predicate) -> PathFact | None:
     if isinstance(predicate, LenEqualsPredicate | LenAtLeastPredicate):
         return fact_from_len_predicate(predicate)
     return None
-
-
-def fact_from_sequence_type_predicate(
-    predicate: SequenceTypePredicate,
-) -> ClassFact:
-    return ClassFact(predicate.path, predicate.classes)
 
 
 def fact_from_value_predicate(
@@ -293,8 +284,12 @@ def fact_from_len_predicate(
     return SequenceFact(predicate.path, predicate.minimum, use_star=True)
 
 
+def is_sequence_type_predicate(expr: BoolExpr | None) -> bool:
+    return isinstance(expr, IsInstancePredicate) and is_list_tuple_classes(expr.classes)
+
+
 def sequence_type_has_len_fact(
-    predicate: SequenceTypePredicate, parts: tuple[BoolExpr, ...]
+    predicate: IsInstancePredicate, parts: tuple[BoolExpr, ...]
 ) -> bool:
     return any(
         isinstance(part, LenEqualsPredicate | LenAtLeastPredicate)
@@ -310,7 +305,7 @@ def drop_redundant_sequence_type_residuals(
         residual
         for residual in residuals
         if not (
-            isinstance(residual, SequenceTypePredicate)
+            is_sequence_type_predicate(residual)
             and sequence_path_has_element_fact(residual.path, facts)
         )
     ]
@@ -321,10 +316,12 @@ def drop_common_sequence_type_residuals(
     alternatives: list[tuple[PathFact, ...]],
 ) -> list[BoolExpr | None]:
     if not residuals or any(
-        not isinstance(residual, SequenceTypePredicate) for residual in residuals
+        not is_sequence_type_predicate(residual) for residual in residuals
     ):
         return residuals
     first = residuals[0]
+    if not isinstance(first, IsInstancePredicate):
+        return residuals
     if not all(residual.path == first.path for residual in residuals):
         return residuals
     if not all(
