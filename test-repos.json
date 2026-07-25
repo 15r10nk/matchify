@@ -5,7 +5,7 @@
     "clone_args": ["--depth", "1"],
     "paths": ["rest_framework"],
     "exclude_paths": [],
-    "matchify_args": ["-j", "1"],
+    "matchify_args": [],
     "setup_commands": [
       ["uv", "venv", "--python", "3.13"],
       [
@@ -35,7 +35,7 @@
     "clone_args": ["--depth", "1"],
     "paths": ["libcst"],
     "exclude_paths": ["libcst/_parser"],
-    "matchify_args": ["-j", "1"],
+    "matchify_args": [],
     "setup_commands": [
       ["uv", "sync", "--group", "dev"]
     ],
@@ -53,7 +53,7 @@
     "clone_args": ["--depth", "1"],
     "paths": ["mypy", "mypyc"],
     "exclude_paths": [],
-    "matchify_args": ["-j", "1"],
+    "matchify_args": [],
     "setup_commands": [
       ["uv", "venv"],
       ["uv", "pip", "install", "-r", "test-requirements.txt", "-e", "."]
@@ -71,7 +71,7 @@
     "clone_args": ["--depth", "1"],
     "paths": ["Lib", "Tools"],
     "exclude_paths": ["Lib/test"],
-    "matchify_args": ["-j", "1"],
+    "matchify_args": [],
     "setup_commands": [
       ["./configure", "--quiet"],
       ["make", "-j2"]
@@ -87,7 +87,7 @@
     "clone_args": ["--depth", "1"],
     "paths": ["homeassistant"],
     "exclude_paths": [],
-    "matchify_args": ["-j", "1"],
+    "matchify_args": [],
     "setup_commands": [
       ["uv", "venv", "--python", "3.14.2"],
       ["uv", "pip", "install", "-r", "requirements_test.txt", "-e", "."]
