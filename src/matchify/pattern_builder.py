@@ -21,7 +21,6 @@ from .conditions import (
     IsPredicate,
     LenAtLeastPredicate,
     LenEqualsPredicate,
-    MembershipPredicate,
     OrExpr,
     PathPredicate,
     RawPredicate,
@@ -219,8 +218,6 @@ def fact_from_predicate(predicate: PathPredicate) -> PathFact | None:
         return None
     if isinstance(predicate, EqualsPredicate | IsPredicate):
         return fact_from_value_predicate(predicate)
-    if isinstance(predicate, MembershipPredicate):
-        return fact_from_membership_predicate(predicate)
     if isinstance(predicate, IsInstancePredicate):
         return fact_from_isinstance_predicate(predicate)
     if isinstance(predicate, LenEqualsPredicate | LenAtLeastPredicate):
@@ -238,14 +235,6 @@ def fact_from_value_predicate(
     ):
         return None
     return ValueFact(predicate.path, predicate.value)
-
-
-def fact_from_membership_predicate(predicate: MembershipPredicate) -> OrFact:
-    relative_path = predicate.path.strip_prefix(predicate.path)
-    return OrFact(
-        predicate.path,
-        tuple((ValueFact(relative_path, value),) for value in predicate.values),
-    )
 
 
 def fact_from_isinstance_predicate(

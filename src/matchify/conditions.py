@@ -59,13 +59,6 @@ class LenAtLeastPredicate:
 
 
 @dataclass(frozen=True)
-class MembershipPredicate:
-    path: AccessPath
-    values: tuple[cst.BaseExpression, ...]
-    original: cst.BaseExpression
-
-
-@dataclass(frozen=True)
 class EqualsPredicate:
     path: AccessPath
     value: cst.BaseExpression
@@ -96,7 +89,6 @@ PathPredicate = (
     IsInstancePredicate
     | LenEqualsPredicate
     | LenAtLeastPredicate
-    | MembershipPredicate
     | EqualsPredicate
     | IsPredicate
     | HasAttrPredicate
@@ -221,16 +213,26 @@ def parse_len_predicate(
     return None
 
 
-def parse_membership_predicate(predicate: cst.Comparison) -> MembershipPredicate | None:
+def parse_membership_predicate(predicate: cst.Comparison) -> BoolExpr | None:
     target = predicate.comparisons[0]
     if not isinstance(target.operator, cst.In):
         return None
     values = extract_literal_membership_values(target.comparator)
     if values is None:
         return None
-    return MembershipPredicate(
-        AccessPath.from_expression(predicate.left), values, predicate
+    path = AccessPath.from_expression(predicate.left)
+    alternatives = tuple(
+        EqualsPredicate(
+            path,
+            value,
+            predicate,
+            allow_nested_pattern=not is_qualified_value_expr(value),
+        )
+        for value in values
     )
+    if len(alternatives) == 1:
+        return alternatives[0]
+    return OrExpr(alternatives, predicate)
 
 
 def extract_literal_membership_values(
@@ -289,8 +291,6 @@ def select_subject_path(expr: BoolExpr) -> AccessPath | None:
             return subject
         return find_isinstance_subject_path(expr, include_subscripts=True)
     if isinstance(expr, IsInstancePredicate):
-        return expr.path
-    if isinstance(expr, MembershipPredicate):
         return expr.path
     if isinstance(expr, EqualsPredicate | IsPredicate):
         return expr.path
@@ -452,10 +452,7 @@ def checked_pattern_paths(expr: BoolExpr) -> set[AccessPath]:
         return {expr.path} if expr.path.is_bound else set()
     if isinstance(expr, LenEqualsPredicate | LenAtLeastPredicate):
         return {expr.path} if expr.path.is_bound else set()
-    if (
-        not isinstance(expr, EqualsPredicate | IsPredicate | MembershipPredicate)
-        or not expr.path.is_bound
-    ):
+    if not isinstance(expr, EqualsPredicate | IsPredicate) or not expr.path.is_bound:
         return set()
     return (
         {expr.path}
