@@ -153,11 +153,9 @@ def parse_isinstance_predicate(
     classes = extract_isinstance_classes(predicate.args[1].value, ignore_types_pattern)
     if classes is None:
         return None
-    expression = predicate.args[0].value
-    path = AccessPath.from_expression(expression)
-    class_predicate = IsInstancePredicate(path, classes, predicate)
+    path = AccessPath.from_expression(predicate.args[0].value)
     if not any(is_none_type_expr(class_expr) for class_expr in classes):
-        return class_predicate
+        return IsInstancePredicate(path, classes, predicate)
 
     none_predicate = ValuePredicate(path, cst.Name("None"), predicate)
     remaining_classes = tuple(
