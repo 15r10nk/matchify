@@ -36,11 +36,6 @@ class IfBranch(NamedTuple):
         """Whether this branch compiles to `case _`."""
         return self.facts.pattern is None
 
-    @property
-    def contributes_pattern(self) -> bool:
-        """Whether this branch contributes structural pattern facts."""
-        return not self.is_wildcard_case
-
 
 class IfChain(NamedTuple):
     """A normalized if/elif/else chain, independent from LibCST navigation quirks."""
@@ -114,12 +109,10 @@ class IfChainCompiler:
         if branches is None:
             return None
 
-        if not any(branch.contributes_pattern for branch in branches):
+        if not any(not branch.is_wildcard_case for branch in branches):
             return None
-        if chain_would_emit_too_many_wildcards(
-            branches,
-            has_else=else_body is not None,
-        ):
+        wildcard_case_count = sum(branch.is_wildcard_case for branch in branches)
+        if wildcard_case_count + int(else_body is not None) > 1:
             return None
         return IfChain(
             subject=subject,
@@ -242,10 +235,3 @@ class IfChainCompiler:
                 cst.SimpleWhitespace("") if guard is None else cst.SimpleWhitespace(" ")
             ),
         )
-
-
-def chain_would_emit_too_many_wildcards(
-    branches: Sequence[IfBranch], *, has_else: bool
-) -> bool:
-    wildcard_case_count = sum(branch.is_wildcard_case for branch in branches)
-    return wildcard_case_count + int(has_else) > 1
