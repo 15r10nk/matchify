@@ -275,17 +275,13 @@ def common_residual_is_implied_by_alternatives(
     residuals: list[BoolExpr | None],
     alternatives: list[tuple[PathFact, ...]],
 ) -> bool:
-    if any(not is_sequence_pattern_type_check(residual) for residual in residuals):
-        return False
-    first = residuals[0]
-    if not isinstance(first, IsInstancePredicate):
-        return False
-    return all(residual.path == first.path for residual in residuals) and all(
-        any(
-            isinstance(fact, SequenceFact) and fact.path == first.path
-            for fact in alternative
+    return all(
+        residual is not None and residual_is_implied_by_facts(residual, facts)
+        for residual, facts in zip(
+            residuals,
+            alternatives,
+            strict=True,
         )
-        for alternative in alternatives
     )
 
 
