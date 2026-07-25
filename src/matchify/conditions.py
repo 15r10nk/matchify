@@ -407,20 +407,26 @@ def remove_implied_checks(expr: BoolExpr) -> BoolExpr:
     parts = tuple(remove_implied_checks(part) for part in expr.parts)
     checked_paths = {path for part in parts for path in checked_pattern_paths(part)}
     return AndExpr(
-        tuple(part for part in parts if not condition_is_implied(part, checked_paths)),
+        tuple(
+            part
+            for part in parts
+            if not hasattr_predicate_is_implied(part, checked_paths)
+        ),
         expr.original,
     )
 
 
-def condition_is_implied(
+def hasattr_predicate_is_implied(
     expr: BoolExpr,
     checked_paths: set[AccessPath],
 ) -> bool:
-    if isinstance(expr, HasAttrPredicate) and expr.path.is_bound:
-        return any(
+    return bool(
+        isinstance(expr, HasAttrPredicate)
+        and expr.path.is_bound
+        and any(
             path == expr.path or path.starts_with(expr.path) for path in checked_paths
         )
-    return False
+    )
 
 
 def checked_pattern_paths(expr: BoolExpr) -> set[AccessPath]:
