@@ -175,19 +175,23 @@ def parse_isinstance_predicate(
         return None
     expression = predicate.args[0].value
     path = AccessPath.from_expression(expression)
+    class_predicate = IsInstancePredicate(path, classes, predicate)
+    if not any(is_none_type_expr(class_expr) for class_expr in classes):
+        return class_predicate
+
     none_predicate = IsPredicate(path, cst.Name("None"), predicate)
-    class_predicate = IsInstancePredicate(
-        path,
-        tuple(
-            class_expr for class_expr in classes if not is_none_type_expr(class_expr)
+    remaining_classes = tuple(
+        class_expr for class_expr in classes if not is_none_type_expr(class_expr)
+    )
+    if not remaining_classes:
+        return none_predicate
+    return OrExpr(
+        (
+            none_predicate,
+            IsInstancePredicate(path, remaining_classes, predicate),
         ),
         predicate,
     )
-    if len(class_predicate.classes) == len(classes):
-        return class_predicate
-    if not class_predicate.classes:
-        return none_predicate
-    return OrExpr((none_predicate, class_predicate), predicate)
 
 
 def parse_len_predicate(
