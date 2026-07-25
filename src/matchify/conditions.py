@@ -158,7 +158,7 @@ def parse_isinstance_predicate(
     if not has_none_type:
         return IsInstancePredicate(path, classes, predicate)
 
-    none_predicate = ValuePredicate(path, cst.Name("None"), predicate)
+    none_predicate = value_predicate(path, cst.Name("None"), predicate)
     if not remaining_classes:
         return none_predicate
     return OrExpr(
@@ -251,7 +251,7 @@ def parse_value_predicate(
             AccessPath.from_expression(predicate.left), target.comparator, predicate
         )
     if isinstance(target.operator, cst.Is) and is_singleton_name(target.comparator):
-        return ValuePredicate(
+        return value_predicate(
             AccessPath.from_expression(predicate.left), target.comparator, predicate
         )
     return None
