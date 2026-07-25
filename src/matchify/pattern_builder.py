@@ -153,9 +153,7 @@ def build_and_pattern(expr: AndExpr) -> PatternBuildResult:
     class_paths: set[AccessPath] = set()
 
     for part in expr.parts:
-        if is_sequence_type_predicate(part) and sequence_type_has_len_fact(
-            part, expr.parts
-        ):
+        if is_sequence_pattern_type_check(part) and has_len_fact(part, expr.parts):
             residuals.append(part)
             continue
         if isinstance(part, IsInstancePredicate) and part.path in class_paths:
@@ -172,7 +170,7 @@ def build_and_pattern(expr: AndExpr) -> PatternBuildResult:
     ordered_facts = tuple(
         sorted(facts, key=lambda fact: (len(fact.path.parts), fact_priority(fact)))
     )
-    residuals = drop_redundant_sequence_type_residuals(residuals, ordered_facts)
+    residuals = drop_redundant_residuals(residuals, ordered_facts)
     residual = None
     if len(residuals) == 1:
         residual = residuals[0]
@@ -193,7 +191,7 @@ def build_or_pattern(expr: OrExpr) -> PatternBuildResult:
         alternatives.append(result.facts)
         residuals.append(result.residual)
 
-    residuals = drop_common_sequence_type_residuals(residuals, alternatives)
+    residuals = drop_common_implied_residuals(residuals, alternatives)
     residual = common_residual(residuals)
     if residual is _MIXED_RESIDUALS:
         return PatternBuildResult((), expr)
@@ -241,53 +239,62 @@ def fact_from_len_predicate(predicate: LenPredicate) -> SequenceFact:
     return SequenceFact(predicate.path, predicate.length, predicate.use_star)
 
 
-def is_sequence_type_predicate(expr: BoolExpr | None) -> bool:
+def is_sequence_pattern_type_check(expr: BoolExpr | None) -> bool:
     return isinstance(expr, IsInstancePredicate) and is_list_tuple_classes(expr.classes)
 
 
-def sequence_type_has_len_fact(
-    predicate: IsInstancePredicate, parts: tuple[BoolExpr, ...]
-) -> bool:
+def has_len_fact(predicate: IsInstancePredicate, parts: tuple[BoolExpr, ...]) -> bool:
     return any(
         isinstance(part, LenPredicate) and part.path == predicate.path for part in parts
     )
 
 
-def drop_redundant_sequence_type_residuals(
+def drop_redundant_residuals(
     residuals: list[BoolExpr], facts: tuple[PathFact, ...]
 ) -> list[BoolExpr]:
     return [
         residual
         for residual in residuals
-        if not (
-            is_sequence_type_predicate(residual)
-            and sequence_path_has_element_fact(residual.path, facts)
-        )
+        if not residual_is_implied_by_facts(residual, facts)
     ]
 
 
-def drop_common_sequence_type_residuals(
+def residual_is_implied_by_facts(
+    residual: BoolExpr, facts: tuple[PathFact, ...]
+) -> bool:
+    return bool(
+        is_sequence_pattern_type_check(residual)
+        and sequence_path_has_element_fact(residual.path, facts)
+    )
+
+
+def drop_common_implied_residuals(
     residuals: list[BoolExpr | None],
     alternatives: list[tuple[PathFact, ...]],
 ) -> list[BoolExpr | None]:
-    if not residuals or any(
-        not is_sequence_type_predicate(residual) for residual in residuals
+    if not residuals or not common_residual_is_implied_by_alternatives(
+        residuals, alternatives
     ):
         return residuals
+    return [None] * len(residuals)
+
+
+def common_residual_is_implied_by_alternatives(
+    residuals: list[BoolExpr | None],
+    alternatives: list[tuple[PathFact, ...]],
+) -> bool:
+    if any(not is_sequence_pattern_type_check(residual) for residual in residuals):
+        return False
     first = residuals[0]
     if not isinstance(first, IsInstancePredicate):
-        return residuals
-    if not all(residual.path == first.path for residual in residuals):
-        return residuals
-    if not all(
+        return False
+    return all(residual.path == first.path for residual in residuals) and all(
         any(
             isinstance(fact, SequenceFact) and fact.path == first.path
             for fact in alternative
         )
         for alternative in alternatives
-    ):
-        return residuals
-    return [None] * len(residuals)
+    )
 
 
 def sequence_path_has_element_fact(
