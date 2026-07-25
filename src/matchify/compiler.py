@@ -36,6 +36,11 @@ class IfBranch(NamedTuple):
         """Whether this branch compiles to `case _`."""
         return self.facts.pattern is None
 
+    @property
+    def contributes_pattern(self) -> bool:
+        """Whether this branch contributes structural pattern facts."""
+        return not self.is_wildcard_case
+
 
 class IfChain(NamedTuple):
     """A normalized if/elif/else chain, independent from LibCST navigation quirks."""
@@ -105,27 +110,11 @@ class IfChainCompiler:
         if subject is None:
             return None
 
-        branches: list[IfBranch] = []
-        for branch in parsed_branches:
-            if not is_safe_condition(
-                branch.test,
-                subject,
-                ignore_types_pattern=self.ignore_types_pattern,
-            ):
-                return None
-            branches.append(
-                IfBranch(
-                    branch.body,
-                    branch.leading_lines,
-                    normalize_condition(
-                        branch.condition,
-                        subject,
-                        allow_object_anchors=self.assume_pure_subjects,
-                    ),
-                )
-            )
+        branches = self._analyze_branches(parsed_branches, subject)
+        if branches is None:
+            return None
 
-        if not any(not branch.is_wildcard_case for branch in branches):
+        if not any(branch.contributes_pattern for branch in branches):
             return None
         if chain_would_emit_too_many_wildcards(
             branches,
@@ -162,6 +151,33 @@ class IfChainCompiler:
         return MatchSubjectPlan.from_aligned_candidates(
             tuple(candidate for candidate in candidates if candidate is not None)
         )
+
+    def _analyze_branches(
+        self, branches: Sequence[ParsedBranch], subject: MatchSubjectPlan
+    ) -> tuple[IfBranch, ...] | None:
+        analyzed: list[IfBranch] = []
+        for branch in branches:
+            analyzed_branch = self._analyze_branch(branch, subject)
+            if analyzed_branch is None:
+                return None
+            analyzed.append(analyzed_branch)
+        return tuple(analyzed)
+
+    def _analyze_branch(
+        self, branch: ParsedBranch, subject: MatchSubjectPlan
+    ) -> IfBranch | None:
+        if not is_safe_condition(
+            branch.test,
+            subject,
+            ignore_types_pattern=self.ignore_types_pattern,
+        ):
+            return None
+        facts = normalize_condition(
+            branch.condition,
+            subject,
+            allow_object_anchors=self.assume_pure_subjects,
+        )
+        return IfBranch(branch.body, branch.leading_lines, facts)
 
     def compile(
         self, chain: IfChain, leading_lines: tuple[cst.EmptyLine, ...]
