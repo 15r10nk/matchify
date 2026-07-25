@@ -109,7 +109,7 @@ def complete_pattern_parents(
     return tuple(
         sorted(
             (*inferred, *facts),
-            key=lambda fact: (len(fact.path.parts), fact_priority(fact)),
+            key=fact_sort_key,
         )
     )
 
@@ -167,9 +167,7 @@ def build_and_pattern(expr: AndExpr) -> PatternBuildResult:
         if result.residual is not None:
             residuals.append(result.residual)
 
-    ordered_facts = tuple(
-        sorted(facts, key=lambda fact: (len(fact.path.parts), fact_priority(fact)))
-    )
+    ordered_facts = tuple(sorted(facts, key=fact_sort_key))
     residuals = drop_redundant_residuals(residuals, ordered_facts)
     residual = None
     if len(residuals) == 1:
@@ -307,8 +305,8 @@ def sequence_path_has_anchor_fact(
     return any(isinstance(fact, SequenceFact) and fact.path == path for fact in facts)
 
 
-def fact_priority(fact: PathFact) -> int:
-    return 0 if fact_is_anchor(fact) else 1
+def fact_sort_key(fact: PathFact) -> tuple[int, int]:
+    return len(fact.path.parts), 0 if fact_is_anchor(fact) else 1
 
 
 def fact_is_anchor(fact: PathFact) -> bool:
