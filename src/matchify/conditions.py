@@ -53,18 +53,11 @@ class LenPredicate:
 
 
 @dataclass(frozen=True)
-class EqualsPredicate:
+class ValuePredicate:
     path: AccessPath
     value: cst.BaseExpression
     original: cst.BaseExpression
     allow_nested_pattern: bool = True
-
-
-@dataclass(frozen=True)
-class IsPredicate:
-    path: AccessPath
-    value: cst.BaseExpression
-    original: cst.BaseExpression
 
 
 @dataclass(frozen=True)
@@ -79,13 +72,7 @@ class RawPredicate:
     original: cst.BaseExpression
 
 
-PathPredicate = (
-    IsInstancePredicate
-    | LenPredicate
-    | EqualsPredicate
-    | IsPredicate
-    | HasAttrPredicate
-)
+PathPredicate = IsInstancePredicate | LenPredicate | ValuePredicate | HasAttrPredicate
 Predicate = PathPredicate | RawPredicate
 BoolExpr = AndExpr | OrExpr | Predicate
 
@@ -172,7 +159,7 @@ def parse_isinstance_predicate(
     if not any(is_none_type_expr(class_expr) for class_expr in classes):
         return class_predicate
 
-    none_predicate = IsPredicate(path, cst.Name("None"), predicate)
+    none_predicate = ValuePredicate(path, cst.Name("None"), predicate)
     remaining_classes = tuple(
         class_expr for class_expr in classes if not is_none_type_expr(class_expr)
     )
@@ -219,7 +206,7 @@ def parse_membership_predicate(predicate: cst.Comparison) -> BoolExpr | None:
         return None
     path = AccessPath.from_expression(predicate.left)
     alternatives = tuple(
-        EqualsPredicate(
+        ValuePredicate(
             path,
             value,
             predicate,
@@ -250,19 +237,19 @@ def extract_literal_membership_values(
 
 def parse_value_predicate(
     predicate: cst.Comparison,
-) -> EqualsPredicate | IsPredicate | None:
+) -> ValuePredicate | None:
     target = predicate.comparisons[0]
     if isinstance(target.operator, cst.Equal) and is_value_pattern_expr(
         target.comparator
     ):
-        return EqualsPredicate(
+        return ValuePredicate(
             AccessPath.from_expression(predicate.left),
             target.comparator,
             predicate,
             allow_nested_pattern=not is_qualified_value_expr(target.comparator),
         )
     if isinstance(target.operator, cst.Is) and is_singleton_name(target.comparator):
-        return IsPredicate(
+        return ValuePredicate(
             AccessPath.from_expression(predicate.left), target.comparator, predicate
         )
     return None
@@ -289,7 +276,7 @@ def select_subject_path(expr: BoolExpr) -> AccessPath | None:
         return find_isinstance_subject_path(expr, include_subscripts=True)
     if isinstance(expr, IsInstancePredicate):
         return expr.path
-    if isinstance(expr, EqualsPredicate | IsPredicate):
+    if isinstance(expr, ValuePredicate):
         return expr.path
     return None
 
@@ -371,9 +358,7 @@ def find_value_subject_path(expr: BoolExpr) -> AccessPath | None:
             if subject is not None and not path_contains_subscript(subject):
                 return subject
             continue
-        if isinstance(
-            part, EqualsPredicate | IsPredicate
-        ) and not path_contains_subscript(part.path):
+        if isinstance(part, ValuePredicate) and not path_contains_subscript(part.path):
             return part.path
     return None
 
@@ -449,7 +434,7 @@ def checked_pattern_paths(expr: BoolExpr) -> set[AccessPath]:
         return {expr.path} if expr.path.is_bound else set()
     if isinstance(expr, LenPredicate):
         return {expr.path} if expr.path.is_bound else set()
-    if not isinstance(expr, EqualsPredicate | IsPredicate) or not expr.path.is_bound:
+    if not isinstance(expr, ValuePredicate) or not expr.path.is_bound:
         return set()
     return (
         {expr.path}

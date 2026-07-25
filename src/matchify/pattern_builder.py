@@ -16,13 +16,12 @@ from .access_path import (
 from .conditions import (
     AndExpr,
     BoolExpr,
-    EqualsPredicate,
     IsInstancePredicate,
-    IsPredicate,
     LenPredicate,
     OrExpr,
     PathPredicate,
     RawPredicate,
+    ValuePredicate,
     bind_condition_subject,
     remove_implied_checks,
     residual_condition,
@@ -215,7 +214,7 @@ def build_or_pattern(expr: OrExpr) -> PatternBuildResult:
 def fact_from_predicate(predicate: PathPredicate) -> PathFact | None:
     if not predicate.path.is_patternable:
         return None
-    if isinstance(predicate, EqualsPredicate | IsPredicate):
+    if isinstance(predicate, ValuePredicate):
         return fact_from_value_predicate(predicate)
     if isinstance(predicate, IsInstancePredicate):
         return fact_from_isinstance_predicate(predicate)
@@ -224,14 +223,8 @@ def fact_from_predicate(predicate: PathPredicate) -> PathFact | None:
     return None
 
 
-def fact_from_value_predicate(
-    predicate: EqualsPredicate | IsPredicate,
-) -> ValueFact | None:
-    if (
-        isinstance(predicate, EqualsPredicate)
-        and not predicate.allow_nested_pattern
-        and not predicate.path.is_subject
-    ):
+def fact_from_value_predicate(predicate: ValuePredicate) -> ValueFact | None:
+    if not predicate.allow_nested_pattern and not predicate.path.is_subject:
         return None
     return ValueFact(predicate.path, predicate.value)
 
