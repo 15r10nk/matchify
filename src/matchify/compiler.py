@@ -224,7 +224,7 @@ class IfChainCompiler:
             if branch.is_wildcard_case
             else facts.pattern.render()
         )
-        guard = facts.guard
+        guard = parenthesize_multiline_guard(facts.guard)
 
         return cst.MatchCase(
             pattern=pattern,
@@ -238,3 +238,16 @@ class IfChainCompiler:
                 cst.SimpleWhitespace("") if guard is None else cst.SimpleWhitespace(" ")
             ),
         )
+
+
+def parenthesize_multiline_guard(
+    guard: cst.BaseExpression | None,
+) -> cst.BaseExpression | None:
+    if guard is None:
+        return None
+    if "\n" not in cst.Module([]).code_for_node(guard):
+        return guard
+    return guard.with_changes(
+        lpar=(cst.LeftParen(), *guard.lpar),
+        rpar=(*guard.rpar, cst.RightParen()),
+    )

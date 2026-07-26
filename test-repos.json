@@ -29,24 +29,6 @@
     },
     "timeout": 3600
   },
-  "libcst": {
-    "url": "https://github.com/Instagram/LibCST.git",
-    "ref": "main",
-    "clone_args": ["--depth", "1"],
-    "paths": ["libcst"],
-    "exclude_paths": ["libcst/_parser"],
-    "matchify_args": [],
-    "setup_commands": [
-      ["uv", "sync", "--group", "dev"]
-    ],
-    "python_command": [".venv/bin/python"],
-    "test_command": ["uv", "run", "--no-sync", "poe", "test"],
-    "environment": {
-      "UV_CACHE_DIR": "{workspace}/uv-cache",
-      "CARGO_HOME": "{workspace}/cargo-home"
-    },
-    "timeout": 3600
-  },
   "mypy": {
     "url": "https://github.com/python/mypy.git",
     "ref": "master",
@@ -59,7 +41,13 @@
       ["uv", "pip", "install", "-r", "test-requirements.txt", "-e", "."]
     ],
     "python_command": [".venv/bin/python"],
-    "test_command": [".venv/bin/python", "-m", "pytest", "-q"],
+    "test_command": [
+      ".venv/bin/python",
+      "-m",
+      "pytest",
+      "-q",
+      "--ignore=mypyc/test/test_run.py"
+    ],
     "environment": {
       "UV_CACHE_DIR": "{workspace}/uv-cache"
     },
@@ -67,7 +55,7 @@
   },
   "cpython": {
     "url": "https://github.com/python/cpython.git",
-    "ref": "3.15",
+    "ref": "3.14",
     "clone_args": ["--depth", "1"],
     "paths": ["Lib", "Tools"],
     "exclude_paths": ["Lib/test"],

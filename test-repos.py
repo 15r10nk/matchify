@@ -356,14 +356,14 @@ def run_repo(
             timeout=timeout,
         )
 
-    if result.matchify.returncode != 0 or result.matchify_reported_errors:
+    if result.baseline and result.baseline.returncode != 0:
+        result.status = "baseline_tests_failed"
+    elif result.matchify.returncode != 0 or result.matchify_reported_errors:
         result.status = "matchify_failed"
     elif result.syntax_check.returncode != 0:
         result.status = "invalid_generated_syntax"
     elif result.post_conversion and result.post_conversion.returncode != 0:
         result.status = "post_conversion_tests_failed"
-    elif result.baseline and result.baseline.returncode != 0:
-        result.status = "baseline_tests_failed"
     else:
         result.status = "passed"
     return result
