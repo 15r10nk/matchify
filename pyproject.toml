@@ -89,5 +89,6 @@ scripts.test = [
 
 [dependency-groups]
 dev = [
+    "pysource-minimize[cli]>=0.10.1",
     "pytest>=9.0.1",
 ]

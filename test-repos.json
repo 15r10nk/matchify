@@ -68,23 +68,5 @@
     "test_command": ["./python", "-m", "test", "-j2"],
     "environment": {},
     "timeout": 7200
-  },
-  "home-assistant": {
-    "url": "https://github.com/home-assistant/core.git",
-    "ref": "dev",
-    "clone_args": ["--depth", "1"],
-    "paths": ["homeassistant"],
-    "exclude_paths": [],
-    "matchify_args": [],
-    "setup_commands": [
-      ["uv", "venv", "--python", "3.14.2"],
-      ["uv", "pip", "install", "-r", "requirements_test.txt", "-e", "."]
-    ],
-    "python_command": [".venv/bin/python"],
-    "test_command": [".venv/bin/python", "-m", "pytest", "-q"],
-    "environment": {
-      "UV_CACHE_DIR": "{workspace}/uv-cache"
-    },
-    "timeout": 14400
   }
 }
