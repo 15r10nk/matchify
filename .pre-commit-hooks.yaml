@@ -1,3 +1,9 @@
+- id: matchify
+  name: matchify
+  description: Convert eligible if/elif chains to match statements.
+  entry: matchify
+  language: python
+  types: [python]
 - id: matchify-check
   name: matchify check
   description: Check whether Python files can be converted with matchify.

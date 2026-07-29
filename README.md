@@ -72,8 +72,21 @@ that chain.
 
 ## pre-commit
 
-Matchify can run as a pre-commit check. The hook uses `--check`, so it reports
-files that would be converted without modifying them:
+Matchify provides two pre-commit hooks.
+
+Use `matchify` to automatically rewrite files, similar to the default Black
+hook:
+
+```yaml
+repos:
+- repo: https://github.com/15r10nk/matchify
+  rev: v0.0.1
+  hooks:
+  - id: matchify
+```
+
+Use `matchify-check` to only report files that would be converted without
+modifying them:
 
 ```yaml
 repos:
