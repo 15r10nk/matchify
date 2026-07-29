@@ -882,6 +882,48 @@ class TestTransformCode:
 
         check_code(source, expected)
 
+    def test_qualified_identity_requires_identity_equality_assumption(self):
+        """Qualified identity checks need an explicit equality-semantics assumption."""
+        source = dedent(
+            """
+            class Kind:
+                START = object()
+                STOP = object()
+
+            kind = Kind.START
+            if kind is Kind.START:
+                print("start")
+            elif kind is Kind.STOP:
+                print("stop")
+            else:
+                print("other")
+        """
+        ).strip()
+
+        expected = dedent(
+            """
+            class Kind:
+                START = object()
+                STOP = object()
+
+            kind = Kind.START
+            match kind:
+                case Kind.START:
+                    print("start")
+                case Kind.STOP:
+                    print("stop")
+                case _:
+                    print("other")
+        """
+        ).strip()
+
+        check_code(source, source)
+        check_code(
+            source,
+            expected,
+            assumptions=Assumptions.from_names({"identity-equality"}),
+        )
+
     def test_bare_constants_are_not_value_patterns(self):
         """Bare names in patterns would capture instead of compare."""
         source = dedent(

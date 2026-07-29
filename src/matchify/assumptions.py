@@ -5,8 +5,9 @@ from dataclasses import dataclass
 
 PURE_SUBJECTS = "pure-subjects"
 USE_OBJECT = "use-object"
+IDENTITY_EQUALITY = "identity-equality"
 
-ALL_RISKY_ASSUMPTIONS = frozenset({PURE_SUBJECTS, USE_OBJECT})
+ALL_RISKY_ASSUMPTIONS = frozenset({PURE_SUBJECTS, USE_OBJECT, IDENTITY_EQUALITY})
 DEFAULT_ASSUMPTIONS = frozenset[str]()
 
 
@@ -49,6 +50,10 @@ class Assumptions:
     @property
     def use_object(self) -> bool:
         return USE_OBJECT in self.names
+
+    @property
+    def identity_equality(self) -> bool:
+        return IDENTITY_EQUALITY in self.names
 
 
 def parse_assumption_names(value: str) -> frozenset[str]:

@@ -80,6 +80,8 @@ BoolExpr = AndExpr | OrExpr | Predicate
 def parse_condition(
     condition: cst.BaseExpression,
     ignore_types_pattern: str | None = r".*_TYPES$",
+    *,
+    assume_identity_equality: bool = False,
 ) -> BoolExpr:
     """Parse a Python condition into a logical tree with typed predicates."""
     # LibCST BooleanOperation currently only exposes And/Or operators.
@@ -87,7 +89,11 @@ def parse_condition(
         if isinstance(condition.operator, cst.And):
             return AndExpr(
                 tuple(
-                    parse_condition(part, ignore_types_pattern)
+                    parse_condition(
+                        part,
+                        ignore_types_pattern,
+                        assume_identity_equality=assume_identity_equality,
+                    )
                     for part in flatten_boolean(condition, cst.And)
                 ),
                 condition,
@@ -95,17 +101,27 @@ def parse_condition(
         if isinstance(condition.operator, cst.Or):  # pragma: no branch
             return OrExpr(
                 tuple(
-                    parse_condition(part, ignore_types_pattern)
+                    parse_condition(
+                        part,
+                        ignore_types_pattern,
+                        assume_identity_equality=assume_identity_equality,
+                    )
                     for part in flatten_boolean(condition, cst.Or)
                 ),
                 condition,
             )
-    return parse_predicate(condition, ignore_types_pattern)
+    return parse_predicate(
+        condition,
+        ignore_types_pattern,
+        assume_identity_equality=assume_identity_equality,
+    )
 
 
 def parse_predicate(
     predicate: cst.BaseExpression,
     ignore_types_pattern: str | None = r".*_TYPES$",
+    *,
+    assume_identity_equality: bool = False,
 ) -> BoolExpr:
     if (parsed := parse_hasattr_predicate(predicate)) is not None:
         return parsed
@@ -120,7 +136,11 @@ def parse_predicate(
             return parsed
         if (parsed := parse_len_predicate(predicate)) is not None:
             return parsed
-        if (parsed := parse_value_predicate(predicate)) is not None:
+        if (
+            parsed := parse_value_predicate(
+                predicate, assume_identity_equality=assume_identity_equality
+            )
+        ) is not None:
             return parsed
 
     return RawPredicate(predicate)
@@ -242,6 +262,8 @@ def extract_literal_membership_values(
 
 def parse_value_predicate(
     predicate: cst.Comparison,
+    *,
+    assume_identity_equality: bool = False,
 ) -> ValuePredicate | None:
     target = predicate.comparisons[0]
     if isinstance(target.operator, cst.Equal) and is_value_pattern_expr(
@@ -251,6 +273,14 @@ def parse_value_predicate(
             AccessPath.from_expression(predicate.left), target.comparator, predicate
         )
     if isinstance(target.operator, cst.Is) and is_singleton_name(target.comparator):
+        return value_predicate(
+            AccessPath.from_expression(predicate.left), target.comparator, predicate
+        )
+    if (
+        assume_identity_equality
+        and isinstance(target.operator, cst.Is)
+        and is_value_pattern_expr(target.comparator)
+    ):
         return value_predicate(
             AccessPath.from_expression(predicate.left), target.comparator, predicate
         )
