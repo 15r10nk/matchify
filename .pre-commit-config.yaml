@@ -41,6 +41,7 @@ repos:
   - args:
     - --py310-plus
     id: pyupgrade
+    language_version: python3.13
   repo: https://github.com/asottile/pyupgrade
   rev: v3.20.0
 - hooks:
