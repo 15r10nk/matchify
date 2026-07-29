@@ -46,6 +46,10 @@ class RenderContext:
 class Pattern(Protocol):
     def render_match(self) -> str: ...
 
+    def render_if_conditions(
+        self, subject: str, context: RenderContext
+    ) -> list[str]: ...
+
     def render_if(self, subject: str, context: RenderContext) -> str: ...
 
     def matching_value(self) -> str: ...
@@ -57,6 +61,10 @@ class Pattern(Protocol):
     def if_capture_assignments(self, subject: str) -> tuple[str, ...]: ...
 
 
+def render_condition_expr(conditions: list[str]) -> str:
+    return " and ".join(conditions) or "True"
+
+
 @dataclass(frozen=True)
 class LiteralPattern:
     value: str
@@ -64,8 +72,11 @@ class LiteralPattern:
     def render_match(self) -> str:
         return self.value
 
+    def render_if_conditions(self, subject: str, context: RenderContext) -> list[str]:
+        return [f"{subject} == {self.value}"]
+
     def render_if(self, subject: str, context: RenderContext) -> str:
-        return f"{subject} == {self.value}"
+        return render_condition_expr(self.render_if_conditions(subject, context))
 
     def matching_value(self) -> str:
         return self.value
@@ -87,8 +98,11 @@ class SingletonPattern:
     def render_match(self) -> str:
         return self.value
 
+    def render_if_conditions(self, subject: str, context: RenderContext) -> list[str]:
+        return [f"{subject} is {self.value}"]
+
     def render_if(self, subject: str, context: RenderContext) -> str:
-        return f"{subject} is {self.value}"
+        return render_condition_expr(self.render_if_conditions(subject, context))
 
     def matching_value(self) -> str:
         return self.value
@@ -110,8 +124,11 @@ class CapturePattern:
     def render_match(self) -> str:
         return self.name
 
+    def render_if_conditions(self, subject: str, context: RenderContext) -> list[str]:
+        return []
+
     def render_if(self, subject: str, context: RenderContext) -> str:
-        return "True"
+        return render_condition_expr(self.render_if_conditions(subject, context))
 
     def matching_value(self) -> str:
         return "42"
@@ -131,8 +148,11 @@ class WildcardPattern:
     def render_match(self) -> str:
         return "_"
 
+    def render_if_conditions(self, subject: str, context: RenderContext) -> list[str]:
+        return []
+
     def render_if(self, subject: str, context: RenderContext) -> str:
-        return "True"
+        return render_condition_expr(self.render_if_conditions(subject, context))
 
     def matching_value(self) -> str:
         return "object()"
@@ -154,6 +174,9 @@ class OrPattern:
     def render_match(self) -> str:
         return " | ".join(pattern.render_match() for pattern in self.alternatives)
 
+    def render_if_conditions(self, subject: str, context: RenderContext) -> list[str]:
+        return [self.render_if(subject, context)]
+
     def render_if(self, subject: str, context: RenderContext) -> str:
         if (
             context.choose_style(IfStyle.MEMBERSHIP)
@@ -168,7 +191,8 @@ class OrPattern:
         return (
             "("
             + " or ".join(
-                pattern.render_if(subject, context) for pattern in self.alternatives
+                render_condition_expr(pattern.render_if_conditions(subject, context))
+                for pattern in self.alternatives
             )
             + ")"
         )
@@ -207,12 +231,15 @@ class ClassPattern:
         )
         return f"{self.class_name}({args})"
 
-    def render_if(self, subject: str, context: RenderContext) -> str:
+    def render_if_conditions(self, subject: str, context: RenderContext) -> list[str]:
         parts = [f"isinstance({subject}, {self._classinfo(context)})"]
         for attr, pattern in self.attrs:
             parts.append(f"hasattr({subject}, {attr!r})")
-            parts.append(pattern.render_if(f"{subject}.{attr}", context))
-        return " and ".join(parts)
+            parts.extend(pattern.render_if_conditions(f"{subject}.{attr}", context))
+        return parts
+
+    def render_if(self, subject: str, context: RenderContext) -> str:
+        return render_condition_expr(self.render_if_conditions(subject, context))
 
     def matching_value(self) -> str:
         if not self.attrs:
@@ -260,10 +287,13 @@ class NoneTypeOrClassPattern:
     def render_match(self) -> str:
         return f"None | {self.class_name}()"
 
-    def render_if(self, subject: str, context: RenderContext) -> str:
+    def render_if_conditions(self, subject: str, context: RenderContext) -> list[str]:
         if context.choose_style(IfStyle.TYPE_NONE):
-            return f"isinstance({subject}, (type(None), {self.class_name}))"
-        return f"({subject} is None or isinstance({subject}, {self.class_name}))"
+            return [f"isinstance({subject}, (type(None), {self.class_name}))"]
+        return [f"({subject} is None or isinstance({subject}, {self.class_name}))"]
+
+    def render_if(self, subject: str, context: RenderContext) -> str:
+        return render_condition_expr(self.render_if_conditions(subject, context))
 
     def matching_value(self) -> str:
         return "None"
@@ -290,15 +320,18 @@ class SequencePattern:
             parts.append("*_")
         return "[" + ", ".join(parts) + "]"
 
-    def render_if(self, subject: str, context: RenderContext) -> str:
+    def render_if_conditions(self, subject: str, context: RenderContext) -> list[str]:
         op = ">=" if self.star else "=="
         parts = [
             f"isinstance({subject}, (list, tuple))",
             f"len({subject}) {op} {len(self.elements)}",
         ]
         for index, pattern in enumerate(self.elements):
-            parts.append(pattern.render_if(f"{subject}[{index}]", context))
-        return " and ".join(parts)
+            parts.extend(pattern.render_if_conditions(f"{subject}[{index}]", context))
+        return parts
+
+    def render_if(self, subject: str, context: RenderContext) -> str:
+        return render_condition_expr(self.render_if_conditions(subject, context))
 
     def matching_value(self) -> str:
         values = [pattern.matching_value() for pattern in self.elements]
@@ -337,8 +370,15 @@ class GuardedPattern:
     def render_guard(self, subject: str) -> str:
         return self.guard.format(subject=subject)
 
+    def render_if_conditions(self, subject: str, context: RenderContext) -> list[str]:
+        conditions = self.pattern.render_if_conditions(subject, context)
+        guard = self.render_guard(subject)
+        if guard != "True":
+            conditions.append(guard)
+        return conditions
+
     def render_if(self, subject: str, context: RenderContext) -> str:
-        return f"{self.pattern.render_if(subject, context)} and {self.render_guard(subject)}"
+        return render_condition_expr(self.render_if_conditions(subject, context))
 
     def matching_value(self) -> str:
         return self.pattern.matching_value()
@@ -495,7 +535,11 @@ def execute_result(source: str) -> tuple[str, str, type[BaseException] | None]:
             exec(source, namespace)
     except BaseException as error:
         exception_type = type(error)
-    return ("", stdout.getvalue() + stderr.getvalue(), exception_type)
+    return (
+        str(namespace.get("result")),
+        stdout.getvalue() + stderr.getvalue(),
+        exception_type,
+    )
 
 
 def exception_name(exception_type: type[BaseException] | None) -> str:

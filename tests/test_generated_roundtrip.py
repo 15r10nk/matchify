@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
@@ -57,6 +58,16 @@ def format_trace(trace: tuple[str, str, type[BaseException] | None]) -> str:
     )
 
 
+def test_sample_dirs_returns_empty_list_for_missing_samples_dir(monkeypatch, tmp_path):
+    monkeypatch.setattr(sys.modules[__name__], "SAMPLES_DIR", tmp_path / "missing")
+
+    assert sample_dirs() == []
+
+
+def test_execute_result_records_exception_type():
+    assert execute_result("raise ValueError('boom')") == ("None", "", ValueError)
+
+
 @pytest.mark.parametrize("sample_dir", sample_dirs(), ids=lambda path: path.name)
 def test_generated_roundtrip_sample(sample_dir: Path, tmp_path: Path):
     original = (sample_dir / "original.py").read_text(encoding="utf-8")
@@ -86,3 +97,18 @@ def test_generated_roundtrip_sample(sample_dir: Path, tmp_path: Path):
             format_trace(execute_result(match_reference.read_text(encoding="utf-8")))
             == expected_trace
         )
+
+
+def test_generated_roundtrip_sample_without_match_reference(tmp_path):
+    sample_dir = tmp_path / "sample"
+    sample_dir.mkdir()
+    source = "result = 'ok'\n"
+    trace = format_trace(execute_result(source))
+    (sample_dir / "original.py").write_text(source, encoding="utf-8")
+    (sample_dir / "converted.py").write_text(source, encoding="utf-8")
+    (sample_dir / "trace.txt").write_text(trace, encoding="utf-8")
+    (sample_dir / "meta.json").write_text(
+        json.dumps({"kind": "not-converted"}), encoding="utf-8"
+    )
+
+    test_generated_roundtrip_sample(sample_dir, tmp_path)
