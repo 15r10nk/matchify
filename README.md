@@ -70,6 +70,19 @@ When a skipped `if`/`elif` chain would require a risky assumption, the CLI
 prints the file location and the required `--assume` value instead of converting
 that chain.
 
+## pre-commit
+
+Matchify can run as a pre-commit check. The hook uses `--check`, so it reports
+files that would be converted without modifying them:
+
+```yaml
+repos:
+- repo: https://github.com/15r10nk/matchify
+  rev: v0.0.1
+  hooks:
+  - id: matchify-check
+```
+
 Available risky assumptions:
 
 - `pure-subjects`: permits transformations such as

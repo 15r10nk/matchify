@@ -1,0 +1,6 @@
+- id: matchify-check
+  name: matchify check
+  description: Check whether Python files can be converted with matchify.
+  entry: matchify --check
+  language: python
+  types: [python]
