@@ -48,6 +48,9 @@ matchify path/to/project/
 # Convert with verbose output
 matchify path/to/project/ -v
 
+# Check whether files would be converted without writing changes
+matchify path/to/project/ --check
+
 # Use parallel processing (default: number of CPUs)
 matchify path/to/project/ -j 8
 
