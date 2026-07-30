@@ -18,6 +18,7 @@ def is_safe_condition(
     subject: MatchSubjectPlan,
     *,
     ignore_types_pattern: str | None,
+    assume_identity_equality: bool = False,
 ) -> bool:
     for component in flatten_boolean(condition):
         if isinstance(component, cst.Comparison) and len(component.comparisons) == 1:
@@ -32,7 +33,10 @@ def is_safe_condition(
                 if isinstance(target.operator, cst.Is) and not is_singleton_name(
                     comparator
                 ):
-                    return False
+                    if not (
+                        assume_identity_equality and is_value_pattern_expr(comparator)
+                    ):
+                        return False
             elif is_len_call(component.left):
                 len_call = component.left
                 len_path = AccessPath.from_expression(len_call.args[0].value)

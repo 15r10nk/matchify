@@ -78,6 +78,10 @@ Available risky assumptions:
   `isinstance` check. This performs pattern-time attribute lookups, so enable it
   only when those lookups cannot raise exceptions or produce observable side
   effects.
+- `identity-equality`: permits conversions from qualified identity comparisons
+  such as `op is Op.ADD` to value patterns such as `case Op.ADD`. Match value
+  patterns compare with equality, not identity, so enable it only when identity
+  and equality are equivalent for those values.
 
 Development and repository-testing notes are in
 [CONTRIBUTING.md](CONTRIBUTING.md).
