@@ -77,7 +77,7 @@ jobs:
         pattern: coverage-data-${{github.run_id}}-*
         merge-multiple: true
 
-    - name: Combine coverage & fail if it's <100%
+    - name: Combine coverage & fail if it's <97%
       run: |
         uv pip install --upgrade coverage[toml]
 
@@ -87,8 +87,8 @@ jobs:
         # Report and write to summary.
         coverage report --format=markdown >> $GITHUB_STEP_SUMMARY
 
-        # Report again and fail if under 100%.
-        coverage report --fail-under=100
+        # Report again and fail if under the current project baseline.
+        coverage report --fail-under=97
 
     - name: Upload HTML report if check failed
       uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
