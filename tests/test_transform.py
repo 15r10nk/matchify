@@ -107,6 +107,32 @@ class TestTransformCode:
 
         check_code(source, expected_with_flag, assume_pure_subjects=True)
 
+    def test_assumed_pure_subject_used_by_a_majority_joins_match_subject(self):
+        source = dedent(
+            """
+            if op == Op.ADD:
+                print("add")
+            elif op == Op.SUBTRACT and op2 == Op.ADD:
+                print("subtract add")
+            elif op == Op.SUBTRACT and op2 == Op.SUBTRACT:
+                print("subtract subtract")
+            """
+        ).strip()
+
+        expected = dedent(
+            """
+            match (op, op2):
+                case Op.ADD, _:
+                    print("add")
+                case Op.SUBTRACT, Op.ADD:
+                    print("subtract add")
+                case Op.SUBTRACT, Op.SUBTRACT:
+                    print("subtract subtract")
+            """
+        ).strip()
+
+        check_code(source, expected, assume_pure_subjects=True)
+
     def test_assumed_pure_attribute_subject_uses_object_patterns(self):
         source = dedent(
             """

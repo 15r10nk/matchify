@@ -148,6 +148,17 @@ def test_subject_plan_keeps_only_shared_candidates():
     assert cst.Module([]).code_for_node(plan.to_expression()) == "x"
 
 
+def test_subject_plan_keeps_candidates_used_by_a_strict_majority():
+    first = AccessPath.from_expression(parse_expression("op"))
+    second = AccessPath.from_expression(parse_expression("op2"))
+
+    plan = MatchSubjectPlan.from_majority_candidates(
+        ((first,), (first, second), (first, second))
+    )
+
+    assert plan == MatchSubjectPlan.from_subjects((first, second))
+
+
 def test_subject_plan_builds_prefixes_for_sibling_pure_candidates():
     plan = MatchSubjectPlan.from_shared_candidates(
         (

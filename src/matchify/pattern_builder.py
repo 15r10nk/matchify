@@ -211,7 +211,11 @@ def fact_from_predicate(predicate: PathPredicate) -> PathFact | None:
     if not predicate.path.is_patternable:
         return None
     if isinstance(predicate, ValuePredicate):
-        if not predicate.allow_nested_pattern and not predicate.path.is_subject:
+        if (
+            not predicate.allow_nested_pattern
+            and not predicate.path.is_subject
+            and not predicate.path.is_composite_subject
+        ):
             return None
         return ValueFact(predicate.path, predicate.value)
     if isinstance(predicate, IsInstancePredicate):

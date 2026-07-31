@@ -158,6 +158,16 @@ class AccessPath:
         return self.is_bound and not self.parts
 
     @property
+    def is_composite_subject(self) -> bool:
+        """Whether this path is one top-level slot of a composite subject."""
+        return (
+            self.is_bound
+            and len(self.parts) == 1
+            and isinstance(self.parts[0], SubscriptPathPart)
+            and self.parts[0].index is not None
+        )
+
+    @property
     def is_patternable(self) -> bool:
         return self.is_bound and all(
             not isinstance(part, SubscriptPathPart) or part.index is not None
@@ -248,6 +258,36 @@ class MatchSubjectPlan:
                 continue
             subject = AccessPath.common_prefix(
                 tuple(path for group in matching_groups for path in group)
+            )
+            if subject is not None:
+                subjects.append(subject)
+        return cls._from_optional_subjects(tuple(subjects))
+
+    @classmethod
+    def from_majority_candidates(
+        cls, candidates: tuple[tuple[AccessPath, ...], ...]
+    ) -> MatchSubjectPlan | None:
+        """Build a plan from roots used by more than half of the branches."""
+        if not candidates:
+            return None
+
+        roots = []
+        for paths in candidates:
+            for path in paths:
+                if path.root not in roots:
+                    roots.append(path.root)
+
+        subjects = []
+        for root in roots:
+            matching_groups = tuple(
+                tuple(path for path in paths if path.root == root)
+                for paths in candidates
+            )
+            present_groups = tuple(group for group in matching_groups if group)
+            if len(present_groups) * 2 <= len(candidates):
+                continue
+            subject = AccessPath.common_prefix(
+                tuple(path for group in present_groups for path in group)
             )
             if subject is not None:
                 subjects.append(subject)
