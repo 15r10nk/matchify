@@ -144,7 +144,9 @@ def compile_local_lookups(
         required.append(statement)
         if not enabled:
             continue
-        candidate = LookupCandidate(subscription, table, subscription.slice[0].slice.value)
+        candidate = LookupCandidate(
+            subscription, table, subscription.slice[0].slice.value
+        )
         match_statement = compile_inline_lookup(use_statement, candidate)
         match_statement = match_statement.with_changes(
             leading_lines=(*statement.leading_lines, *match_statement.leading_lines)
@@ -186,9 +188,8 @@ def _local_lookup_use(
         subscriptions = m.findall(statement, m.Subscript(value=m.Name(value=name)))
         for subscription in subscriptions:
             assert isinstance(subscription, cst.Subscript)
-            if (
-                len(subscription.slice) == 1
-                and isinstance(subscription.slice[0].slice, cst.Index)
+            if len(subscription.slice) == 1 and isinstance(
+                subscription.slice[0].slice, cst.Index
             ):
                 matches.append((index, statement, subscription))
     return matches[0] if len(matches) == 1 else None
