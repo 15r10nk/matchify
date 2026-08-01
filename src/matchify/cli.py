@@ -200,8 +200,10 @@ def main() -> None:
                 unchanged_count += unchanged
                 error_count += errors
 
+    changed_label = "would convert" if args.check else "converted"
     print(
-        f"\nSummary: {converted_count} converted, {unchanged_count} unchanged, {error_count} errors"
+        f"\nSummary: {converted_count} {changed_label}, "
+        f"{unchanged_count} unchanged, {error_count} errors"
     )
-    if args.check and (converted_count or error_count):
+    if error_count or (args.check and converted_count):
         raise SystemExit(1)
