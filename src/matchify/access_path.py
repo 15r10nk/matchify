@@ -288,8 +288,8 @@ class MatchSubjectPlan:
             subject = AccessPath.common_prefix(
                 tuple(path for group in present_groups for path in group)
             )
-            if subject is not None:
-                subjects.append(subject)
+            assert subject is not None, "Same-root paths must have a common prefix"
+            subjects.append(subject)
         return cls._from_optional_subjects(tuple(subjects))
 
     @classmethod

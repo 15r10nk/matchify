@@ -159,6 +159,14 @@ def test_subject_plan_keeps_candidates_used_by_a_strict_majority():
     assert plan == MatchSubjectPlan.from_subjects((first, second))
 
 
+def test_majority_subject_plan_rejects_empty_and_exactly_half_candidates():
+    first = AccessPath.from_expression(parse_expression("op"))
+    second = AccessPath.from_expression(parse_expression("op2"))
+
+    assert MatchSubjectPlan.from_majority_candidates(()) is None
+    assert MatchSubjectPlan.from_majority_candidates(((first,), (second,))) is None
+
+
 def test_subject_plan_builds_prefixes_for_sibling_pure_candidates():
     plan = MatchSubjectPlan.from_shared_candidates(
         (
