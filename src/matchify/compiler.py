@@ -171,7 +171,6 @@ class IfChainCompiler:
         facts = normalize_condition(
             branch.condition,
             subject,
-            assumptions=self.assumptions,
             allow_object_anchors=self.assumptions.use_object,
         )
         return IfBranch(branch.body, branch.leading_lines, facts)

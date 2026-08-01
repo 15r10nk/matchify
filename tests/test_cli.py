@@ -232,37 +232,6 @@ class TestMain:
         assert "match (a.x, b.y):" in test_file.read_text(encoding="utf-8")
         assert "Converted:" in capsys.readouterr().out
 
-    def test_main_with_list_and_tuple_sequence_assumptions(self, capsys, tmp_path):
-        test_file = tmp_path / "test.py"
-        test_file.write_text(
-            dedent(
-                """
-                if isinstance(value, (list, tuple)) and len(value) == 1 and value[0] == 1:
-                    print("one")
-                elif value is None:
-                    print("none")
-                """
-            ).strip(),
-            encoding="utf-8",
-        )
-
-        original_argv = sys.argv
-        try:
-            sys.argv = [
-                "matchify",
-                "--assume",
-                "list-sequence-pattern,tuple-sequence-pattern",
-                str(test_file),
-            ]
-            main()
-        finally:
-            sys.argv = original_argv
-
-        transformed = test_file.read_text(encoding="utf-8")
-        assert "case 1,:" in transformed
-        assert "if isinstance(value, (list, tuple))" not in transformed
-        assert "Converted:" in capsys.readouterr().out
-
     def test_main_reports_required_assumption_for_skipped_chain(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
         source = dedent(

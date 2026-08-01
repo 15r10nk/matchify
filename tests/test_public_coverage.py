@@ -2,7 +2,7 @@
 
 from textwrap import dedent
 
-from matchify import Assumptions, transform_code
+from matchify import transform_code
 
 
 def test_rejects_dynamic_and_non_string_hasattr_names():
@@ -127,7 +127,7 @@ def test_incompatible_class_and_subscript_facts_are_rejected():
     assert transform_code(source) == source
 
 
-def test_redundant_sequence_type_guards_are_dropped_from_or_patterns():
+def test_sequence_type_guards_are_kept_in_or_patterns():
     source = dedent(
         """
         if (isinstance(value, (list, tuple)) and len(value) == 1) or (isinstance(value, (list, tuple)) and len(value) == 2):
@@ -137,15 +137,63 @@ def test_redundant_sequence_type_guards_are_dropped_from_or_patterns():
         """
     ).strip()
 
-    transformed = transform_code(
-        source,
-        assumptions=Assumptions.from_names(
-            {"list-sequence-pattern", "tuple-sequence-pattern"}
-        ),
-    )
+    transformed = transform_code(source)
 
-    assert "case [_] | [_, _]:" in transformed
+    assert "isinstance(value, (list, tuple))" in transformed
     assert "case None:" in transformed
+
+
+def test_list_and_tuple_type_guards_are_kept_for_sequence_patterns():
+    source = dedent(
+        """
+        if isinstance(value, list) and len(value) == 1:
+            result = "list"
+        elif isinstance(value, tuple) and len(value) == 2:
+            result = "tuple"
+        """
+    ).strip()
+
+    transformed = transform_code(source)
+
+    assert "case _, if isinstance(value, list):" in transformed
+    assert "case _, _ if isinstance(value, tuple):" in transformed
+
+
+def test_qualified_sequence_type_checks_remain_guards():
+    source = dedent(
+        """
+        if isinstance(value, (list, types.TupleType)) and len(value) == 1:
+            result = "sequence"
+        elif value is None:
+            result = "none"
+        """
+    ).strip()
+
+    transformed = transform_code(source)
+
+    assert "if isinstance(value, (list, types.TupleType))" in transformed
+
+
+def test_sequence_type_guard_preserves_runtime_for_other_sequence_types():
+    source = dedent(
+        """
+        value = range(1)
+        result = "other"
+        if isinstance(value, (list, tuple)) and len(value) == 1:
+            result = "sequence"
+        elif value is None:
+            result = "none"
+        """
+    ).strip()
+    transformed = transform_code(source)
+    original_namespace = {}
+    transformed_namespace = {}
+
+    exec(source, original_namespace)
+    exec(transformed, transformed_namespace)
+
+    assert original_namespace["result"] == "other"
+    assert transformed_namespace["result"] == original_namespace["result"]
 
 
 def test_or_alternatives_with_different_guards_fall_back_to_a_guard():
