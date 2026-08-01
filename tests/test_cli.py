@@ -127,6 +127,25 @@ class TestConvertFile:
         assert error is None
         assert "match (a.x, b.y):" in test_file.read_text(encoding="utf-8")
 
+    def test_convert_file_check_reports_changes_without_writing(self, tmp_path):
+        test_file = tmp_path / "test.py"
+        source = dedent(
+            """
+            if x == 1:
+                print("one")
+            elif x == 2:
+                print("two")
+            """
+        ).strip()
+        test_file.write_text(source, encoding="utf-8")
+
+        path, changed, error = convert_file(test_file, check=True)
+
+        assert path == test_file
+        assert changed is True
+        assert error is None
+        assert test_file.read_text(encoding="utf-8") == source
+
 
 class TestMain:
     """Test the main function."""
@@ -181,6 +200,68 @@ class TestMain:
                 assert "Converted:" in captured.out
             finally:
                 sys.argv = original_argv
+
+    def test_main_check_with_convertible_file_exits_one_without_writing(
+        self, capsys, tmp_path
+    ):
+        test_file = tmp_path / "test.py"
+        source = dedent(
+            """
+            if x == 1:
+                print("one")
+            elif x == 2:
+                print("two")
+            """
+        ).strip()
+        test_file.write_text(source, encoding="utf-8")
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", "--check", str(test_file)]
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+        finally:
+            sys.argv = original_argv
+
+        assert exc_info.value.code == 1
+        assert test_file.read_text(encoding="utf-8") == source
+        output = capsys.readouterr().out
+        assert f"Would convert: {test_file}" in output
+        assert "1 converted, 0 unchanged, 0 errors" in output
+
+    def test_main_check_with_unchanged_file_exits_zero(self, capsys, tmp_path):
+        test_file = tmp_path / "test.py"
+        source = "print('already fine')"
+        test_file.write_text(source, encoding="utf-8")
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", "--check", str(test_file)]
+            main()
+        finally:
+            sys.argv = original_argv
+
+        assert test_file.read_text(encoding="utf-8") == source
+        output = capsys.readouterr().out
+        assert "Would convert:" not in output
+        assert "0 converted, 1 unchanged, 0 errors" in output
+
+    def test_main_check_with_error_exits_one(self, capsys, tmp_path):
+        test_file = tmp_path / "test.py"
+        test_file.write_text("if x == :\n    print('broken')", encoding="utf-8")
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", "--check", str(test_file)]
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+        finally:
+            sys.argv = original_argv
+
+        assert exc_info.value.code == 1
+        output = capsys.readouterr().out
+        assert "Error processing" in output
+        assert "0 converted, 0 unchanged, 1 errors" in output
 
     def test_main_rejects_removed_assume_pure_subjects_flag(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"

@@ -48,6 +48,9 @@ matchify path/to/project/
 # Convert with verbose output
 matchify path/to/project/ -v
 
+# Check whether files would be converted without writing changes
+matchify path/to/project/ --check
+
 # Use parallel processing (default: number of CPUs)
 matchify path/to/project/ -j 8
 
@@ -66,6 +69,32 @@ By default, Matchify enables no risky assumptions. `--safe` makes that explicit.
 When a skipped `if`/`elif` chain would require a risky assumption, the CLI
 prints the file location and the required `--assume` value instead of converting
 that chain.
+
+## pre-commit
+
+Matchify provides two pre-commit hooks.
+
+Use `matchify` to automatically rewrite files, similar to the default Black
+hook:
+
+```yaml
+repos:
+- repo: https://github.com/15r10nk/matchify
+  rev: v0.0.1
+  hooks:
+  - id: matchify
+```
+
+Use `matchify-check` to only report files that would be converted without
+modifying them:
+
+```yaml
+repos:
+- repo: https://github.com/15r10nk/matchify
+  rev: v0.0.1
+  hooks:
+  - id: matchify-check
+```
 
 Available risky assumptions:
 

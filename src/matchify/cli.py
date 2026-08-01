@@ -21,6 +21,7 @@ def convert_file(
     assumptions: Assumptions | None = None,
     assume_pure_subjects: bool = False,
     report_assumption_diagnostics: bool = False,
+    check: bool = False,
 ) -> tuple[pathlib.Path, bool, str | None]:
     """Convert a single file.
 
@@ -41,7 +42,8 @@ def convert_file(
         if report_assumption_diagnostics:
             report_assumption_requirements(path, diagnostics)
         if transformed_code != source:
-            path.write_text(transformed_code, encoding="utf-8")
+            if not check:
+                path.write_text(transformed_code, encoding="utf-8")
             return (path, True, None)
         return (path, False, None)
     except Exception as e:
@@ -85,13 +87,14 @@ def report_assumption_requirements(
 
 
 def report_result(
-    path: pathlib.Path, changed: bool, error: str | None, verbose: bool
+    path: pathlib.Path, changed: bool, error: str | None, verbose: bool, check: bool
 ) -> tuple[int, int, int]:
     if error:
         print(f"Error processing {path}: {error}")
         return (0, 0, 1)
     if changed:
-        print(f"Converted: {path}")
+        action = "Would convert" if check else "Converted"
+        print(f"{action}: {path}")
         return (1, 0, 0)
     if verbose:
         print(f"No changes: {path}")
@@ -139,6 +142,11 @@ def main() -> None:
         "-v", "--verbose", action="store_true", help="Show files with no changes"
     )
     parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Do not write files; exit with 1 if any file would change or errors occur",
+    )
+    parser.add_argument(
         "--no-types",
         type=str,
         default=r".*_TYPES$",
@@ -167,8 +175,11 @@ def main() -> None:
             ignore_types_pattern=args.no_types,
             assumptions=assumptions,
             report_assumption_diagnostics=True,
+            check=args.check,
         )
-        converted, unchanged, errors = report_result(*result, verbose=args.verbose)
+        converted, unchanged, errors = report_result(
+            *result, verbose=args.verbose, check=args.check
+        )
         converted_count += converted
         unchanged_count += unchanged
         error_count += errors
@@ -179,10 +190,11 @@ def main() -> None:
                 ignore_types_pattern=args.no_types,
                 assumptions=assumptions,
                 report_assumption_diagnostics=True,
+                check=args.check,
             )
             for result in executor.map(convert, python_files):
                 converted, unchanged, errors = report_result(
-                    *result, verbose=args.verbose
+                    *result, verbose=args.verbose, check=args.check
                 )
                 converted_count += converted
                 unchanged_count += unchanged
@@ -191,3 +203,5 @@ def main() -> None:
     print(
         f"\nSummary: {converted_count} converted, {unchanged_count} unchanged, {error_count} errors"
     )
+    if args.check and (converted_count or error_count):
+        raise SystemExit(1)
