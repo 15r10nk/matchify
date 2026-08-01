@@ -63,6 +63,7 @@ tests = ["tests", "*/matchify/tests"]
 
 [tool.coverage.report]
 exclude_lines = ["pragma: no cover"]
+fail_under = 97
 
 [tool.coverage.run]
 branch = true

@@ -5,6 +5,13 @@ ci:
   autoupdate_schedule: monthly
 
 repos:
+
+- repo: https://github.com/15r10nk/project-template
+  rev: v0.2.0
+  hooks:
+  - id: copier-enforce
+
+
 - hooks:
   - id: check-ast
   - id: check-merge-conflict
@@ -88,3 +95,4 @@ repos:
   rev: v1.47.0
   hooks:
   - id: typos
+    exclude: ^COPIER_TEMPLATE_CHANGES\.md$
