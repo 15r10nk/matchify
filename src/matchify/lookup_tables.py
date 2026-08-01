@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import libcst as cst
 from libcst import matchers as m
 
-from .patterns import build_value_pattern, is_literal_value, is_value_pattern_expr
+from .patterns import build_value_pattern, is_value_pattern_expr
 
 
 @dataclass(frozen=True)
@@ -56,7 +56,7 @@ def lookup_entries(
             return None
         key = element.key
         value = element.value
-        if key is None or not is_value_pattern_expr(key) or not is_literal_value(value):
+        if key is None or not is_value_pattern_expr(key):
             return None
         try:
             literal_key = ast.literal_eval(cst.Module([]).code_for_node(key))

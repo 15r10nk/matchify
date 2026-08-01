@@ -121,7 +121,9 @@ Available risky assumptions:
   Checks against `(list, tuple)` require both sequence assumptions.
 - `lookup-equality`: permits dictionary lookup tables embedded in statements to
   become `match` statements. Dictionary lookup uses hashing while patterns use
-  equality, so enable it only when those lookup semantics are equivalent.
+  equality, and dictionary values are evaluated only in the selected case
+  instead of eagerly when constructing the dictionary. Enable it only when
+  those equality and evaluation-order differences are acceptable.
 
 Development and repository-testing notes are in
 [CONTRIBUTING.md](CONTRIBUTING.md).

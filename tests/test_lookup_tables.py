@@ -48,6 +48,35 @@ match operation:
     )
 
 
+def test_lookup_values_can_be_arbitrary_expressions():
+    source = dedent(
+        """
+        result = {
+            "call": make_value(),
+            "attribute": settings.value,
+            "containers": [1, {"nested": key}],
+            "expression": left + right,
+        }[key]
+        """
+    ).strip()
+
+    assert transform_code(source, assumptions=LOOKUP) == snapshot(
+        """\
+match key:
+    case "call":
+        result = make_value()
+    case "attribute":
+        result = settings.value
+    case "containers":
+        result = [1, {"nested": key}]
+    case "expression":
+        result = left + right
+    case _matchify_key:
+        raise KeyError(_matchify_key)\
+"""
+    )
+
+
 def test_function_local_lookup_assignment_is_removed():
     source = dedent(
         """
@@ -135,7 +164,6 @@ except KeyError as error:
 def test_unsafe_lookup_tables_remain_unchanged():
     sources = (
         'return {**other, "a": 1}[key]',
-        'return {"a": make_value()}[key]',
         'return {1: "integer", True: "boolean"}[key]',
         "return {name: 1}[key]",
         "return {Token.A: 1}[key]",
