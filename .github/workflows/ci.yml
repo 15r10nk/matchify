@@ -11,6 +11,8 @@ jobs:
   test:
     runs-on: ${{matrix.os}}
     timeout-minutes: 20
+    env:
+      TOP: ${{github.workspace}}
 
     strategy:
       matrix:
