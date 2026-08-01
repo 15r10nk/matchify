@@ -227,7 +227,7 @@ class TestMain:
         assert test_file.read_text(encoding="utf-8") == source
         output = capsys.readouterr().out
         assert f"Would convert: {test_file}" in output
-        assert "1 converted, 0 unchanged, 0 errors" in output
+        assert "1 would convert, 0 unchanged, 0 errors" in output
 
     def test_main_check_with_unchanged_file_exits_zero(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
@@ -244,7 +244,7 @@ class TestMain:
         assert test_file.read_text(encoding="utf-8") == source
         output = capsys.readouterr().out
         assert "Would convert:" not in output
-        assert "0 converted, 1 unchanged, 0 errors" in output
+        assert "0 would convert, 1 unchanged, 0 errors" in output
 
     def test_main_check_with_error_exits_one(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
@@ -253,6 +253,23 @@ class TestMain:
         original_argv = sys.argv
         try:
             sys.argv = ["matchify", "--check", str(test_file)]
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+        finally:
+            sys.argv = original_argv
+
+        assert exc_info.value.code == 1
+        output = capsys.readouterr().out
+        assert "Error processing" in output
+        assert "0 would convert, 0 unchanged, 1 errors" in output
+
+    def test_main_with_error_exits_one(self, capsys, tmp_path):
+        test_file = tmp_path / "test.py"
+        test_file.write_text("if x == :\n    print('broken')", encoding="utf-8")
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", str(test_file)]
             with pytest.raises(SystemExit) as exc_info:
                 main()
         finally:
@@ -702,8 +719,10 @@ class TestCliOptionsAndErrors:
             original_argv = sys.argv
             try:
                 sys.argv = ["matchify", "--jobs", "2", "--verbose", str(test_dir)]
-                main()
+                with pytest.raises(SystemExit) as exc_info:
+                    main()
 
+                assert exc_info.value.code == 1
                 captured = capsys.readouterr()
                 assert "No changes:" in captured.out
                 assert "Error processing" in captured.out
@@ -725,8 +744,10 @@ class TestCliOptionsAndErrors:
             original_argv = sys.argv
             try:
                 sys.argv = ["matchify", "--jobs", "2", str(test_dir)]
-                main()
+                with pytest.raises(SystemExit) as exc_info:
+                    main()
 
+                assert exc_info.value.code == 1
                 captured = capsys.readouterr()
                 assert "No changes:" not in captured.out
                 assert "Error processing" in captured.out
@@ -808,8 +829,10 @@ class TestCliOptionsAndErrors:
             original_argv = sys.argv
             try:
                 sys.argv = ["matchify", str(test_file)]
-                main()
+                with pytest.raises(SystemExit) as exc_info:
+                    main()
 
+                assert exc_info.value.code == 1
                 captured = capsys.readouterr()
                 assert "Error processing" in captured.out
                 assert "1 errors" in captured.out or "error" in captured.out.lower()
