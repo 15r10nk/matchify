@@ -1,7 +1,8 @@
 ![ci](https://github.com/15r10nk/matchify/actions/workflows/ci.yml/badge.svg?branch=main)
+
 [![pypi version](https://img.shields.io/pypi/v/matchify.svg)](https://pypi.org/project/matchify/)
 ![Python Versions](https://img.shields.io/pypi/pyversions/matchify)
-![PyPI - Downloads](https://img.shields.io/pypi/dw/matchify)
+[![PyPI - Downloads](https://img.shields.io/pypi/dw/matchify)](https://pypacktrends.com/?packages=matchify&time_range=2years)
 [![GitHub Sponsors](https://img.shields.io/github/sponsors/15r10nk)](https://github.com/sponsors/15r10nk)
 
 ## Installation

@@ -27,6 +27,16 @@ readme = "README.md"
 requires-python = ">=3.10"
 version = "0.0.1"
 
+[dependency-groups]
+cog = [
+  "cogapp>=3.4.1",
+]
+dev = [
+  "coverage[toml]>=6.5",
+  "pysource-minimize[cli]>=0.10.1",
+  "pytest>=9.0.1",
+]
+
 [project.scripts]
 matchify = "matchify.cli:main"
 
@@ -44,6 +54,7 @@ profile = "black"
 [tool.commitizen]
 major_version_zero = true
 tag_format = "v$major.$minor.$patch$prerelease"
+update_changelog_on_bump = true
 version_provider = "pep621"
 
 [tool.coverage.paths]
@@ -63,18 +74,23 @@ parallel = true
 scripts.test = "pytest {args:tests}"
 dependencies = [
   "pytest",
+  "pytest-xdist"
 ]
 
-[tool.hatch.envs.all]
+[tool.hatch.envs.hatch-test]
 dependencies = [
   "coverage[toml]>=6.5",
   "pytest",
+  "pytest-xdist"
 ]
 env-vars.TOP = "{root}"
-scripts.test-cov = "coverage run -m pytest {args:tests}"
+default-args = ["tests"]
+scripts.run = "coverage run -m pytest {args}"
 
-[[tool.hatch.envs.all.matrix]]
+[[tool.hatch.envs.hatch-test.matrix]]
 python = ["3.10", "3.11", "3.12", "3.13", "3.14"]
+
+
 
 [tool.hatch.envs.cov]
 dependencies = ["coverage[toml]>=6.5"]
@@ -82,15 +98,8 @@ detached = true
 env-vars.TOP = "{root}"
 scripts.test = [
   "- coverage erase",
-  "hatch run all:test-cov -- {args}",
+  "hatch test --cover-quiet {args}",
   "coverage combine",
   "coverage html",
   "coverage report"
-]
-
-[dependency-groups]
-dev = [
-    "coverage[toml]>=6.5",
-    "pysource-minimize[cli]>=0.10.1",
-    "pytest>=9.0.1",
 ]
