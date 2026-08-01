@@ -13,7 +13,7 @@ project_description: converts if-else code to match statements
 project_main: true
 project_name: matchify
 pypy_versions:
-- pypy3.10
+- pypy3.11
 python_versions:
 - '3.10'
 - '3.11'

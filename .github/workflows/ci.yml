@@ -16,9 +16,9 @@ jobs:
 
     strategy:
       matrix:
-        python-version: ['3.10', '3.11', '3.12', '3.13', '3.14', pypy3.10]
+        python-version: ['3.10', '3.11', '3.12', '3.13', '3.14', pypy3.11]
 
-        os: [ubuntu-latest, windows-latest, macos-14]
+        os: [ubuntu-latest, windows-latest, macos-latest]
         lowest_resolution: [false]
         is_insider:
         - ${{contains(github.repository, '-insiders/')}}
@@ -26,28 +26,28 @@ jobs:
         - is_insider: true
           os: windows-latest
         - is_insider: true
-          os: macos-14
+          os: macos-latest
 
 
-        - os: macos-14
+        - os: macos-latest
           python-version: '3.11'
         - os: windows-latest
           python-version: '3.11'
 
-        - os: macos-14
+        - os: macos-latest
           python-version: '3.12'
         - os: windows-latest
           python-version: '3.12'
 
-        - os: macos-14
+        - os: macos-latest
           python-version: '3.13'
         - os: windows-latest
           python-version: '3.13'
 
-        - os: macos-14
-          python-version: pypy3.10
+        - os: macos-latest
+          python-version: pypy3.11
         - os: windows-latest
-          python-version: pypy3.10
+          python-version: pypy3.11
 
         include:
         - os: ubuntu-latest
@@ -68,15 +68,15 @@ jobs:
       run: |
         uv lock --upgrade --resolution lowest-direct
         uv sync --locked --resolution lowest-direct
-        uv pip install coverage pytest pytest-xdist
+        uv pip install coverage pytest
 
     - name: Test locked dependencies
       if: ${{ !matrix.lowest_resolution }}
-      run: uv run --locked --with coverage --with pytest --with pytest-xdist -m ${{ matrix.os == 'ubuntu-latest' && 'coverage run -m' || '' }} pytest -n=auto -vv
+      run: uv run --locked --with coverage --with pytest -m ${{ matrix.os == 'ubuntu-latest' && 'coverage run -m' || '' }} pytest -vv
 
     - name: Test lowest direct dependencies
       if: matrix.lowest_resolution
-      run: uv run --no-sync -m coverage run -m pytest -n=auto -vv
+      run: uv run --no-sync -m coverage run -m pytest -vv
 
     - run: |
         uv run ${{ matrix.lowest_resolution && '--no-sync' || '--with coverage' }} -m coverage combine
