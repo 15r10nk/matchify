@@ -820,7 +820,7 @@ class TestTransformCode:
 
         check_code(source, expected)
 
-    def test_list_tuple_sequence_checks_keep_type_guards(self):
+    def test_list_tuple_sequence_checks_require_both_assumptions(self):
         source = dedent(
             """
             value = [1, 2]
@@ -843,6 +843,23 @@ class TestTransformCode:
         ).strip()
 
         check_code(source, expected_safe)
+        check_code(
+            source,
+            expected_safe,
+            assumptions=Assumptions.from_names({"list-sequence-pattern"}),
+        )
+        check_code(
+            source,
+            expected_safe,
+            assumptions=Assumptions.from_names({"tuple-sequence-pattern"}),
+        )
+        check_code(
+            source,
+            expected_safe.replace(" if isinstance(value, (list, tuple))", ""),
+            assumptions=Assumptions.from_names(
+                {"list-sequence-pattern", "tuple-sequence-pattern"}
+            ),
+        )
 
     def test_qualified_constants_become_value_patterns(self):
         """Qualified constants can be compared by match value patterns."""
@@ -3342,6 +3359,16 @@ class TestTransformCode:
         ).strip()
 
         check_code(source, expected_safe)
+        check_code(
+            source,
+            expected_safe.replace(
+                "case _ if (isinstance(value, (list, tuple)) and len(value) == 2 and value[0] == 1 and value[1] == 2) or value is None:",
+                "case [1, 2] | None:",
+            ),
+            assumptions=Assumptions.from_names(
+                {"list-sequence-pattern", "tuple-sequence-pattern"}
+            ),
+        )
 
     def test_or_pattern_with_sequence_attribute_alternative(self):
         """Test OR alternatives with class sequence attribute patterns."""
@@ -3408,6 +3435,16 @@ class TestTransformCode:
         ).strip()
 
         check_code(source, expected_safe)
+        check_code(
+            source,
+            expected_safe.replace(
+                'case _ if (isinstance(value, Point) and hasattr(value, "items") and isinstance(value.items, (list, tuple)) and len(value.items) == 2 and value.items[0] == 1 and value.items[1] is None) or value == 0:',
+                "case Point(items=[1, None]) | 0:",
+            ),
+            assumptions=Assumptions.from_names(
+                {"list-sequence-pattern", "tuple-sequence-pattern"}
+            ),
+        )
 
     def test_or_pattern_with_sequence_element_redundant_hasattr(self):
         """Test safe hasattr checks do not block sequence element class patterns."""

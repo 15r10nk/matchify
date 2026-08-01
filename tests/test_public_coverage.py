@@ -2,7 +2,7 @@
 
 from textwrap import dedent
 
-from matchify import transform_code
+from matchify import Assumptions, transform_code
 
 
 def test_rejects_dynamic_and_non_string_hasattr_names():
@@ -127,7 +127,7 @@ def test_incompatible_class_and_subscript_facts_are_rejected():
     assert transform_code(source) == source
 
 
-def test_sequence_type_guards_are_kept_in_or_patterns():
+def test_sequence_type_guards_can_be_assumed_for_or_patterns():
     source = dedent(
         """
         if (isinstance(value, (list, tuple)) and len(value) == 1) or (isinstance(value, (list, tuple)) and len(value) == 2):
@@ -137,9 +137,14 @@ def test_sequence_type_guards_are_kept_in_or_patterns():
         """
     ).strip()
 
-    transformed = transform_code(source)
+    transformed = transform_code(
+        source,
+        assumptions=Assumptions.from_names(
+            {"list-sequence-pattern", "tuple-sequence-pattern"}
+        ),
+    )
 
-    assert "isinstance(value, (list, tuple))" in transformed
+    assert "case [_] | [_, _]:" in transformed
     assert "case None:" in transformed
 
 
