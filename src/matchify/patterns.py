@@ -107,14 +107,6 @@ def extract_isinstance_classes(
     return (class_arg,)
 
 
-def is_list_tuple_classes(classes: tuple[cst.BaseExpression, ...]) -> bool:
-    # Exact list/tuple detection only applies to plain names; complex classinfo
-    # is handled as a normal pattern candidate and validated later.
-    return all(isinstance(class_expr, cst.Name) for class_expr in classes) and {
-        class_expr.value for class_expr in classes
-    } == {"list", "tuple"}
-
-
 def is_class_pattern_expr(expr: cst.BaseExpression) -> bool:
     """Return whether an expression is valid before ``()`` in a class pattern."""
     if isinstance(expr, cst.Name):

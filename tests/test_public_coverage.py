@@ -2,7 +2,7 @@
 
 from textwrap import dedent
 
-from matchify import transform_code
+from matchify import Assumptions, transform_code
 
 
 def test_rejects_dynamic_and_non_string_hasattr_names():
@@ -137,7 +137,12 @@ def test_redundant_sequence_type_guards_are_dropped_from_or_patterns():
         """
     ).strip()
 
-    transformed = transform_code(source)
+    transformed = transform_code(
+        source,
+        assumptions=Assumptions.from_names(
+            {"list-sequence-pattern", "tuple-sequence-pattern"}
+        ),
+    )
 
     assert "case [_] | [_, _]:" in transformed
     assert "case None:" in transformed

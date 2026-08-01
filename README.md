@@ -83,6 +83,13 @@ Available risky assumptions:
   such as `op is Op.ADD` to value patterns such as `case Op.ADD`. Match value
   patterns compare with equality, not identity, so enable it only when identity
   and equality are equivalent for those values.
+- `list-sequence-pattern`: permits a sequence pattern to imply an explicit
+  `isinstance(value, list)` check. Python sequence patterns can also match other
+  sequence types, so enable it only when that broader match is acceptable.
+- `tuple-sequence-pattern`: permits a sequence pattern to imply an explicit
+  `isinstance(value, tuple)` check. Python sequence patterns can also match other
+  sequence types, so enable it only when that broader match is acceptable.
+  Checks against `(list, tuple)` require both sequence assumptions.
 
 Development and repository-testing notes are in
 [CONTRIBUTING.md](CONTRIBUTING.md).
