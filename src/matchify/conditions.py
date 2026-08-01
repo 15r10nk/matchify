@@ -154,10 +154,8 @@ def parse_hasattr_predicate(predicate: cst.BaseExpression) -> HasAttrPredicate |
     name = predicate.args[1].value
     if not isinstance(name, cst.SimpleString):
         return None
-    try:
-        attribute = name.evaluated_value
-    except ValueError:
-        return None
+    # Parsed Python guarantees that a SimpleString has an evaluable value.
+    attribute = name.evaluated_value
     if not isinstance(attribute, str):
         return None
     expression = predicate.args[0].value
@@ -359,17 +357,17 @@ def merge_subject_candidate(subjects: list[AccessPath], candidate: AccessPath) -
 
 
 def find_isinstance_subject_path(
-    expr: BoolExpr, *, include_subscripts: bool
+    expr: AndExpr, *, include_subscripts: bool
 ) -> AccessPath | None:
-    for part in iter_and_parts(expr):
+    for part in expr.parts:
         if isinstance(part, IsInstancePredicate):
             if include_subscripts or not part.path.contains_subscript:
                 return part.path
     return None
 
 
-def find_sequence_subject_path(expr: BoolExpr) -> AccessPath | None:
-    parts = tuple(iter_and_parts(expr))
+def find_sequence_subject_path(expr: AndExpr) -> AccessPath | None:
+    parts = expr.parts
     for part in parts:
         if not isinstance(part, LenPredicate):
             continue
@@ -394,8 +392,8 @@ def has_direct_sequence_element_check(expr: BoolExpr, subject: AccessPath) -> bo
     return isinstance(path.first_part_after(subject), SubscriptPathPart)
 
 
-def find_value_subject_path(expr: BoolExpr) -> AccessPath | None:
-    for part in iter_and_parts(expr):
+def find_value_subject_path(expr: AndExpr) -> AccessPath | None:
+    for part in expr.parts:
         if isinstance(part, OrExpr):
             subject = select_subject_path(part)
             if subject is not None and not subject.contains_subscript:
@@ -404,12 +402,6 @@ def find_value_subject_path(expr: BoolExpr) -> AccessPath | None:
         if isinstance(part, ValuePredicate) and not part.path.contains_subscript:
             return part.path
     return None
-
-
-def iter_and_parts(expr: BoolExpr) -> tuple[BoolExpr, ...]:
-    if isinstance(expr, AndExpr):
-        return expr.parts
-    return (expr,)
 
 
 def bind_condition_subject(expr: BoolExpr, subject: MatchSubjectPlan) -> BoolExpr:
@@ -505,10 +497,7 @@ def residual_condition(expr: BoolExpr | None) -> cst.BaseExpression | None:
         rendered = [
             condition for part in expr.parts if (condition := residual_condition(part))
         ]
-        if not rendered:
-            return None
-        if len(rendered) == 1:
-            return rendered[0]
+        assert len(rendered) >= 2, "AndExpr residuals need at least two conditions"
         expression = rendered[0]
         for condition in rendered[1:]:
             expression = cst.BooleanOperation(

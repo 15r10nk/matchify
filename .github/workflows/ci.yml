@@ -4,61 +4,96 @@ on:
   pull_request:
   push:
     branches: [main]
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
 
 jobs:
 
   test:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+
+    runs-on: ${{matrix.os}}
 
     strategy:
       matrix:
         python-version: ['3.10', '3.11', '3.12', '3.13', '3.14', pypy3.11]
 
+        os: [ubuntu-latest, windows-latest, macos-15]
+        lowest_resolution: [false]
+        is_insider:
+        - ${{contains(github.repository, '-insiders/')}}
+
+        exclude:
+        - is_insider: true
+          os: windows-latest
+        - is_insider: true
+          os: macos-15
+
+
+        - os: macos-15
+          python-version: '3.11'
+        - os: windows-latest
+          python-version: '3.11'
+
+        - os: macos-15
+          python-version: '3.12'
+        - os: windows-latest
+          python-version: '3.12'
+
+        - os: macos-15
+          python-version: '3.13'
+        - os: windows-latest
+          python-version: '3.13'
+
+        - os: macos-15
+          python-version: pypy3.11
+        - os: windows-latest
+          python-version: pypy3.11
+
+        include:
+        - os: ubuntu-latest
+          python-version: '3.10'
+          lowest_resolution: true
+        - os: ubuntu-latest
+          python-version: '3.14'
+          lowest_resolution: true
+
+
     env:
       TOP: ${{github.workspace}}
+      COVERAGE_PROCESS_START: ${{github.workspace}}/pyproject.toml
     steps:
     - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
     - uses: ./.github/actions/setup
       with:
         python-version: ${{matrix.python-version}}
 
+    - name: Resolve lowest direct dependencies
+      if: matrix.lowest_resolution
+      run: |
+        uv lock --upgrade --resolution lowest-direct
+        uv sync --locked --resolution lowest-direct
+        uv pip install coverage coverage-enable-subprocess pytest pytest-xdist
+
+    - name: Test locked dependencies
+      if: ${{ !matrix.lowest_resolution }}
+      run: uv run --locked --with coverage --with coverage-enable-subprocess --with pytest --with pytest-xdist -m ${{ matrix.os == 'ubuntu-latest' && 'coverage run -m' || '' }} pytest -n=auto -vv
+
+    - name: Test lowest direct dependencies
+      if: matrix.lowest_resolution
+      run: uv run --no-sync -m coverage run -m pytest -n=auto -vv
+
     - run: |
-        uv run -m coverage run -m pytest -q
-    - run: |
-        uv run -m coverage combine
-        mv .coverage .coverage.${{ matrix.python-version }}-ubuntu-latest-${{strategy.job-index}}
+        uv run ${{ matrix.lowest_resolution && '--no-sync' || '--with coverage' }} -m coverage combine
+        mv .coverage .coverage.${{ matrix.python-version }}-${{matrix.os}}-${{strategy.job-index}}
+      if: matrix.os == 'ubuntu-latest'
 
     - name: Upload coverage data
       uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+      if: matrix.os == 'ubuntu-latest'
       with:
-        name: coverage-data-${{github.run_id}}-${{ matrix.python-version }}-ubuntu-latest-${{strategy.job-index}}
+        name: coverage-data-${{github.run_id}}-${{ matrix.python-version }}-${{matrix.os}}-${{strategy.job-index}}
         path: .coverage.*
         include-hidden-files: true
         if-no-files-found: ignore
-
-  platform-test:
-    runs-on: ${{matrix.os}}
-    timeout-minutes: 20
-
-    strategy:
-      matrix:
-        os: [windows-latest, macos-latest]
-        is_insider:
-        - ${{contains(github.repository, '-insiders/')}}
-        exclude:
-        - is_insider: true
-          os: windows-latest
-        - is_insider: true
-          os: macos-latest
-
-    steps:
-    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-    - uses: ./.github/actions/setup
-      with:
-        python-version: '3.14'
-
-    - run: uv run -m pytest -q
 
   coverage:
     name: Combine & check coverage
@@ -77,18 +112,17 @@ jobs:
         pattern: coverage-data-${{github.run_id}}-*
         merge-multiple: true
 
-    - name: Combine coverage & fail if it's <97%
+    - name: Combine coverage & fail if it's <100%
       run: |
-        uv pip install --upgrade coverage[toml]
-
-        coverage combine
-        coverage html --skip-covered --skip-empty
+        uv run --with coverage coverage combine
+        uv run --with coverage coverage html --skip-covered --skip-empty
 
         # Report and write to summary.
-        coverage report --format=markdown >> $GITHUB_STEP_SUMMARY
+        uv run --with coverage coverage report --format=markdown >> $GITHUB_STEP_SUMMARY
 
-        # Report again and fail if under the current project baseline.
-        coverage report --fail-under=97
+        # Report again and fail if under 100%.
+        uv run --with coverage coverage report
+
 
     - name: Upload HTML report if check failed
       uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
@@ -101,8 +135,8 @@ jobs:
   publish:
     name: Publish new release
     runs-on: ubuntu-latest
-    needs: [test, platform-test, coverage]
-    if: github.event_name == 'push' && !contains(github.repository, '-insiders/')
+    needs: [test, coverage]
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.repository, '-insiders/')
     environment: pypi
     permissions:
       # IMPORTANT: this permission is mandatory for Trusted Publishing
@@ -117,30 +151,13 @@ jobs:
         fetch-depth: 0
     - uses: ./.github/actions/setup
 
-    - name: Check if the commit has a vx.y.z tag
-      id: check-version
-      run: |
-        if git tag --list --points-at ${{ github.sha }} | grep -q -E '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
-          echo "is new version"
-          echo "should_continue=true" >> "$GITHUB_OUTPUT"
-        else
-          echo "is not a new version"
-          echo "should_continue=false" >> "$GITHUB_OUTPUT"
-        fi
-
-    - run: uv pip install hatch scriv
-      if: ${{ steps.check-version.outputs.should_continue == 'true' }}
-
     - name: build package
-      if: ${{ steps.check-version.outputs.should_continue == 'true' }}
-      run: hatch build
+      run: uvx hatch build
 
     - name: Publish package distributions to PyPI
-      if: ${{ steps.check-version.outputs.should_continue == 'true' }}
       uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc # v1.12.4
 
     - name: create github release
-      if: ${{ steps.check-version.outputs.should_continue == 'true' }}
       env:
-        GITHUB_TOKEN: ${{ github.token }}
-      run: scriv github-release
+        GH_TOKEN: ${{ github.token }}
+      run: gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes

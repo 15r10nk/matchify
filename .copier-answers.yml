@@ -1,6 +1,10 @@
 # Changes here will be overwritten by Copier
-_commit: v0.0.6
-_src_path: git@github.com:15r10nk/project-template.git
+_commit: v0.2.2
+_src_path: https://github.com/15r10nk/project-template.git
+author_email: 15r10nk@polarbit.de
+author_name: Frank Hoffmann
+discord_id: ''
+discord_invite_id: ''
 full_coverage: false
 github_user: 15r10nk
 insider_only: false
@@ -9,7 +13,7 @@ project_description: converts if-else code to match statements
 project_main: true
 project_name: matchify
 pypy_versions:
-- pypy3.10
+- pypy3.11
 python_versions:
 - '3.10'
 - '3.11'

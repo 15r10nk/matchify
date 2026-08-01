@@ -111,7 +111,7 @@ def test_subject_plan_rejects_overlapping_subjects():
     parent = AccessPath.from_expression(parse_expression("node"))
     child = AccessPath.from_expression(parse_expression("node.value"))
 
-    with pytest.raises(ValueError, match="must not overlap"):
+    with pytest.raises(AssertionError, match="must not overlap"):
         MatchSubjectPlan.from_subjects((parent, child))
 
 
