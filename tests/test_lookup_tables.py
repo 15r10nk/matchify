@@ -2,6 +2,8 @@
 
 from textwrap import dedent
 
+from inline_snapshot import snapshot
+
 from matchify import Assumptions, transform_code
 from matchify.assumptions import AssumptionDiagnostic
 
@@ -11,12 +13,17 @@ LOOKUP = Assumptions.from_names({"lookup-equality"})
 def test_inline_lookup_in_arbitrary_statement():
     source = 'consume({"create": "POST", "read": "GET"}[operation])'
 
-    transformed = transform_code(source, assumptions=LOOKUP)
-
-    assert "match operation:" in transformed
-    assert 'case "create":\n        consume("POST")' in transformed
-    assert 'case "read":\n        consume("GET")' in transformed
-    assert "raise KeyError(_matchify_key)" in transformed
+    assert transform_code(source, assumptions=LOOKUP) == snapshot(
+        """\
+match operation:
+    case "create":
+        consume("POST")
+    case "read":
+        consume("GET")
+    case _matchify_key:
+        raise KeyError(_matchify_key)\
+"""
+    )
 
 
 def test_function_local_lookup_assignment_is_removed():
@@ -28,10 +35,18 @@ def test_function_local_lookup_assignment_is_removed():
         """
     ).strip()
 
-    transformed = transform_code(source, assumptions=LOOKUP)
-
-    assert "methods =" not in transformed
-    assert 'case "create":\n            return "POST"' in transformed
+    assert transform_code(source, assumptions=LOOKUP) == snapshot(
+        """\
+def method(operation):
+    match operation:
+        case "create":
+            return "POST"
+        case "read":
+            return "GET"
+        case _matchify_key:
+            raise KeyError(_matchify_key)\
+"""
+    )
 
 
 def test_lookup_requires_assumption_and_reports_it():
@@ -71,6 +86,24 @@ def test_subject_is_evaluated_once_and_missing_key_is_preserved():
     transformed = transform_code(source, assumptions=LOOKUP)
     namespace: dict[str, object] = {}
 
+    assert transformed == snapshot(
+        """\
+calls = 0
+def subject():
+    global calls
+    calls += 1
+    return "missing"
+
+try:
+    match subject():
+        case "a":
+            result = 1
+        case _matchify_key:
+            raise KeyError(_matchify_key)
+except KeyError as error:
+    missing = error.args[0]\
+"""
+    )
     exec(transformed, namespace)
 
     assert namespace["calls"] == 1
@@ -129,6 +162,12 @@ def test_invalid_local_lookup_uses_and_capture_name_collisions():
     assert transform_code(use_before_assignment, assumptions=LOOKUP) == (
         use_before_assignment
     )
-    transformed = transform_code(source, assumptions=LOOKUP)
-    assert "case _matchify_key_2:" in transformed
-    assert "raise KeyError(_matchify_key_2)" in transformed
+    assert transform_code(source, assumptions=LOOKUP) == snapshot(
+        """\
+match key:
+    case "a":
+        _matchify_key = 1
+    case _matchify_key_2:
+        raise KeyError(_matchify_key_2)\
+"""
+    )

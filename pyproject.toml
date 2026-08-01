@@ -33,6 +33,7 @@ cog = [
 ]
 dev = [
   "coverage[toml]>=6.5",
+  "inline-snapshot>=0.35.3",
   "pysource-minimize[cli]>=0.10.1",
   "pytest>=9.0.1",
 ]
