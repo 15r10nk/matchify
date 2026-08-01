@@ -6,7 +6,7 @@ from typing import NamedTuple
 import libcst as cst
 
 from .access_path import MatchSubjectPlan
-from .assumptions import PURE_SUBJECTS, Assumptions
+from .assumptions import Assumptions
 from .capture_patterns import (
     detect_captures,
     normalize_duplicate_captures,
@@ -69,14 +69,9 @@ class IfChainCompiler:
         ignore_types_pattern: str | None = r".*_TYPES$",
         *,
         assumptions: Assumptions | None = None,
-        assume_pure_subjects: bool = False,
     ) -> None:
         self.ignore_types_pattern = ignore_types_pattern
         self.assumptions = assumptions or Assumptions.from_names()
-        if assume_pure_subjects:
-            self.assumptions = Assumptions.from_names(
-                (*self.assumptions.names, PURE_SUBJECTS)
-            )
 
     def extract_chain(self, node: cst.If) -> IfChain | None:
         if not isinstance(node.orelse, cst.If):

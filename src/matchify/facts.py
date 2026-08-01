@@ -252,8 +252,7 @@ def node_from_fact(fact: PathFact) -> PatternNode:
 
 def insert_node(root: PatternNode, path: AccessPath, node: PatternNode) -> PatternNode:
     if isinstance(root, OrNode):
-        if path.is_subject:
-            raise ValueError("Conflicting facts for the same subject path")
+        assert not path.is_subject, "OR alternatives cannot gain another root fact"
         return OrNode(
             tuple(
                 insert_node(alternative, path, node)
@@ -267,22 +266,24 @@ def insert_node(root: PatternNode, path: AccessPath, node: PatternNode) -> Patte
         raise ValueError("Conflicting facts for the same subject path")
 
     first_part = path.first_part
+    assert isinstance(
+        first_part, AttributePathPart | SubscriptPathPart
+    ), "Pattern paths must contain a supported path part"
     if isinstance(first_part, AttributePathPart):
-        if not isinstance(root, ClassNode):
-            raise ValueError("Attribute paths need a class pattern parent")
+        assert isinstance(
+            root, ClassNode
+        ), "Attribute paths need a class pattern parent"
         attributes = dict(root.attributes)
         child = attributes.get(first_part.name, WildcardNode())
         attributes[first_part.name] = insert_node(child, path.tail(), node)
         return ClassNode(root.classes, tuple(attributes.items()))
-    if isinstance(first_part, SubscriptPathPart):
-        if not isinstance(root, SequenceNode):
-            raise ValueError("Subscript paths need a sequence pattern parent")
-        elements = dict(root.elements)
-        child = elements.get(first_part.index, WildcardNode())
-        elements[first_part.index] = insert_node(child, path.tail(), node)
-        return SequenceNode(root.length, root.use_star, tuple(elements.items()))
-    # AccessPathPart is a closed union of attribute and subscript parts.
-    raise ValueError("Unsupported subject path part")  # pragma: no cover
+    assert isinstance(
+        root, SequenceNode
+    ), "Subscript paths need a sequence pattern parent"
+    elements = dict(root.elements)
+    child = elements.get(first_part.index, WildcardNode())
+    elements[first_part.index] = insert_node(child, path.tail(), node)
+    return SequenceNode(root.length, root.use_star, tuple(elements.items()))
 
 
 def insert_capture_node(
@@ -304,6 +305,9 @@ def insert_capture_node(
         )
 
     first_part = path.first_part
+    assert isinstance(
+        first_part, AttributePathPart | SubscriptPathPart
+    ), "Capture paths must contain a supported path part"
     if isinstance(first_part, AttributePathPart):
         if not isinstance(root, ClassNode):
             return None
@@ -317,23 +321,20 @@ def insert_capture_node(
         attributes[first_part.name] = inserted
         return ClassNode(root.classes, tuple(attributes.items()))
 
-    if isinstance(first_part, SubscriptPathPart):
-        if not isinstance(root, SequenceNode):
+    if not isinstance(root, SequenceNode):
+        return None
+    elements = dict(root.elements)
+    child = elements.get(first_part.index)
+    if child is None:
+        if not path.tail().is_subject:
             return None
-        elements = dict(root.elements)
-        child = elements.get(first_part.index)
-        if child is None:
-            if not path.tail().is_subject:
-                return None
-            elements[first_part.index] = node
-        else:
-            inserted = insert_capture_node(child, path.tail(), node)
-            if inserted is None:
-                return None
-            elements[first_part.index] = inserted
-        return SequenceNode(root.length, root.use_star, tuple(elements.items()))
-
-    return None
+        elements[first_part.index] = node
+    else:
+        inserted = insert_capture_node(child, path.tail(), node)
+        if inserted is None:
+            return None
+        elements[first_part.index] = inserted
+    return SequenceNode(root.length, root.use_star, tuple(elements.items()))
 
 
 def render_child_node(node: PatternNode) -> cst.MatchPattern:

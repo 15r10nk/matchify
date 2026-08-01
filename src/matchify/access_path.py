@@ -124,12 +124,14 @@ class AccessPath:
 
     def to_expression(self) -> cst.BaseExpression:
         """Build fresh CST for an unbound access path."""
+        assert not isinstance(
+            self.root, MatchSubjectRoot
+        ), "A bound access path cannot be rendered as a subject"
         if isinstance(self.root, NameRoot):
             expression: cst.BaseExpression = cst.Name(self.root.name)
-        elif isinstance(self.root, ExpressionRoot):
-            expression = cst.parse_expression(self.root.code)
         else:
-            raise ValueError("A bound access path cannot be rendered as a subject")
+            assert isinstance(self.root, ExpressionRoot)
+            expression = cst.parse_expression(self.root.code)
 
         for part in self.parts:
             if isinstance(part, AttributePathPart):
@@ -203,25 +205,23 @@ class MatchSubjectPlan:
 
     @classmethod
     def from_subjects(cls, subjects: tuple[AccessPath, ...]) -> MatchSubjectPlan:
-        if not subjects:
-            raise ValueError("A match subject plan needs at least one subject")
+        assert subjects, "A match subject plan needs at least one subject"
         for index, subject in enumerate(subjects):
-            if any(
+            assert not any(
                 subject.starts_with(other) or other.starts_with(subject)
                 for other in subjects[index + 1 :]
-            ):
-                raise ValueError("Match subjects must not overlap")
+            ), "Match subjects must not overlap"
         return cls(subjects)
 
     @classmethod
     def from_aligned_candidates(
         cls, candidates: tuple[tuple[AccessPath, ...], ...]
     ) -> MatchSubjectPlan | None:
-        if not candidates or not candidates[0]:
-            return None
+        assert candidates and candidates[0], "Aligned candidates must not be empty"
         size = len(candidates[0])
-        if any(len(paths) != size for paths in candidates[1:]):
-            return None
+        assert all(
+            len(paths) == size for paths in candidates[1:]
+        ), "Aligned candidate groups must have equal sizes"
         subjects = tuple(
             AccessPath.common_prefix(tuple(paths[index] for paths in candidates))
             for index in range(size)
@@ -234,8 +234,7 @@ class MatchSubjectPlan:
     def from_shared_candidates(
         cls, candidates: tuple[tuple[AccessPath, ...], ...]
     ) -> MatchSubjectPlan | None:
-        if not candidates or not candidates[0]:
-            return None
+        assert candidates and candidates[0], "Shared candidates must not be empty"
         subjects = []
         for first in candidates[0]:
             if any(subject.root == first.root for subject in subjects):
@@ -249,8 +248,8 @@ class MatchSubjectPlan:
             subject = AccessPath.common_prefix(
                 tuple(path for group in matching_groups for path in group)
             )
-            if subject is not None:
-                subjects.append(subject)
+            assert subject is not None, "Same-root paths must have a common prefix"
+            subjects.append(subject)
         return cls._from_optional_subjects(tuple(subjects))
 
     @classmethod
@@ -260,10 +259,7 @@ class MatchSubjectPlan:
         concrete = tuple(subject for subject in subjects if subject is not None)
         if len(concrete) != len(subjects) or not concrete:
             return None
-        try:
-            return cls.from_subjects(concrete)
-        except ValueError:
-            return None
+        return cls.from_subjects(concrete)
 
     @property
     def is_composite(self) -> bool:

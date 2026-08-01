@@ -63,13 +63,14 @@ tests = ["tests", "*/matchify/tests"]
 
 [tool.coverage.report]
 exclude_lines = ["pragma: no cover"]
-fail_under = 97
+fail_under = 100
 
 [tool.coverage.run]
 branch = true
 data_file = "$TOP/.coverage"
 omit = ["find_new_issue*.py"]
 parallel = true
+source = ["matchify"]
 
 [tool.hatch.envs.default]
 scripts.test = "pytest {args:tests}"

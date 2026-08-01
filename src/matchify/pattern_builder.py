@@ -115,6 +115,9 @@ def complete_pattern_parents(
 
 
 def fact_supports_child(fact: PathFact, part: AccessPathPart) -> bool:
+    assert isinstance(
+        part, AttributePathPart | SubscriptPathPart
+    ), "Facts can only contain supported access path parts"
     if isinstance(part, AttributePathPart):
         return isinstance(fact, ClassFact) or (
             isinstance(fact, OrFact)
@@ -123,15 +126,13 @@ def fact_supports_child(fact: PathFact, part: AccessPathPart) -> bool:
                 for alternative in fact.alternatives
             )
         )
-    if isinstance(part, SubscriptPathPart):
-        return isinstance(fact, SequenceFact) or (
-            isinstance(fact, OrFact)
-            and all(
-                alternative and fact_supports_child(alternative[0], part)
-                for alternative in fact.alternatives
-            )
+    return isinstance(fact, SequenceFact) or (
+        isinstance(fact, OrFact)
+        and all(
+            alternative and fact_supports_child(alternative[0], part)
+            for alternative in fact.alternatives
         )
-    return False
+    )
 
 
 def build_pattern(expr: BoolExpr) -> PatternBuildResult:
@@ -351,8 +352,7 @@ def is_liftable_or_residual(guard: cst.BaseExpression) -> bool:
 def common_alternative_path(
     alternatives: list[tuple[PathFact, ...]],
 ) -> AccessPath | None:
-    if not alternatives or any(not facts for facts in alternatives):
-        return None
+    assert alternatives and all(alternatives), "OR alternatives must contain facts"
     first_path = alternatives[0][0].path
     return (
         first_path
