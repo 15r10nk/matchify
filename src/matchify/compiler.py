@@ -136,7 +136,7 @@ class IfChainCompiler:
             return None
         concrete_candidates = tuple(paths for paths in candidates if paths is not None)
         if self.assumptions.assume_pure_subjects:
-            return MatchSubjectPlan.from_shared_candidates(concrete_candidates)
+            return MatchSubjectPlan.from_majority_candidates(concrete_candidates)
 
         if self.assumptions.use_object:
             subject = MatchSubjectPlan.from_shared_candidates(concrete_candidates)
