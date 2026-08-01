@@ -6,8 +6,18 @@ from dataclasses import dataclass
 PURE_SUBJECTS = "pure-subjects"
 USE_OBJECT = "use-object"
 IDENTITY_EQUALITY = "identity-equality"
+LIST_SEQUENCE_PATTERN = "list-sequence-pattern"
+TUPLE_SEQUENCE_PATTERN = "tuple-sequence-pattern"
 
-ALL_RISKY_ASSUMPTIONS = frozenset({PURE_SUBJECTS, USE_OBJECT, IDENTITY_EQUALITY})
+ALL_RISKY_ASSUMPTIONS = frozenset(
+    {
+        PURE_SUBJECTS,
+        USE_OBJECT,
+        IDENTITY_EQUALITY,
+        LIST_SEQUENCE_PATTERN,
+        TUPLE_SEQUENCE_PATTERN,
+    }
+)
 DEFAULT_ASSUMPTIONS = frozenset[str]()
 
 
@@ -54,6 +64,14 @@ class Assumptions:
     @property
     def identity_equality(self) -> bool:
         return IDENTITY_EQUALITY in self.names
+
+    @property
+    def list_sequence_pattern(self) -> bool:
+        return LIST_SEQUENCE_PATTERN in self.names
+
+    @property
+    def tuple_sequence_pattern(self) -> bool:
+        return TUPLE_SEQUENCE_PATTERN in self.names
 
 
 def parse_assumption_names(value: str) -> frozenset[str]:

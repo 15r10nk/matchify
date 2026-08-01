@@ -13,6 +13,7 @@ from .access_path import (
     MatchSubjectRoot,
     SubscriptPathPart,
 )
+from .assumptions import Assumptions
 from .conditions import (
     AndExpr,
     BoolExpr,
@@ -35,7 +36,7 @@ from .facts import (
     SequenceFact,
     ValueFact,
 )
-from .patterns import is_class_pattern_expr, is_list_tuple_classes
+from .patterns import is_class_pattern_expr
 
 
 @dataclass(frozen=True)
@@ -48,12 +49,13 @@ def normalize_condition(
     expr: BoolExpr,
     subject: MatchSubjectPlan,
     *,
+    assumptions: Assumptions | None = None,
     allow_object_anchors: bool = False,
 ) -> BranchFacts:
     """Bind and lower a parsed condition into a pattern and residual guard."""
     expr = bind_condition_subject(expr, subject)
     expr = remove_implied_checks(expr)
-    result = build_pattern(expr)
+    result = build_pattern(expr, assumptions or Assumptions.safe())
     facts = result.facts
     if subject.is_composite:
         facts = (
@@ -135,11 +137,11 @@ def fact_supports_child(fact: PathFact, part: AccessPathPart) -> bool:
     )
 
 
-def build_pattern(expr: BoolExpr) -> PatternBuildResult:
+def build_pattern(expr: BoolExpr, assumptions: Assumptions) -> PatternBuildResult:
     if isinstance(expr, AndExpr):
-        return build_and_pattern(expr)
+        return build_and_pattern(expr, assumptions)
     if isinstance(expr, OrExpr):
-        return build_or_pattern(expr)
+        return build_or_pattern(expr, assumptions)
     if isinstance(expr, RawPredicate):
         return PatternBuildResult((), expr)
     fact = fact_from_predicate(expr)
@@ -148,19 +150,19 @@ def build_pattern(expr: BoolExpr) -> PatternBuildResult:
     return PatternBuildResult((fact,))
 
 
-def build_and_pattern(expr: AndExpr) -> PatternBuildResult:
+def build_and_pattern(expr: AndExpr, assumptions: Assumptions) -> PatternBuildResult:
     facts: list[PathFact] = []
     residuals: list[BoolExpr] = []
     class_paths: set[AccessPath] = set()
 
     for part in expr.parts:
-        if is_sequence_pattern_type_check(part) and has_len_fact(part, expr.parts):
+        if is_sequence_type_check(part) and has_len_fact(part, expr.parts):
             residuals.append(part)
             continue
         if isinstance(part, IsInstancePredicate) and part.path in class_paths:
             residuals.append(part)
             continue
-        result = build_pattern(part)
+        result = build_pattern(part, assumptions)
         for fact in result.facts:
             if isinstance(fact, ClassFact):
                 class_paths.add(fact.path)
@@ -169,7 +171,7 @@ def build_and_pattern(expr: AndExpr) -> PatternBuildResult:
             residuals.append(result.residual)
 
     ordered_facts = tuple(sorted(facts, key=fact_sort_key))
-    residuals = drop_redundant_residuals(residuals, ordered_facts)
+    residuals = drop_redundant_residuals(residuals, ordered_facts, assumptions)
     residual = None
     if len(residuals) == 1:
         residual = residuals[0]
@@ -179,18 +181,18 @@ def build_and_pattern(expr: AndExpr) -> PatternBuildResult:
     return PatternBuildResult(ordered_facts, residual)
 
 
-def build_or_pattern(expr: OrExpr) -> PatternBuildResult:
+def build_or_pattern(expr: OrExpr, assumptions: Assumptions) -> PatternBuildResult:
     alternatives: list[tuple[PathFact, ...]] = []
     residuals: list[BoolExpr | None] = []
 
     for part in expr.parts:
-        result = build_pattern(part)
+        result = build_pattern(part, assumptions)
         if not result.facts:
             return PatternBuildResult((), expr)
         alternatives.append(result.facts)
         residuals.append(result.residual)
 
-    residuals = drop_implied_or_residuals(residuals, alternatives)
+    residuals = drop_implied_or_residuals(residuals, alternatives, assumptions)
     residual = common_residual(residuals)
     if residual is _MIXED_RESIDUALS:
         return PatternBuildResult((), expr)
@@ -224,8 +226,31 @@ def fact_from_predicate(predicate: PathPredicate) -> PathFact | None:
     return None
 
 
-def is_sequence_pattern_type_check(expr: BoolExpr | None) -> bool:
-    return isinstance(expr, IsInstancePredicate) and is_list_tuple_classes(expr.classes)
+def is_sequence_type_check(expr: BoolExpr | None) -> bool:
+    return isinstance(expr, IsInstancePredicate) and bool(
+        sequence_type_names(expr.classes)
+    )
+
+
+def sequence_type_names(classes: tuple[cst.BaseExpression, ...]) -> frozenset[str]:
+    if not all(isinstance(class_expr, cst.Name) for class_expr in classes):
+        return frozenset()
+    names = frozenset(class_expr.value for class_expr in classes)
+    return names if names <= {"list", "tuple"} else frozenset()
+
+
+def assumes_sequence_type_check(
+    residual: BoolExpr,
+    assumptions: Assumptions,
+) -> bool:
+    if not isinstance(residual, IsInstancePredicate):
+        return False
+    names = sequence_type_names(residual.classes)
+    return bool(names) and all(
+        (name == "list" and assumptions.list_sequence_pattern)
+        or (name == "tuple" and assumptions.tuple_sequence_pattern)
+        for name in names
+    )
 
 
 def has_len_fact(predicate: IsInstancePredicate, parts: tuple[BoolExpr, ...]) -> bool:
@@ -235,21 +260,24 @@ def has_len_fact(predicate: IsInstancePredicate, parts: tuple[BoolExpr, ...]) ->
 
 
 def drop_redundant_residuals(
-    residuals: list[BoolExpr], facts: tuple[PathFact, ...]
+    residuals: list[BoolExpr],
+    facts: tuple[PathFact, ...],
+    assumptions: Assumptions,
 ) -> list[BoolExpr]:
     return [
         residual
         for residual in residuals
-        if not residual_is_implied_by_facts(residual, facts)
+        if not residual_is_implied_by_facts(residual, facts, assumptions)
     ]
 
 
 def residual_is_implied_by_facts(
     residual: BoolExpr,
     facts: tuple[PathFact, ...],
+    assumptions: Assumptions,
 ) -> bool:
     return bool(
-        is_sequence_pattern_type_check(residual)
+        assumes_sequence_type_check(residual, assumptions)
         and sequence_path_has_element_fact(residual.path, facts)
     )
 
@@ -257,9 +285,10 @@ def residual_is_implied_by_facts(
 def drop_implied_or_residuals(
     residuals: list[BoolExpr | None],
     alternatives: list[tuple[PathFact, ...]],
+    assumptions: Assumptions,
 ) -> list[BoolExpr | None]:
     if not residuals or not all_residuals_are_implied_by_alternatives(
-        residuals, alternatives
+        residuals, alternatives, assumptions
     ):
         return residuals
     return [None] * len(residuals)
@@ -268,22 +297,22 @@ def drop_implied_or_residuals(
 def all_residuals_are_implied_by_alternatives(
     residuals: list[BoolExpr | None],
     alternatives: list[tuple[PathFact, ...]],
+    assumptions: Assumptions,
 ) -> bool:
     return all(
-        residual is not None and residual_is_implied_by_alternative(residual, facts)
-        for residual, facts in zip(
-            residuals,
-            alternatives,
-            strict=True,
-        )
+        residual is not None
+        and residual_is_implied_by_alternative(residual, facts, assumptions)
+        for residual, facts in zip(residuals, alternatives, strict=True)
     )
 
 
 def residual_is_implied_by_alternative(
-    residual: BoolExpr, facts: tuple[PathFact, ...]
+    residual: BoolExpr,
+    facts: tuple[PathFact, ...],
+    assumptions: Assumptions,
 ) -> bool:
     return bool(
-        is_sequence_pattern_type_check(residual)
+        assumes_sequence_type_check(residual, assumptions)
         and (
             sequence_path_has_element_fact(residual.path, facts)
             or sequence_path_has_anchor_fact(residual.path, facts)
