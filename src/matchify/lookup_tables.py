@@ -80,6 +80,7 @@ def compile_inline_lookup(
     for key, value in entries:
         body = statement.visit(_ReplaceNode(candidate.subscription, value))
         assert isinstance(body, cst.SimpleStatementLine)
+        body = body.with_changes(leading_lines=())
         cases.append(
             cst.MatchCase(
                 pattern=build_value_pattern(key),

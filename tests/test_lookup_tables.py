@@ -26,6 +26,28 @@ match operation:
     )
 
 
+def test_lookup_comments_remain_before_the_generated_match():
+    source = dedent(
+        """
+        # lookup comment
+        print({"create": "POST", "read": "GET"}[operation])
+        """
+    ).strip()
+
+    assert transform_code(source, assumptions=LOOKUP) == snapshot(
+        """\
+# lookup comment
+match operation:
+    case "create":
+        print("POST")
+    case "read":
+        print("GET")
+    case _matchify_key:
+        raise KeyError(_matchify_key)\
+"""
+    )
+
+
 def test_function_local_lookup_assignment_is_removed():
     source = dedent(
         """
