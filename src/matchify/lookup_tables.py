@@ -67,11 +67,12 @@ def lookup_entries(
             return None
         key = element.key
         value = element.value
-        if key is None or not is_value_pattern_expr(key):
+        if key is None or not is_lookup_key(key):
             return None
         try:
             literal_key = ast.literal_eval(cst.Module([]).code_for_node(key))
-        except (ValueError, SyntaxError):
+            hash(literal_key)
+        except (TypeError, ValueError, SyntaxError):
             return None
         if any(literal_key == previous for previous in literal_keys):
             return None
@@ -94,7 +95,7 @@ def compile_inline_lookup(
         body = body.with_changes(leading_lines=())
         cases.append(
             cst.MatchCase(
-                pattern=build_value_pattern(key),
+                pattern=build_lookup_key_pattern(key),
                 body=cst.IndentedBlock(body=(body,)),
             )
         )
@@ -216,3 +217,37 @@ def _unused_capture_name(statement: cst.CSTNode) -> str:
         candidate = f"{base}_{suffix}"
         suffix += 1
     return candidate
+
+
+def is_lookup_key(key: cst.BaseExpression) -> bool:
+    if is_value_pattern_expr(key):
+        return True
+    if not isinstance(key, cst.Tuple):
+        return False
+    return all(
+        isinstance(element, cst.Element) and is_lookup_key(element.value)
+        for element in key.elements
+    )
+
+
+def build_lookup_key_pattern(key: cst.BaseExpression) -> cst.MatchPattern:
+    if not isinstance(key, cst.Tuple):
+        return build_value_pattern(key)
+    elements = [
+        cst.MatchSequenceElement(
+            value=build_lookup_key_pattern(element.value),
+            comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" ")),
+        )
+        for element in key.elements
+        if isinstance(element, cst.Element)
+    ]
+    if elements:
+        elements[-1] = cst.MatchSequenceElement(
+            value=elements[-1].value,
+            comma=(
+                cst.Comma(whitespace_after=cst.SimpleWhitespace(""))
+                if len(elements) == 1
+                else cst.MaybeSentinel.DEFAULT
+            ),
+        )
+    return cst.MatchTuple(patterns=tuple(elements))

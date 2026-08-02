@@ -96,6 +96,35 @@ match a:
     assert transform_code(transformed, assumptions=LOOKUP) == transformed
 
 
+def test_tuple_and_nested_tuple_keys_become_sequence_patterns():
+    source = dedent(
+        """
+        result = {
+            ("create", 1): "simple",
+            (("nested", 2), (True, None)): "nested",
+            (): "empty",
+            ("single",): "single",
+        }[key]
+        """
+    ).strip()
+
+    assert transform_code(source, assumptions=LOOKUP) == snapshot(
+        """\
+match key:
+    case ("create", 1):
+        result = "simple"
+    case (("nested", 2), (True, None)):
+        result = "nested"
+    case ():
+        result = "empty"
+    case ("single",):
+        result = "single"
+    case _matchify_key:
+        raise KeyError(_matchify_key)\
+"""
+    )
+
+
 def test_function_local_lookup_assignment_is_removed():
     source = dedent(
         """
@@ -184,6 +213,8 @@ def test_unsafe_lookup_tables_remain_unchanged():
     sources = (
         'return {**other, "a": 1}[key]',
         'return {1: "integer", True: "boolean"}[key]',
+        'return {(1,): "integer", (True,): "boolean"}[key]',
+        'return {("a", [1]): "unhashable"}[key]',
         "return {name: 1}[key]",
         "return {Token.A: 1}[key]",
         'return {"a": 1}[start:stop]',

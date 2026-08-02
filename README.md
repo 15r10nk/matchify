@@ -123,7 +123,9 @@ Available risky assumptions:
   become `match` statements. Dictionary lookup uses hashing while patterns use
   equality, and dictionary values are evaluated only in the selected case
   instead of eagerly when constructing the dictionary. Enable it only when
-  those equality and evaluation-order differences are acceptable.
+  those equality and evaluation-order differences are acceptable. Tuple keys,
+  including nested tuples, become sequence patterns and can therefore also
+  match equivalent non-tuple sequences.
 
 Development and repository-testing notes are in
 [CONTRIBUTING.md](CONTRIBUTING.md).
