@@ -257,11 +257,21 @@ def test_invalid_local_lookup_uses_and_capture_name_collisions():
             methods = {"a": 1}
         """
     ).strip()
+    chained_subscription = dedent(
+        """
+        def lookup(a, b):
+            methods = {"a": {"b": 1}}
+            return methods[a][b]
+        """
+    ).strip()
     source = '_matchify_key = {"a": 1}[key]'
 
     assert transform_code(invalid_slice, assumptions=LOOKUP) == invalid_slice
     assert transform_code(use_before_assignment, assumptions=LOOKUP) == (
         use_before_assignment
+    )
+    assert transform_code(chained_subscription, assumptions=LOOKUP) == (
+        chained_subscription
     )
     assert transform_code(source, assumptions=LOOKUP) == snapshot(
         """\

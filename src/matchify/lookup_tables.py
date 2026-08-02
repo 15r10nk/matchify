@@ -198,11 +198,21 @@ def _local_lookup_use(
             statement, cst.SimpleStatementLine
         ):
             continue
+        chained_subscriptions = {
+            id(subscription.value)
+            for subscription in m.findall(
+                statement,
+                m.Subscript(value=m.Subscript(value=m.Name(value=name))),
+            )
+            if isinstance(subscription, cst.Subscript)
+        }
         subscriptions = m.findall(statement, m.Subscript(value=m.Name(value=name)))
         for subscription in subscriptions:
             assert isinstance(subscription, cst.Subscript)
-            if len(subscription.slice) == 1 and isinstance(
-                subscription.slice[0].slice, cst.Index
+            if (
+                len(subscription.slice) == 1
+                and isinstance(subscription.slice[0].slice, cst.Index)
+                and id(subscription) not in chained_subscriptions
             ):
                 matches.append((index, statement, subscription))
     return matches[0] if len(matches) == 1 else None
