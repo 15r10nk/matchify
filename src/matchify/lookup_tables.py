@@ -28,6 +28,8 @@ class _ReplaceNode(cst.CSTTransformer):
 
 
 def find_inline_lookup(statement: cst.SimpleStatementLine) -> LookupCandidate | None:
+    if m.findall(statement, m.Subscript(value=m.Subscript(value=m.Dict()))):
+        return None
     subscriptions = tuple(m.findall(statement, m.Subscript(value=m.Dict())))
     if len(subscriptions) != 1:
         return None

@@ -170,6 +170,7 @@ def test_unsafe_lookup_tables_remain_unchanged():
         'return {"a": 1}[start:stop]',
         'return {"a": 1}[key, other]',
         'return {"a": 1}[key] + {"b": 2}[key]',
+        'return {"a": {"nested": 1}}[key][nested_key]',
     )
 
     for source in sources:
