@@ -77,6 +77,25 @@ match key:
     )
 
 
+def test_only_the_chained_lookup_is_excluded():
+    source = 'print({"create": {"POST": "a"}, "read": {"GET": "b"}}[a], ' "{}[a][b])"
+
+    transformed = transform_code(source, assumptions=LOOKUP)
+
+    assert transformed == snapshot(
+        """\
+match a:
+    case "create":
+        print({"POST": "a"}, {}[a][b])
+    case "read":
+        print({"GET": "b"}, {}[a][b])
+    case _matchify_key:
+        raise KeyError(_matchify_key)\
+"""
+    )
+    assert transform_code(transformed, assumptions=LOOKUP) == transformed
+
+
 def test_function_local_lookup_assignment_is_removed():
     source = dedent(
         """
