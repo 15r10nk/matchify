@@ -119,6 +119,13 @@ Available risky assumptions:
   `isinstance(value, tuple)` check. Python sequence patterns can also match other
   sequence types, so enable it only when that broader match is acceptable.
   Checks against `(list, tuple)` require both sequence assumptions.
+- `lookup-equality`: permits dictionary lookup tables embedded in statements to
+  become `match` statements. Dictionary lookup uses hashing while patterns use
+  equality, and dictionary values are evaluated only in the selected case
+  instead of eagerly when constructing the dictionary. Enable it only when
+  those equality and evaluation-order differences are acceptable. Tuple keys,
+  including nested tuples, become sequence patterns and can therefore also
+  match equivalent non-tuple sequences.
 
 Development and repository-testing notes are in
 [CONTRIBUTING.md](CONTRIBUTING.md).

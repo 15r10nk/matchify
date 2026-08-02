@@ -7,11 +7,17 @@ from libcst.metadata import CodePosition, CodeRange, MetadataWrapper, PositionPr
 
 from .assumptions import (
     ALL_RISKY_ASSUMPTIONS,
+    LOOKUP_EQUALITY,
     PURE_SUBJECTS,
     AssumptionDiagnostic,
     Assumptions,
 )
 from .compiler import IfChainCompiler
+from .lookup_tables import (
+    compile_inline_lookup,
+    compile_local_lookups,
+    find_inline_lookup,
+)
 
 
 class IfToMatchTransformer(cst.CSTTransformer):
@@ -65,6 +71,32 @@ class IfToMatchTransformer(cst.CSTTransformer):
         )
         return match_stmt
 
+    def leave_SimpleStatementLine(
+        self,
+        original_node: cst.SimpleStatementLine,
+        updated_node: cst.SimpleStatementLine,
+    ) -> cst.BaseStatement:
+        candidate = find_inline_lookup(updated_node)
+        if candidate is None:
+            return updated_node
+        if not self.assumptions.lookup_equality:
+            self._record_diagnostic(original_node, frozenset({LOOKUP_EQUALITY}))
+            return updated_node
+        return compile_inline_lookup(updated_node, candidate)
+
+    def leave_FunctionDef(
+        self, original_node: cst.FunctionDef, updated_node: cst.FunctionDef
+    ) -> cst.FunctionDef:
+        if not isinstance(updated_node.body, cst.IndentedBlock):
+            return updated_node
+        body, required = compile_local_lookups(
+            updated_node.body,
+            enabled=self.assumptions.lookup_equality,
+        )
+        if required and not self.assumptions.lookup_equality:
+            self._record_diagnostic(original_node, frozenset({LOOKUP_EQUALITY}))
+        return updated_node.with_changes(body=body)
+
     def _record_missing_assumption_diagnostic(
         self, original_node: cst.If, updated_node: cst.If
     ) -> None:
@@ -72,9 +104,14 @@ class IfToMatchTransformer(cst.CSTTransformer):
         if not required_assumptions:
             return
 
+        self._record_diagnostic(original_node, required_assumptions)
+
+    def _record_diagnostic(
+        self, node: cst.CSTNode, assumptions: frozenset[str]
+    ) -> None:
         position = self.get_metadata(
             PositionProvider,
-            original_node,
+            node,
             CodeRange(
                 start=CodePosition(line=0, column=0),
                 end=CodePosition(line=0, column=0),
@@ -84,7 +121,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
             AssumptionDiagnostic(
                 line=position.start.line,
                 column=position.start.column,
-                assumptions=required_assumptions,
+                assumptions=assumptions,
             )
         )
 
