@@ -13,8 +13,7 @@ LOOKUP = Assumptions.from_names({"lookup-equality"})
 def test_inline_lookup_in_arbitrary_statement():
     source = 'consume({"create": "POST", "read": "GET"}[operation])'
 
-    assert transform_code(source, assumptions=LOOKUP) == snapshot(
-        """\
+    assert transform_code(source, assumptions=LOOKUP) == snapshot("""\
 match operation:
     case "create":
         consume("POST")
@@ -22,20 +21,16 @@ match operation:
         consume("GET")
     case _matchify_key:
         raise KeyError(_matchify_key)\
-"""
-    )
+""")
 
 
 def test_lookup_comments_remain_before_the_generated_match():
-    source = dedent(
-        """
+    source = dedent("""
         # lookup comment
         print({"create": "POST", "read": "GET"}[operation])
-        """
-    ).strip()
+        """).strip()
 
-    assert transform_code(source, assumptions=LOOKUP) == snapshot(
-        """\
+    assert transform_code(source, assumptions=LOOKUP) == snapshot("""\
 # lookup comment
 match operation:
     case "create":
@@ -44,24 +39,20 @@ match operation:
         print("GET")
     case _matchify_key:
         raise KeyError(_matchify_key)\
-"""
-    )
+""")
 
 
 def test_lookup_values_can_be_arbitrary_expressions():
-    source = dedent(
-        """
+    source = dedent("""
         result = {
             "call": make_value(),
             "attribute": settings.value,
             "containers": [1, {"nested": key}],
             "expression": left + right,
         }[key]
-        """
-    ).strip()
+        """).strip()
 
-    assert transform_code(source, assumptions=LOOKUP) == snapshot(
-        """\
+    assert transform_code(source, assumptions=LOOKUP) == snapshot("""\
 match key:
     case "call":
         result = make_value()
@@ -73,8 +64,7 @@ match key:
         result = left + right
     case _matchify_key:
         raise KeyError(_matchify_key)\
-"""
-    )
+""")
 
 
 def test_only_the_chained_lookup_is_excluded():
@@ -82,8 +72,7 @@ def test_only_the_chained_lookup_is_excluded():
 
     transformed = transform_code(source, assumptions=LOOKUP)
 
-    assert transformed == snapshot(
-        """\
+    assert transformed == snapshot("""\
 match a:
     case "create":
         print({"POST": "a"}, {}[a][b])
@@ -91,25 +80,21 @@ match a:
         print({"GET": "b"}, {}[a][b])
     case _matchify_key:
         raise KeyError(_matchify_key)\
-"""
-    )
+""")
     assert transform_code(transformed, assumptions=LOOKUP) == transformed
 
 
 def test_tuple_and_nested_tuple_keys_become_sequence_patterns():
-    source = dedent(
-        """
+    source = dedent("""
         result = {
             ("create", 1): "simple",
             (("nested", 2), (True, None)): "nested",
             (): "empty",
             ("single",): "single",
         }[key]
-        """
-    ).strip()
+        """).strip()
 
-    assert transform_code(source, assumptions=LOOKUP) == snapshot(
-        """\
+    assert transform_code(source, assumptions=LOOKUP) == snapshot("""\
 match key:
     case ("create", 1):
         result = "simple"
@@ -121,21 +106,17 @@ match key:
         result = "single"
     case _matchify_key:
         raise KeyError(_matchify_key)\
-"""
-    )
+""")
 
 
 def test_function_local_lookup_assignment_is_removed():
-    source = dedent(
-        """
+    source = dedent("""
         def method(operation):
             methods = {"create": "POST", "read": "GET"}
             return methods[operation]
-        """
-    ).strip()
+        """).strip()
 
-    assert transform_code(source, assumptions=LOOKUP) == snapshot(
-        """\
+    assert transform_code(source, assumptions=LOOKUP) == snapshot("""\
 def method(operation):
     match operation:
         case "create":
@@ -144,8 +125,7 @@ def method(operation):
             return "GET"
         case _matchify_key:
             raise KeyError(_matchify_key)\
-"""
-    )
+""")
 
 
 def test_lookup_requires_assumption_and_reports_it():
@@ -168,8 +148,7 @@ def test_local_lookup_requires_assumption_and_one_line_functions_are_ignored():
 
 
 def test_subject_is_evaluated_once_and_missing_key_is_preserved():
-    source = dedent(
-        """
+    source = dedent("""
         calls = 0
         def subject():
             global calls
@@ -180,13 +159,11 @@ def test_subject_is_evaluated_once_and_missing_key_is_preserved():
             result = {"a": 1}[subject()]
         except KeyError as error:
             missing = error.args[0]
-        """
-    ).strip()
+        """).strip()
     transformed = transform_code(source, assumptions=LOOKUP)
     namespace: dict[str, object] = {}
 
-    assert transformed == snapshot(
-        """\
+    assert transformed == snapshot("""\
 calls = 0
 def subject():
     global calls
@@ -201,8 +178,7 @@ try:
             raise KeyError(_matchify_key)
 except KeyError as error:
     missing = error.args[0]\
-"""
-    )
+""")
     exec(transformed, namespace)
 
     assert namespace["calls"] == 1
@@ -229,41 +205,33 @@ def test_unsafe_lookup_tables_remain_unchanged():
 
 def test_nonlocal_and_reused_lookup_variables_remain_unchanged():
     module_source = 'methods = {"a": 1}\nresult = methods[key]'
-    reused_source = dedent(
-        """
+    reused_source = dedent("""
         def lookup(key):
             methods = {"a": 1}
             inspect(methods)
             return methods[key]
-        """
-    ).strip()
+        """).strip()
 
     assert transform_code(module_source, assumptions=LOOKUP) == module_source
     assert transform_code(reused_source, assumptions=LOOKUP) == reused_source
 
 
 def test_invalid_local_lookup_uses_and_capture_name_collisions():
-    invalid_slice = dedent(
-        """
+    invalid_slice = dedent("""
         def lookup(key):
             methods = {"a": 1}
             return methods[:]
-        """
-    ).strip()
-    use_before_assignment = dedent(
-        """
+        """).strip()
+    use_before_assignment = dedent("""
         def lookup(key):
             return methods[key]
             methods = {"a": 1}
-        """
-    ).strip()
-    chained_subscription = dedent(
-        """
+        """).strip()
+    chained_subscription = dedent("""
         def lookup(a, b):
             methods = {"a": {"b": 1}}
             return methods[a][b]
-        """
-    ).strip()
+        """).strip()
     source = '_matchify_key = {"a": 1}[key]'
 
     assert transform_code(invalid_slice, assumptions=LOOKUP) == invalid_slice
@@ -273,12 +241,10 @@ def test_invalid_local_lookup_uses_and_capture_name_collisions():
     assert transform_code(chained_subscription, assumptions=LOOKUP) == (
         chained_subscription
     )
-    assert transform_code(source, assumptions=LOOKUP) == snapshot(
-        """\
+    assert transform_code(source, assumptions=LOOKUP) == snapshot("""\
 match key:
     case "a":
         _matchify_key = 1
     case _matchify_key_2:
         raise KeyError(_matchify_key_2)\
-"""
-    )
+""")

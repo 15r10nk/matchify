@@ -7,32 +7,27 @@ class TestEdgeCases:
     """Test edge cases and error handling."""
 
     def test_path_bearing_guard_can_anchor_sequence_subject(self):
-        source = dedent(
-            """
+        source = dedent("""
             data = [object()]
             if len(data) == 1 and hasattr(data[0], "value"):
                 print("attribute")
             elif len(data) == 1 and data[0] == 0:
                 print("zero")
-            """
-        ).strip()
+            """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             data = [object()]
             match data:
                 case _, if hasattr(data[0], "value"):
                     print("attribute")
                 case 0,:
                     print("zero")
-            """
-        ).strip()
+            """).strip()
 
         check_code(source, expected)
 
     def test_typed_predicate_outside_subject_remains_guard(self):
-        source = dedent(
-            """
+        source = dedent("""
             class A:
                 pass
 
@@ -48,11 +43,9 @@ class TestEdgeCases:
                 print("both")
             elif isinstance(x, C):
                 print("c")
-            """
-        ).strip()
+            """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class A:
                 pass
 
@@ -69,14 +62,12 @@ class TestEdgeCases:
                     print("both")
                 case C():
                     print("c")
-            """
-        ).strip()
+            """).strip()
 
         check_code(source, expected)
 
     def test_different_dynamic_subscript_subjects_are_not_converted(self):
-        source = dedent(
-            """
+        source = dedent("""
             items = [1, 2]
             i = 0
             j = 1
@@ -84,71 +75,60 @@ class TestEdgeCases:
                 print("i")
             elif items[j] == 2:
                 print("j")
-            """
-        ).strip()
+            """).strip()
 
         check_code(source, source)
 
     def test_dynamic_and_slice_subscript_subjects_are_not_conflated(self):
-        source = dedent(
-            """
+        source = dedent("""
             items = [1, 2]
             i = 0
             if items[i] == 1:
                 print("index")
             elif items[0:1] == 2:
                 print("slice")
-            """
-        ).strip()
+            """).strip()
 
         check_code(source, source)
 
     def test_multiple_subjects_preserve_short_circuiting_in_guards(self):
-        source = dedent(
-            """
+        source = dedent("""
             if a.x == 1 and b.y == 2:
                 print("first")
             elif a.x == 3 and b.y == 4:
                 print("second")
-            """
-        ).strip()
+            """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             match a.x:
                 case 1 if b.y == 2:
                     print("first")
                 case 3 if b.y == 4:
                     print("second")
-            """
-        ).strip()
+            """).strip()
 
         check_code(source, expected)
 
     def test_inconsistent_tuple_subject_order_is_not_converted(self):
-        source = dedent(
-            """
+        source = dedent("""
             if (a.x, b.y) == (1, 2):
                 print("first")
             elif (b.y, a.x) == (3, 4):
                 print("second")
-            """
-        ).strip()
+            """).strip()
 
         check_code(source, source)
 
     def test_isinstance_with_starred_element_not_converted(self):
         """Test that isinstance with *args in tuple is not converted."""
-        source = dedent(
-            """
+        source = dedent("""
             types = (int, str)
             value = 42
             if isinstance(value, (*types,)):
                 print("matches")
             elif value == 0:
                 print("zero")
-        """
-        ).strip()
+        """).strip()
 
         # Expected is same as source (no transformation due to starred element)
         expected = source
@@ -156,15 +136,13 @@ class TestEdgeCases:
 
     def test_isinstance_with_empty_tuple_not_converted(self):
         """Test that isinstance with empty tuple is not converted."""
-        source = dedent(
-            """
+        source = dedent("""
             x = 42
             if isinstance(x, ()):
                 print("empty tuple")
             elif x == 42:
                 print("forty two")
-        """
-        ).strip()
+        """).strip()
 
         # Expected is same as source (no transformation - empty tuple not supported)
         expected = source
@@ -172,8 +150,7 @@ class TestEdgeCases:
 
     def test_isinstance_tuple_with_attributes_converted(self):
         """Test tuple class attributes are duplicated across alternatives."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, x):
                     self.x = x
@@ -186,11 +163,9 @@ class TestEdgeCases:
                 print("match")
             elif obj == 0:
                 print("zero")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, x):
                     self.x = x
@@ -204,14 +179,12 @@ class TestEdgeCases:
                     print("match")
                 case 0:
                     print("zero")
-        """
-        ).strip()
+        """).strip()
         check_code(source, expected)
 
     def test_isinstance_with_non_literal_attribute_becomes_guard(self):
         """Test that subject attribute comparisons against variables stay guards."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, x):
                     self.x = x
@@ -222,11 +195,9 @@ class TestEdgeCases:
                 print("match")
             elif isinstance(obj, Point):
                 print("other")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, x):
                     self.x = x
@@ -238,8 +209,7 @@ class TestEdgeCases:
                     print("match")
                 case Point():
                     print("other")
-        """
-        ).strip()
+        """).strip()
         check_code(source, expected)
 
     def test_isinstance_with_len_check_on_attribute_not_converted(self):
@@ -249,8 +219,7 @@ class TestEdgeCases:
         The pattern should not be converted because we can't (yet) mix attribute
         patterns with guard conditions on non-subject attributes.
         """
-        source = dedent(
-            """
+        source = dedent("""
             class RefExpr:
                 def __init__(self, fullname, args=None):
                     self.fullname = fullname
@@ -265,8 +234,7 @@ class TestEdgeCases:
                 print("isinstance with 2 args")
             elif isinstance(o.callee, RefExpr):
                 print("other RefExpr")
-        """
-        ).strip()
+        """).strip()
 
         # Expected is same as source (no transformation - len() on attribute not supported)
         expected = source
@@ -274,8 +242,7 @@ class TestEdgeCases:
 
     def test_isinstance_with_type_variable_ignored(self):
         """Test that isinstance with type variables matching --no-types pattern are not converted."""
-        source = dedent(
-            """
+        source = dedent("""
             SYMBOL_TYPES = (FuncDef, OverloadedFuncDef)
 
             n = None
@@ -283,16 +250,14 @@ class TestEdgeCases:
                 print("match")
             elif isinstance(n, int):
                 print("int")
-        """
-        ).strip()
+        """).strip()
 
         # With default --no-types pattern (.*_TYPES$), this should NOT be converted
         expected = source
         check_code(source, expected)
 
         # Without the pattern, it should convert
-        expected_converted = dedent(
-            """
+        expected_converted = dedent("""
             SYMBOL_TYPES = (FuncDef, OverloadedFuncDef)
 
             n = None
@@ -301,51 +266,44 @@ class TestEdgeCases:
                     print("match")
                 case int():
                     print("int")
-        """
-        ).strip()
+        """).strip()
         check_code(source, expected_converted, ignore_types_pattern=None)
 
     def test_problematic_isinstance_inside_and_not_converted(self):
         """Test ignored type variables inside otherwise recognizable branches block conversion."""
-        source = dedent(
-            """
+        source = dedent("""
             SYMBOL_TYPES = (str,)
             x = 42
             if isinstance(x, int) and isinstance(x, SYMBOL_TYPES):
                 print("ignored type variable")
             elif isinstance(x, str):
                 print("str")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, source)
 
     def test_problematic_empty_isinstance_tuple_inside_and_not_converted(self):
         """Test empty isinstance tuples inside recognizable branches block conversion."""
-        source = dedent(
-            """
+        source = dedent("""
             x = 42
             if isinstance(x, int) and isinstance(x, ()):
                 print("empty tuple")
             elif isinstance(x, str):
                 print("str")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, source)
 
     def test_problematic_starred_isinstance_tuple_inside_and_not_converted(self):
         """Test starred isinstance tuples inside recognizable branches block conversion."""
-        source = dedent(
-            """
+        source = dedent("""
             types = (str,)
             x = 42
             if isinstance(x, int) and isinstance(x, (*types,)):
                 print("starred tuple")
             elif isinstance(x, str):
                 print("str")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, source)
 
@@ -353,23 +311,20 @@ class TestEdgeCases:
         self,
     ):
         """Test ignored tuple elements inside recognizable branches block conversion."""
-        source = dedent(
-            """
+        source = dedent("""
             SYMBOL_TYPES = (str,)
             x = 42
             if isinstance(x, int) and isinstance(x, (float, SYMBOL_TYPES)):
                 print("ignored tuple element")
             elif isinstance(x, str):
                 print("str")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, source)
 
     def test_guard_pattern_with_boolean_attribute(self):
         """Test isinstance with boolean attribute as guard (not comparison)."""
-        source = dedent(
-            """
+        source = dedent("""
             class TupleType:
                 pass
 
@@ -378,11 +333,9 @@ class TestEdgeCases:
                 print("valid tuple")
             elif isinstance(item, int):
                 print("int")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class TupleType:
                 pass
 
@@ -392,15 +345,13 @@ class TestEdgeCases:
                     print("valid tuple")
                 case int():
                     print("int")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_guard_pattern_with_nested_boolean_attribute(self):
         """Test isinstance with deeply nested boolean attribute as guard."""
-        source = dedent(
-            """
+        source = dedent("""
             class TupleType:
                 pass
 
@@ -409,11 +360,9 @@ class TestEdgeCases:
                 print("named tuple")
             elif isinstance(item, int):
                 print("int")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class TupleType:
                 pass
 
@@ -423,30 +372,26 @@ class TestEdgeCases:
                     print("named tuple")
                 case int():
                     print("int")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_malformed_isinstance_on_other_value_not_converted(self):
         """Test malformed isinstance calls keep the original if-chain."""
-        source = dedent(
-            """
+        source = dedent("""
             x = 1
             y = object()
             if isinstance(x, int) and isinstance(y):
                 print("bad guard")
             elif isinstance(x, str):
                 print("str")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, source)
 
     def test_starred_isinstance_on_other_value_stays_guard(self):
         """Test unsupported isinstance classinfo for another value remains a guard."""
-        source = dedent(
-            """
+        source = dedent("""
             types = (str,)
             x = 1
             y = "ok"
@@ -454,11 +399,9 @@ class TestEdgeCases:
                 print("guard")
             elif isinstance(x, str):
                 print("str")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             types = (str,)
             x = 1
             y = "ok"
@@ -467,15 +410,13 @@ class TestEdgeCases:
                     print("guard")
                 case str():
                     print("str")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_starred_isinstance_on_subject_attribute_stays_guard(self):
         """Test unsupported isinstance classinfo on a subject attribute remains a guard."""
-        source = dedent(
-            """
+        source = dedent("""
             types = (str,)
             class Box:
                 def __init__(self, item):
@@ -486,11 +427,9 @@ class TestEdgeCases:
                 print("guard")
             elif isinstance(x, str):
                 print("str")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             types = (str,)
             class Box:
                 def __init__(self, item):
@@ -502,15 +441,13 @@ class TestEdgeCases:
                     print("guard")
                 case str():
                     print("str")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_len_attribute_with_variable_length_stays_guard(self):
         """Test len checks with non-literal lengths remain guards."""
-        source = dedent(
-            """
+        source = dedent("""
             class Box:
                 def __init__(self, items):
                     self.items = items
@@ -521,11 +458,9 @@ class TestEdgeCases:
                 print("guard")
             elif isinstance(x, str):
                 print("str")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Box:
                 def __init__(self, items):
                     self.items = items
@@ -537,15 +472,13 @@ class TestEdgeCases:
                     print("guard")
                 case str():
                     print("str")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_len_attribute_with_unsupported_operator_stays_guard(self):
         """Test unsupported len operators remain guards."""
-        source = dedent(
-            """
+        source = dedent("""
             class Box:
                 def __init__(self, items):
                     self.items = items
@@ -555,11 +488,9 @@ class TestEdgeCases:
                 print("guard")
             elif isinstance(x, str):
                 print("str")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Box:
                 def __init__(self, items):
                     self.items = items
@@ -570,15 +501,13 @@ class TestEdgeCases:
                     print("guard")
                 case str():
                     print("str")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_redundant_hasattr_removed_when_attribute_is_pattern_checked(self):
         """Test redundant hasattr checks are removed when the attribute is matched."""
-        source = dedent(
-            """
+        source = dedent("""
             class Box:
                 def __init__(self, kind):
                     self.kind = kind
@@ -588,11 +517,9 @@ class TestEdgeCases:
                 print("one")
             elif isinstance(x, str):
                 print("str")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Box:
                 def __init__(self, kind):
                     self.kind = kind
@@ -603,8 +530,7 @@ class TestEdgeCases:
                     print("one")
                 case str():
                     print("str")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
@@ -614,8 +540,7 @@ class TestEdgeCases:
         Pattern: isinstance(x, Class1) and isinstance(x.attr, Class2)
         Should become: case Class1(attr=Class2()):
         """
-        source = dedent(
-            """
+        source = dedent("""
             class NameExpr:
                 def __init__(self, node=None):
                     self.node = node
@@ -628,11 +553,9 @@ class TestEdgeCases:
                 print("match")
             elif isinstance(lvalue, int):
                 print("int")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class NameExpr:
                 def __init__(self, node=None):
                     self.node = node
@@ -646,8 +569,7 @@ class TestEdgeCases:
                     print("match")
                 case int():
                     print("int")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
@@ -657,8 +579,7 @@ class TestEdgeCases:
         Pattern: isinstance(x, A) and isinstance(x.b, B) and isinstance(x.b.c, C)
         Should become: case A(b=B(c=C())):
         """
-        source = dedent(
-            """
+        source = dedent("""
             class NameExpr:
                 def __init__(self, node=None):
                     self.node = node
@@ -675,11 +596,9 @@ class TestEdgeCases:
                 print("match")
             elif isinstance(lvalue, int):
                 print("int")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class NameExpr:
                 def __init__(self, node=None):
                     self.node = node
@@ -697,15 +616,13 @@ class TestEdgeCases:
                     print("match")
                 case int():
                     print("int")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_isinstance_with_nested_isinstance_and_attr_checks(self):
         """Test that nested isinstance with attribute checks on nested paths are converted."""
-        source = dedent(
-            """
+        source = dedent("""
             class NameExpr:
                 def __init__(self, node=None):
                     self.node = node
@@ -719,11 +636,9 @@ class TestEdgeCases:
                 print("match")
             elif isinstance(lv, int):
                 print("int")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class NameExpr:
                 def __init__(self, node=None):
                     self.node = node
@@ -738,15 +653,13 @@ class TestEdgeCases:
                     print("match")
                 case int():
                     print("int")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_isinstance_with_nested_isinstance_and_multiple_attr_checks(self):
         """Test nested isinstance with multiple attribute checks on nested paths."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, data=None):
                     self.data = data
@@ -761,11 +674,9 @@ class TestEdgeCases:
                 print("match")
             elif isinstance(obj, int):
                 print("int")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, data=None):
                     self.data = data
@@ -781,15 +692,13 @@ class TestEdgeCases:
                     print("match")
                 case int():
                     print("int")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_isinstance_with_nested_or_attribute_check(self):
         """Test OR patterns inside nested class attributes."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, data=None):
                     self.data = data
@@ -803,11 +712,9 @@ class TestEdgeCases:
                 print("match")
             elif isinstance(obj, int):
                 print("int")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, data=None):
                     self.data = data
@@ -822,15 +729,13 @@ class TestEdgeCases:
                     print("match")
                 case int():
                     print("int")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_isinstance_with_nested_class_sequence_attribute(self):
         """Test sequence attributes inside a nested class attribute."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, data=None):
                     self.data = data
@@ -844,11 +749,9 @@ class TestEdgeCases:
                 print("match")
             elif isinstance(obj, int):
                 print("int")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, data=None):
                     self.data = data
@@ -863,15 +766,13 @@ class TestEdgeCases:
                     print("match")
                 case int():
                     print("int")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_isinstance_with_nested_isinstance_tuple(self):
         """Test nested isinstance with tuple of classes on nested attribute."""
-        source = dedent(
-            """
+        source = dedent("""
             class RefExpr:
                 def __init__(self, node=None):
                     self.node = node
@@ -894,11 +795,9 @@ class TestEdgeCases:
                 print("case 1")
             elif isinstance(dec, CallExpr) and isinstance(dec.callee, RefExpr) and isinstance(dec.callee.node, (Decorator, FuncDef, Var)):
                 print("case 2")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class RefExpr:
                 def __init__(self, node=None):
                     self.node = node
@@ -922,15 +821,13 @@ class TestEdgeCases:
                     print("case 1")
                 case CallExpr(callee=RefExpr(node=Decorator() | FuncDef() | Var())):
                     print("case 2")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_isinstance_tuple_with_attribute_checks(self):
         """Test attribute checks are duplicated across isinstance tuple alternatives."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, x):
                     self.x = x
@@ -944,11 +841,9 @@ class TestEdgeCases:
                 print("match")
             elif isinstance(value, int):
                 print("int")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, x):
                     self.x = x
@@ -963,15 +858,13 @@ class TestEdgeCases:
                     print("match")
                 case int():
                     print("int")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_nested_isinstance_tuple_with_sequence_attribute_checks(self):
         """Test nested tuple alternatives keep nested sequence attributes."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, **attrs):
                     self.__dict__.update(attrs)
@@ -989,11 +882,9 @@ class TestEdgeCases:
                 print("match")
             elif value == 0:
                 print("zero")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, **attrs):
                     self.__dict__.update(attrs)
@@ -1012,15 +903,13 @@ class TestEdgeCases:
                     print("match")
                 case 0:
                     print("zero")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_isinstance_with_type_variable_in_tuple_ignored(self):
         """Test that isinstance with tuple containing type variables is not converted."""
-        source = dedent(
-            """
+        source = dedent("""
             SYMBOL_FUNCBASE_TYPES = (FuncDef, OverloadedFuncDef)
 
             class Var:
@@ -1031,8 +920,7 @@ class TestEdgeCases:
                 print("match")
             elif isinstance(node, int):
                 print("int")
-        """
-        ).strip()
+        """).strip()
 
         # With default --no-types pattern (.*_TYPES$), this should NOT be converted
         # because SYMBOL_FUNCBASE_TYPES is in the tuple
@@ -1040,8 +928,7 @@ class TestEdgeCases:
         check_code(source, expected)
 
         # Without the pattern, it should convert
-        expected_converted = dedent(
-            """
+        expected_converted = dedent("""
             SYMBOL_FUNCBASE_TYPES = (FuncDef, OverloadedFuncDef)
 
             class Var:
@@ -1053,22 +940,19 @@ class TestEdgeCases:
                     print("match")
                 case int():
                     print("int")
-        """
-        ).strip()
+        """).strip()
         check_code(source, expected_converted, ignore_types_pattern=None)
 
     def test_sequence_with_non_integer_subscript_not_converted(self):
         """Test that sequences with non-integer indices are not converted."""
-        source = dedent(
-            """
+        source = dedent("""
             x = {"a": 1, "b": 2}
             # This would be x["a"] which we don't support
             if len(x) == 2:
                 print("two items")
             elif x == 0:
                 print("zero")
-        """
-        ).strip()
+        """).strip()
 
         # Expected is same as source (no transformation)
         expected = source
@@ -1076,16 +960,14 @@ class TestEdgeCases:
 
     def test_is_operator_with_non_singleton_not_converted(self):
         """Test that 'is' operator with non-singletons (not None/True/False) is not converted."""
-        source = dedent(
-            """
+        source = dedent("""
             SENTINEL = object()
             x = SENTINEL
             if x is SENTINEL:
                 print("sentinel")
             elif x == 1:
                 print("one")
-        """
-        ).strip()
+        """).strip()
 
         # Expected is same as source (no transformation - is with non-singleton)
         expected = source
@@ -1093,38 +975,33 @@ class TestEdgeCases:
 
     def test_is_not_operator_not_converted(self):
         """Test that 'is not' chains are not converted to singleton patterns."""
-        source = dedent(
-            """
+        source = dedent("""
             x = None
             if x is not None:
                 print("value")
             elif x is None:
                 print("none")
-        """
-        ).strip()
+        """).strip()
 
         expected = source
         check_code(source, expected)
 
     def test_chained_comparison_not_converted(self):
         """Test that chained comparisons are left alone even with a convertible elif."""
-        source = dedent(
-            """
+        source = dedent("""
             x = 1
             if 0 < x < 10:
                 print("range")
             elif x == 20:
                 print("twenty")
-        """
-        ).strip()
+        """).strip()
 
         expected = source
         check_code(source, expected)
 
     def test_walrus_operator_in_isinstance_subject_not_converted(self):
         """Test that walrus assignment in the match subject position is preserved."""
-        source = dedent(
-            """
+        source = dedent("""
             class Node:
                 pass
 
@@ -1132,16 +1009,14 @@ class TestEdgeCases:
                 print("node")
             elif isinstance(node, int):
                 print("int")
-        """
-        ).strip()
+        """).strip()
 
         expected = source
         check_code(source, expected)
 
     def test_walrus_operator_in_isinstance_converted_to_guard(self):
         """Test that isinstance with walrus operator is converted to guard clause."""
-        source = dedent(
-            """
+        source = dedent("""
             class CallExpr:
                 pass
 
@@ -1156,11 +1031,9 @@ class TestEdgeCases:
                 print("matched")
             elif obj == None:
                 print("none")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class CallExpr:
                 pass
 
@@ -1176,14 +1049,12 @@ class TestEdgeCases:
                     print("matched")
                 case None:
                     print("none")
-        """
-        ).strip()
+        """).strip()
         check_code(source, expected)
 
     def test_non_equality_condition_after_pattern_becomes_guard(self):
         """Test that unsupported comparisons after a class pattern stay as guards."""
-        source = dedent(
-            """
+        source = dedent("""
             class Node:
                 pass
 
@@ -1192,11 +1063,9 @@ class TestEdgeCases:
                 print("not none")
             elif node is None:
                 print("none")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Node:
                 pass
 
@@ -1206,15 +1075,13 @@ class TestEdgeCases:
                     print("not none")
                 case None:
                     print("none")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_parenthesized_or_condition_after_pattern_becomes_guard(self):
         """Test that parenthesized OR conditions are preserved as guard expressions."""
-        source = dedent(
-            """
+        source = dedent("""
             ready = False
             forced = True
 
@@ -1226,11 +1093,9 @@ class TestEdgeCases:
                 print("go")
             elif handler is None:
                 print("none")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             ready = False
             forced = True
 
@@ -1243,15 +1108,13 @@ class TestEdgeCases:
                     print("go")
                 case None:
                     print("none")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_mixed_sequence_patterns_in_chain(self):
         """Test multiple sequence patterns in same chain."""
-        source = dedent(
-            """
+        source = dedent("""
             point = (1, 2)
             if len(point) == 2 and point[0] == 1 and point[1] == 2:
                 print("1, 2")
@@ -1259,11 +1122,9 @@ class TestEdgeCases:
                 print("0, 0")
             elif len(point) == 3 and point[0] == 1 and point[1] == 1 and point[2] == 1:
                 print("1, 1, 1")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             point = (1, 2)
             match point:
                 case 1, 2:
@@ -1272,15 +1133,13 @@ class TestEdgeCases:
                     print("0, 0")
                 case 1, 1, 1:
                     print("1, 1, 1")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_guard_pattern_with_independent_condition(self):
         """Test isinstance with guard clause that doesn't reference the subject."""
-        source = dedent(
-            """
+        source = dedent("""
             import os
 
             class FileHandler:
@@ -1291,11 +1150,9 @@ class TestEdgeCases:
                 print("handler with file")
             elif handler == None:
                 print("none")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             import os
 
             class FileHandler:
@@ -1307,15 +1164,13 @@ class TestEdgeCases:
                     print("handler with file")
                 case None:
                     print("none")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_guard_pattern_with_global_variable(self):
         """Test isinstance with guard that uses global variable."""
-        source = dedent(
-            """
+        source = dedent("""
             ENABLED = True
 
             class Config:
@@ -1326,11 +1181,9 @@ class TestEdgeCases:
                 print("enabled config")
             elif cfg == None:
                 print("none")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             ENABLED = True
 
             class Config:
@@ -1342,26 +1195,22 @@ class TestEdgeCases:
                     print("enabled config")
                 case None:
                     print("none")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_value_pattern_with_guard_condition(self):
         """Test literal equality with an independent guard condition."""
-        source = dedent(
-            """
+        source = dedent("""
             ENABLED = True
             value = 1
             if value == 1 and ENABLED:
                 print("enabled one")
             elif value == 2:
                 print("two")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             ENABLED = True
             value = 1
             match value:
@@ -1369,26 +1218,22 @@ class TestEdgeCases:
                     print("enabled one")
                 case 2:
                     print("two")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_or_pattern_with_guard_condition(self):
         """Test OR value patterns inside an AND chain with a guard."""
-        source = dedent(
-            """
+        source = dedent("""
             ENABLED = True
             value = 1
             if (value == 1 or value is None) and ENABLED:
                 print("enabled one or none")
             elif value == 2:
                 print("two")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             ENABLED = True
             value = 1
             match value:
@@ -1396,15 +1241,13 @@ class TestEdgeCases:
                     print("enabled one or none")
                 case 2:
                     print("two")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_guard_pattern_with_multiple_conditions(self):
         """Test isinstance with multiple independent guard conditions."""
-        source = dedent(
-            """
+        source = dedent("""
             DEBUG = True
             VERBOSE = False
 
@@ -1416,11 +1259,9 @@ class TestEdgeCases:
                 print("debug logger")
             elif log == None:
                 print("none")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             DEBUG = True
             VERBOSE = False
 
@@ -1433,15 +1274,13 @@ class TestEdgeCases:
                     print("debug logger")
                 case None:
                     print("none")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_guard_pattern_with_multiple_classes(self):
         """Test isinstance with tuple of classes and independent guard."""
-        source = dedent(
-            """
+        source = dedent("""
             PRODUCTION = True
 
             class Handler:
@@ -1455,11 +1294,9 @@ class TestEdgeCases:
                 print("production mode")
             elif obj == None:
                 print("none")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             PRODUCTION = True
 
             class Handler:
@@ -1474,15 +1311,13 @@ class TestEdgeCases:
                     print("production mode")
                 case None:
                     print("none")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_guard_pattern_with_isinstance_check(self):
         """Test isinstance guard with another isinstance check on different variable."""
-        source = dedent(
-            """
+        source = dedent("""
             class ParamSpecType:
                 pass
 
@@ -1492,11 +1327,9 @@ class TestEdgeCases:
                 print("both are ParamSpecType")
             elif isinstance(tvar, ParamSpecType):
                 print("only tvar")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class ParamSpecType:
                 pass
 
@@ -1507,15 +1340,13 @@ class TestEdgeCases:
                     print("both are ParamSpecType")
                 case ParamSpecType():
                     print("only tvar")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_guard_pattern_with_ignored_type_check_on_other_subject(self):
         """Type variables on guard-only subjects stay guards instead of blocking conversion."""
-        source = dedent(
-            """
+        source = dedent("""
             OTHER_TYPES = (int,)
 
             class Handler:
@@ -1527,11 +1358,9 @@ class TestEdgeCases:
                 print("typed handler")
             elif handler is None:
                 print("none")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             OTHER_TYPES = (int,)
 
             class Handler:
@@ -1544,15 +1373,13 @@ class TestEdgeCases:
                     print("typed handler")
                 case None:
                     print("none")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_comment_preservation_before_if(self):
         """Test that comments before if statements are preserved."""
-        source = dedent(
-            """
+        source = dedent("""
             class Decorator:
                 pass
 
@@ -1563,11 +1390,9 @@ class TestEdgeCases:
                 print("decorator")
             elif isinstance(item, int):
                 print("int")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Decorator:
                 pass
 
@@ -1579,15 +1404,13 @@ class TestEdgeCases:
                     print("decorator")
                 case int():
                     print("int")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_comment_preservation_before_elif_and_else(self):
         """Test that comments before elif and else are preserved."""
-        source = dedent(
-            """
+        source = dedent("""
             class Decorator:
                 pass
 
@@ -1605,11 +1428,9 @@ class TestEdgeCases:
             # Comment before else
             else:
                 print("other")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Decorator:
                 pass
 
@@ -1628,15 +1449,13 @@ class TestEdgeCases:
                 # Comment before else
                 case _:
                     print("other")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_nested_isinstance_with_walrus_converted_to_pattern_and_guard(self):
         """Test that nested isinstance with walrus combines pattern + guard clause."""
-        source = dedent(
-            """
+        source = dedent("""
             class CallExpr:
                 def __init__(self, callee=None):
                     self.callee = callee
@@ -1668,11 +1487,9 @@ class TestEdgeCases:
                 print("matched")
             elif isinstance(dec, RefExpr):
                 print("refexpr")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class CallExpr:
                 def __init__(self, callee=None):
                     self.callee = callee
@@ -1705,15 +1522,13 @@ class TestEdgeCases:
                     print("matched")
                 case RefExpr():
                     print("refexpr")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_isinstance_proper_type_with_second_isinstance_becomes_guard(self):
         """Test that isinstance(x, ProperType) and isinstance(x, (AnyType, UninhabitedType)) becomes a guard."""
-        source = dedent(
-            """
+        source = dedent("""
             class TypeVarTupleType:
                 pass
 
@@ -1734,11 +1549,9 @@ class TestEdgeCases:
                 result = "any or uninhabited"
             else:
                 result = "other"
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class TypeVarTupleType:
                 pass
 
@@ -1760,15 +1573,13 @@ class TestEdgeCases:
                     result = "any or uninhabited"
                 case _:
                     result = "other"
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_isinstance_with_attribute_guard_converted(self):
         """Test that isinstance(x, Class) and x.attr converts to case Class() if x.attr:"""
-        source = dedent(
-            """
+        source = dedent("""
             class Instance:
                 def __init__(self):
                     self.args = []
@@ -1791,11 +1602,9 @@ class TestEdgeCases:
                 result = "paramspec"
             else:
                 result = "other"
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Instance:
                 def __init__(self):
                     self.args = []
@@ -1819,15 +1628,13 @@ class TestEdgeCases:
                     result = "paramspec"
                 case _:
                     result = "other"
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_isinstance_with_boolean_attribute_guard_real_world(self):
         """Test real-world pattern from mypy: isinstance + boolean attribute."""
-        source = dedent(
-            """
+        source = dedent("""
             class Instance:
                 def __init__(self):
                     self.args = []
@@ -1854,11 +1661,9 @@ class TestEdgeCases:
                 result = "paramspec"
             else:
                 result = AnyType()
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Instance:
                 def __init__(self):
                     self.args = []
@@ -1886,7 +1691,6 @@ class TestEdgeCases:
                     result = "paramspec"
                 case _:
                     result = AnyType()
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
