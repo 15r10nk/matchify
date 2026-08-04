@@ -1,0 +1,53 @@
+name: Create release pull request
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: release-pull-request
+  cancel-in-progress: false
+
+jobs:
+  release-pr:
+    if: "!contains(github.repository, '-insiders/')"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+    - name: Checkout main
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        fetch-depth: 0
+
+    - name: Set up uv
+      uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      with:
+        python-version: '3.12'
+
+    - name: Prepare release
+      id: release
+      run: |
+        version="$(uv run --locked cz bump --get-next --yes)"
+        uv run --locked scriv collect --version "$version" --no-edit
+        uv run --locked cz bump "$version" --yes --version-files-only
+        uv lock
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+
+    - name: Run pre-commit
+      run: uvx pre-commit run --all-files || uvx pre-commit run --all-files
+
+    - name: Create pull request
+      uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+      with:
+        token: ${{secrets.PAT_WEEKLY_UPDATE}}
+        branch: release/v${{steps.release.outputs.version}}
+        commit-message: 'chore: release v${{steps.release.outputs.version}}'
+        title: 'chore: release v${{steps.release.outputs.version}}'
+        body: |
+          Prepare release v${{steps.release.outputs.version}}.
+
+          This pull request was generated from the changelog fragments and
+          Conventional Commits on `main`.
+        delete-branch: true
