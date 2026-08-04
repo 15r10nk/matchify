@@ -7,7 +7,7 @@ ci:
 repos:
 
 - repo: https://github.com/15r10nk/project-template
-  rev: v0.3.1
+  rev: v0.3.2
   hooks:
   - id: copier-enforce
 
