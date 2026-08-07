@@ -4,6 +4,7 @@ import re
 
 import libcst as cst
 from libcst import matchers as m
+from libcst.helpers import get_full_name_for_node
 
 
 def flatten_boolean(
@@ -130,10 +131,11 @@ def is_none_type_expr(expr: cst.BaseExpression) -> bool:
 def is_ignored_type_expr(
     expr: cst.BaseExpression, ignore_types_pattern: str | None
 ) -> bool:
+    qualified_name = get_full_name_for_node(expr)
     return (
         ignore_types_pattern is not None
-        and isinstance(expr, cst.Name)
-        and re.match(ignore_types_pattern, expr.value) is not None
+        and qualified_name is not None
+        and re.match(ignore_types_pattern, qualified_name) is not None
     )
 
 
