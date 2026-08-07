@@ -1011,6 +1011,53 @@ class TestTransformCode:
 
         check_code(source, expected)
 
+    def test_literal_set_membership_becomes_or_pattern(self):
+        source = dedent(
+            """
+            option = "-h"
+            if option in {"-h", "--help"}:
+                print("help")
+            elif option in {"-V", "--version"}:
+                print("version")
+            """
+        ).strip()
+
+        expected = dedent(
+            """
+            option = "-h"
+            match option:
+                case "-h" | "--help":
+                    print("help")
+                case "-V" | "--version":
+                    print("version")
+            """
+        ).strip()
+
+        check_code(source, expected)
+
+    def test_unsafe_set_membership_is_not_converted(self):
+        source = dedent(
+            """
+            values = {"a"}
+            if value in {*values}:
+                print("starred")
+            elif value in {"b"}:
+                print("literal")
+
+            if value in {make_value()}:
+                print("dynamic")
+            elif value in {"b"}:
+                print("literal")
+
+            if value in {"a", "a"}:
+                print("duplicate")
+            elif value in {"b"}:
+                print("literal")
+            """
+        ).strip()
+
+        check_code(source, source)
+
     def test_nested_literal_membership_becomes_or_pattern(self):
         """Literal membership can be lowered inside class attributes."""
         source = dedent(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 from dataclasses import dataclass, replace
 
 import libcst as cst
@@ -245,15 +246,25 @@ def parse_membership_predicate(predicate: cst.Comparison) -> BoolExpr | None:
 def extract_literal_membership_values(
     container: cst.BaseExpression,
 ) -> tuple[cst.BaseExpression, ...] | None:
-    if not isinstance(container, cst.Tuple | cst.List):
+    if not isinstance(container, cst.Tuple | cst.List | cst.Set):
         return None
     values: list[cst.BaseExpression] = []
+    literal_set_values: list[object] = []
     for element in container.elements:
         if isinstance(element, cst.StarredElement):
             return None
         value = element.value
         if is_singleton_name(value) or not is_value_pattern_expr(value):
             return None
+        if isinstance(container, cst.Set):
+            try:
+                literal_value = ast.literal_eval(cst.Module([]).code_for_node(value))
+                hash(literal_value)
+            except (TypeError, ValueError, SyntaxError):
+                return None
+            if any(literal_value == previous for previous in literal_set_values):
+                return None
+            literal_set_values.append(literal_value)
         values.append(value)
     return tuple(values) or None
 
