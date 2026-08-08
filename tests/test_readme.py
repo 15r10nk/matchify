@@ -38,8 +38,18 @@ def readme_python_code_blocks() -> list[CodeBlock]:
 
 
 def _preceding_assumption(text: str) -> str | None:
-    headings = re.findall(r"^### `--assume=([a-z-]+)`$", text, re.MULTILINE)
-    return headings[-1] if headings else None
+    headings = re.findall(r"^#{1,6} .+$", text, re.MULTILINE)
+    if not headings:
+        return None
+    match = re.fullmatch(r"### `--assume=([a-z-]+)`", headings[-1])
+    return match.group(1) if match else None
+
+
+def test_preceding_assumption_is_scoped_to_its_section():
+    assumption_heading = "### `--assume=pure-subjects`\n"
+
+    assert _preceding_assumption(assumption_heading) == "pure-subjects"
+    assert _preceding_assumption(f"{assumption_heading}\n## Development\n") is None
 
 
 @pytest.mark.parametrize(
