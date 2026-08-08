@@ -112,6 +112,12 @@ Available risky assumptions:
   such as `op is Op.ADD` to value patterns such as `case Op.ADD`. Match value
   patterns compare with equality, not identity, so enable it only when identity
   and equality are equivalent for those values.
+- `hashable-subjects`: permits membership tests against literal sets to become
+  OR patterns. Set membership hashes the subject and can raise `TypeError` for
+  an unhashable value, while a pattern only performs equality comparisons.
+  Enable it only when match subjects are hashable. Custom `__hash__` and
+  `__eq__` implementations may still make lookup behavior or side effects
+  differ from pattern matching.
 - `list-sequence-pattern`: permits a sequence pattern to imply an explicit
   `isinstance(value, list)` check. Python sequence patterns can also match other
   sequence types, so enable it only when that broader match is acceptable.
