@@ -1054,6 +1054,11 @@ class TestTransformCode:
             elif value in {"b"}:
                 print("literal")
 
+            if value in {Constants.VALUE}:
+                print("qualified")
+            elif value in {"b"}:
+                print("literal")
+
             if value in {"a", "a"}:
                 print("duplicate")
             elif value in {"b"}:
