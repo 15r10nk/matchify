@@ -305,6 +305,27 @@ class TestEdgeCases:
         ).strip()
         check_code(source, expected_converted, ignore_types_pattern=None)
 
+    def test_isinstance_with_qualified_ignored_type(self):
+        source = dedent(
+            """
+            import typing
+
+            value = {"a": "b"}
+            if isinstance(value, typing.Mapping):
+                print("mapping")
+            elif isinstance(value, str):
+                print("string")
+
+            other = {"a": "b"}
+            if isinstance(other, (str, typing.Mapping)):
+                print("string or mapping")
+            elif isinstance(other, bytes):
+                print("bytes")
+            """
+        ).strip()
+
+        check_code(source, source, ignore_types_pattern=r"typing\.Mapping")
+
     def test_problematic_isinstance_inside_and_not_converted(self):
         """Test ignored type variables inside otherwise recognizable branches block conversion."""
         source = dedent(
