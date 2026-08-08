@@ -14,6 +14,7 @@ from .access_path import (
     MatchSubjectPlan,
     SubscriptPathPart,
 )
+from .assumptions import Assumptions
 from .patterns import (
     extract_isinstance_classes,
     flatten_boolean,
@@ -82,9 +83,10 @@ def parse_condition(
     condition: cst.BaseExpression,
     ignore_types_pattern: str | None = r".*_TYPES$",
     *,
-    assume_identity_equality: bool = False,
+    assumptions: Assumptions | None = None,
 ) -> BoolExpr:
     """Parse a Python condition into a logical tree with typed predicates."""
+    assumptions = assumptions or Assumptions.safe()
     # LibCST BooleanOperation currently only exposes And/Or operators.
     if isinstance(condition, cst.BooleanOperation):  # pragma: no branch
         if isinstance(condition.operator, cst.And):
@@ -93,7 +95,7 @@ def parse_condition(
                     parse_condition(
                         part,
                         ignore_types_pattern,
-                        assume_identity_equality=assume_identity_equality,
+                        assumptions=assumptions,
                     )
                     for part in flatten_boolean(condition, cst.And)
                 ),
@@ -105,7 +107,7 @@ def parse_condition(
                     parse_condition(
                         part,
                         ignore_types_pattern,
-                        assume_identity_equality=assume_identity_equality,
+                        assumptions=assumptions,
                     )
                     for part in flatten_boolean(condition, cst.Or)
                 ),
@@ -114,7 +116,7 @@ def parse_condition(
     return parse_predicate(
         condition,
         ignore_types_pattern,
-        assume_identity_equality=assume_identity_equality,
+        assumptions=assumptions,
     )
 
 
@@ -122,8 +124,9 @@ def parse_predicate(
     predicate: cst.BaseExpression,
     ignore_types_pattern: str | None = r".*_TYPES$",
     *,
-    assume_identity_equality: bool = False,
+    assumptions: Assumptions | None = None,
 ) -> BoolExpr:
+    assumptions = assumptions or Assumptions.safe()
     if (parsed := parse_hasattr_predicate(predicate)) is not None:
         return parsed
 
@@ -133,14 +136,14 @@ def parse_predicate(
             return parsed
 
     if isinstance(predicate, cst.Comparison) and len(predicate.comparisons) == 1:
-        if (parsed := parse_membership_predicate(predicate)) is not None:
+        if (
+            parsed := parse_membership_predicate(predicate, assumptions=assumptions)
+        ) is not None:
             return parsed
         if (parsed := parse_len_predicate(predicate)) is not None:
             return parsed
         if (
-            parsed := parse_value_predicate(
-                predicate, assume_identity_equality=assume_identity_equality
-            )
+            parsed := parse_value_predicate(predicate, assumptions=assumptions)
         ) is not None:
             return parsed
 
@@ -229,11 +232,15 @@ def len_operator_uses_star(operator: cst.BaseCompOp) -> bool | None:
     return None
 
 
-def parse_membership_predicate(predicate: cst.Comparison) -> BoolExpr | None:
+def parse_membership_predicate(
+    predicate: cst.Comparison, *, assumptions: Assumptions
+) -> BoolExpr | None:
     target = predicate.comparisons[0]
     if not isinstance(target.operator, cst.In):
         return None
-    values = extract_literal_membership_values(target.comparator)
+    values = extract_literal_membership_values(
+        target.comparator, assumptions=assumptions
+    )
     if values is None:
         return None
     path = AccessPath.from_expression(predicate.left)
@@ -245,8 +252,12 @@ def parse_membership_predicate(predicate: cst.Comparison) -> BoolExpr | None:
 
 def extract_literal_membership_values(
     container: cst.BaseExpression,
+    *,
+    assumptions: Assumptions,
 ) -> tuple[cst.BaseExpression, ...] | None:
     if not isinstance(container, cst.Tuple | cst.List | cst.Set):
+        return None
+    if isinstance(container, cst.Set) and not assumptions.hashable_subjects:
         return None
     values: list[cst.BaseExpression] = []
     literal_set_values: list[object] = []
@@ -272,7 +283,7 @@ def extract_literal_membership_values(
 def parse_value_predicate(
     predicate: cst.Comparison,
     *,
-    assume_identity_equality: bool = False,
+    assumptions: Assumptions,
 ) -> ValuePredicate | None:
     target = predicate.comparisons[0]
     if isinstance(target.operator, cst.Equal) and is_value_pattern_expr(
@@ -286,7 +297,7 @@ def parse_value_predicate(
             AccessPath.from_expression(predicate.left), target.comparator, predicate
         )
     if (
-        assume_identity_equality
+        assumptions.identity_equality
         and isinstance(target.operator, cst.Is)
         and is_value_pattern_expr(target.comparator)
     ):

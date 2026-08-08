@@ -415,6 +415,33 @@ class TestMain:
         )
         assert "0 converted, 1 unchanged, 0 errors" in output
 
+    def test_main_reports_required_hashable_subjects_assumption(self, capsys, tmp_path):
+        test_file = tmp_path / "test.py"
+        source = dedent(
+            """
+            if option in {"-h", "--help"}:
+                print("help")
+            elif option in {"-V", "--version"}:
+                print("version")
+            """
+        ).strip()
+        test_file.write_text(source, encoding="utf-8")
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", str(test_file)]
+            main()
+        finally:
+            sys.argv = original_argv
+
+        output = capsys.readouterr().out
+        assert test_file.read_text(encoding="utf-8") == source
+        assert (
+            f"Info: {test_file}:1:1: if/elif chain requires "
+            "--assume hashable-subjects" in output
+        )
+        assert "0 converted, 1 unchanged, 0 errors" in output
+
     def test_main_does_not_report_enabled_assumption(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
         test_file.write_text(

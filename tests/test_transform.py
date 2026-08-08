@@ -1011,7 +1011,7 @@ class TestTransformCode:
 
         check_code(source, expected)
 
-    def test_literal_set_membership_becomes_or_pattern(self):
+    def test_literal_set_membership_requires_hashable_subjects_assumption(self):
         source = dedent(
             """
             option = "-h"
@@ -1033,7 +1033,12 @@ class TestTransformCode:
             """
         ).strip()
 
-        check_code(source, expected)
+        check_code(source, source)
+        check_code(
+            source,
+            expected,
+            assumptions=Assumptions.from_names({"hashable-subjects"}),
+        )
 
     def test_unsafe_set_membership_is_not_converted(self):
         source = dedent(
@@ -1056,7 +1061,11 @@ class TestTransformCode:
             """
         ).strip()
 
-        check_code(source, source)
+        check_code(
+            source,
+            source,
+            assumptions=Assumptions.from_names({"hashable-subjects"}),
+        )
 
     def test_nested_literal_membership_becomes_or_pattern(self):
         """Literal membership can be lowered inside class attributes."""

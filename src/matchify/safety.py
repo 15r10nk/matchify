@@ -4,6 +4,7 @@ import libcst as cst
 from libcst import matchers as m
 
 from .access_path import AccessPath, AttributePathPart, MatchSubjectPlan
+from .assumptions import Assumptions
 from .patterns import (
     extract_isinstance_classes,
     flatten_boolean,
@@ -18,7 +19,7 @@ def is_safe_condition(
     subject: MatchSubjectPlan,
     *,
     ignore_types_pattern: str | None,
-    assume_identity_equality: bool = False,
+    assumptions: Assumptions,
 ) -> bool:
     for component in flatten_boolean(condition):
         if isinstance(component, cst.Comparison) and len(component.comparisons) == 1:
@@ -34,7 +35,8 @@ def is_safe_condition(
                     comparator
                 ):
                     if not (
-                        assume_identity_equality and is_value_pattern_expr(comparator)
+                        assumptions.identity_equality
+                        and is_value_pattern_expr(comparator)
                     ):
                         return False
             elif is_len_call(component.left):

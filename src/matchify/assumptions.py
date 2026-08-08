@@ -9,6 +9,7 @@ IDENTITY_EQUALITY = "identity-equality"
 LIST_SEQUENCE_PATTERN = "list-sequence-pattern"
 TUPLE_SEQUENCE_PATTERN = "tuple-sequence-pattern"
 LOOKUP_EQUALITY = "lookup-equality"
+HASHABLE_SUBJECTS = "hashable-subjects"
 
 ALL_RISKY_ASSUMPTIONS = frozenset(
     {
@@ -18,6 +19,7 @@ ALL_RISKY_ASSUMPTIONS = frozenset(
         LIST_SEQUENCE_PATTERN,
         TUPLE_SEQUENCE_PATTERN,
         LOOKUP_EQUALITY,
+        HASHABLE_SUBJECTS,
     }
 )
 DEFAULT_ASSUMPTIONS = frozenset[str]()
@@ -78,6 +80,10 @@ class Assumptions:
     @property
     def lookup_equality(self) -> bool:
         return LOOKUP_EQUALITY in self.names
+
+    @property
+    def hashable_subjects(self) -> bool:
+        return HASHABLE_SUBJECTS in self.names
 
 
 def parse_assumption_names(value: str) -> frozenset[str]:

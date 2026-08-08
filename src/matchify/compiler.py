@@ -87,7 +87,7 @@ class IfChainCompiler:
                     parse_condition(
                         current.test,
                         self.ignore_types_pattern,
-                        assume_identity_equality=self.assumptions.identity_equality,
+                        assumptions=self.assumptions,
                     ),
                     current.body,
                     leading_lines,
@@ -165,7 +165,7 @@ class IfChainCompiler:
             branch.test,
             subject,
             ignore_types_pattern=self.ignore_types_pattern,
-            assume_identity_equality=self.assumptions.identity_equality,
+            assumptions=self.assumptions,
         ):
             return None
         facts = normalize_condition(
