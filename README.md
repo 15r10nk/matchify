@@ -400,6 +400,8 @@ match operation:
         raise KeyError(_matchify_key)
 ```
 
+## Development
+
 Development and repository-testing notes are in
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
