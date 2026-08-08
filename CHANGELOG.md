@@ -2,6 +2,19 @@
 
 <!-- scriv-insert-here -->
 
+<a id='changelog-0.2.0'></a>
+# 0.2.0 — 2026-08-08
+
+## Added
+
+- Convert membership tests against eligible literal sets into OR patterns when
+  the `hashable-subjects` assumption is enabled.
+
+## Fixed
+
+- Apply `--no-types` patterns to qualified `isinstance` targets such as
+  `typing.Mapping`, including targets contained in type tuples.
+
 <a id='changelog-0.1.0'></a>
 # 0.1.0 — 2026-08-04
 
