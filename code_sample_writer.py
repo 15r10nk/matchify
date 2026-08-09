@@ -2,18 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from code_sample_format import Sample, render_sample
 from code_sample_runtime import Trace
-
-
-def render_trace(trace: Trace) -> str:
-    rendered = "".join(f"# {line}\n" for line in trace.stdout.splitlines())
-    if trace.stderr:
-        rendered += "# stderr:\n"
-        rendered += "".join(f"# {line}\n" for line in trace.stderr.splitlines())
-    if trace.exception is not None:
-        rendered += f"# exception: {trace.exception.__name__}\n"
-        rendered += f"# exception-args: {trace.exception_args!r}\n"
-    return rendered
+from matchify import Assumptions
 
 
 def save_code_sample(
@@ -32,11 +23,17 @@ def save_code_sample(
     samples_dir.mkdir(parents=True, exist_ok=True)
     sample_path = samples_dir / f"{sample_id}.py"
     header = "".join(f"# {name}: {value}\n" for name, value in metadata)
-    rendered_trace = render_trace(trace)
     sample_path.write_text(
-        f"{header}# before:\n{before.rstrip()}\n\n"
-        f"# after:\n{after.rstrip()}\n\n"
-        f"# assume:\n\n# trace:\n{rendered_trace}",
+        render_sample(
+            Sample(
+                prefix=header,
+                before=f"{before.rstrip()}\n\n",
+                assumptions=Assumptions.from_names(),
+                ignore_types_pattern=None,
+            ),
+            after,
+            trace,
+        ),
         encoding="utf-8",
     )
     return sample_path

@@ -8,6 +8,7 @@ sys.path.insert(0, str(ROOT))
 
 import find_new_issue  # noqa: E402
 import find_new_issue_2  # noqa: E402
+from code_sample_format import parse_sample  # noqa: E402
 from code_sample_runtime import Trace  # noqa: E402
 
 
@@ -62,6 +63,10 @@ def test_find_new_issue_2_saves_flat_code_sample(tmp_path):
     assert sample_path.parent == tmp_path
     assert sample_path.suffix == ".py"
     content = sample_path.read_text(encoding="utf-8")
+    sample = parse_sample(content)
+    assert sample.before == source + "\n"
+    assert not sample.assumptions.names
+    assert sample.ignore_types_pattern is None
     assert "# generated-kind: not-converted\n" in content
     assert "# style: mixed\n" in content
     assert f"# before:\n{source}\n# after:\n{source}" in content
