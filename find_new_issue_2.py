@@ -794,17 +794,15 @@ def make_sample_id(issue: Issue) -> str:
 
 
 def save_issue(issue: Issue, samples_dir: Path) -> Path:
-    trace_output = (
-        issue.actual_trace.stdout
-        if issue.kind == "generator-bug"
-        else issue.expected_trace.stdout
+    trace = (
+        issue.actual_trace if issue.kind == "generator-bug" else issue.expected_trace
     )
     return save_code_sample(
         samples_dir=samples_dir,
         sample_id=make_sample_id(issue),
         before=issue.original,
         after=issue.converted,
-        trace_output=trace_output,
+        trace=trace,
         metadata=(
             ("generated-kind", issue.kind),
             ("style", issue.style),

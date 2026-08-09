@@ -7,6 +7,7 @@ import pytest
 from inline_snapshot import external_file
 
 from code_sample_runtime import Trace, execute
+from code_sample_writer import render_trace
 from matchify import Assumptions, transform_code
 from matchify.assumptions import parse_assumption_names
 
@@ -64,12 +65,11 @@ def render_sample(sample: Sample, after: str, trace: Trace) -> str:
     ignore_types_comment = ""
     if sample.ignore_types_pattern is not None:
         ignore_types_comment = f"\n{IGNORE_TYPES_MARKER} {sample.ignore_types_pattern}"
-    trace_lines = "".join(f"# {line}\n" for line in trace.stdout.splitlines())
     normalized_after = after.rstrip("\n")
     return (
         f"{sample.prefix}{BEFORE_MARKER}{sample.before}{AFTER_MARKER}"
         f"{normalized_after}\n\n{assume_comment}{ignore_types_comment}"
-        f"\n\n# trace:\n{trace_lines}"
+        f"\n\n# trace:\n{render_trace(trace)}"
     )
 
 
@@ -78,6 +78,18 @@ def test_execute_records_exception_args():
 
     assert trace.exception is ValueError
     assert trace.exception_args == ("details", 42)
+
+
+def test_render_trace_includes_stderr_and_exception_details():
+    trace = Trace("started\n", "warning\n", ValueError, ("details", 42))
+
+    assert render_trace(trace) == (
+        "# started\n"
+        "# stderr:\n"
+        "# warning\n"
+        "# exception: ValueError\n"
+        "# exception-args: ('details', 42)\n"
+    )
 
 
 @pytest.mark.parametrize("sample_path", sample_paths(), ids=lambda path: path.stem)
