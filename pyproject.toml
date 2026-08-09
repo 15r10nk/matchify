@@ -74,7 +74,7 @@ fail_under = 100
 [tool.coverage.run]
 branch = true
 data_file = "$TOP/.coverage"
-omit = ["find_new_issue*.py"]
+omit = ["find_pattern_coverage_issue.py", "find_random_trace_issue.py"]
 parallel = true
 source = ["matchify"]
 

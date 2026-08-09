@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from find_new_issue_2 import (  # noqa: E402
+from find_pattern_coverage_issue import (  # noqa: E402
     CapturePattern,
     ClassPattern,
     IfStyle,
