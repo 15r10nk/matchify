@@ -29,6 +29,7 @@ repos:
     - --expand-star-imports
     - --remove-all-unused-imports
     - --ignore-init-module-imports
+    exclude: ^tests/code_samples/
     id: autoflake
   repo: https://github.com/myint/autoflake
   rev: v2.3.1
@@ -42,17 +43,20 @@ repos:
   rev: 6.0.1
   hooks:
   - id: isort
+    exclude: ^tests/code_samples/
     name: isort (python)
 
 - hooks:
   - args:
     - --py310-plus
+    exclude: ^tests/code_samples/
     id: pyupgrade
     language_version: python3.13
   repo: https://github.com/asottile/pyupgrade
   rev: v3.20.0
 - hooks:
   - id: black
+    exclude: ^tests/code_samples/
   repo: https://github.com/psf/black
   rev: 25.1.0
 - hooks:
