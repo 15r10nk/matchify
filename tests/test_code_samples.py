@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import ast
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
 from inline_snapshot import external_file
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 from code_sample_runtime import Trace, execute
 from code_sample_writer import render_trace
@@ -28,6 +33,26 @@ class Sample:
 
 def sample_paths() -> list[Path]:
     return sorted(SAMPLES_DIR.glob("*.py"))
+
+
+def assert_result_is_observed(source: str) -> None:
+    tree = ast.parse(source)
+    assigns_result = any(
+        isinstance(node, ast.Name)
+        and isinstance(node.ctx, ast.Store)
+        and node.id == "result"
+        for node in ast.walk(tree)
+    )
+    prints_result = any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "print"
+        and any(isinstance(arg, ast.Name) and arg.id == "result" for arg in node.args)
+        for node in ast.walk(tree)
+    )
+    assert (
+        not assigns_result or prints_result
+    ), "a code sample that assigns to 'result' must pass that value directly to print()"
 
 
 def parse_sample(source: str) -> Sample:
@@ -80,6 +105,19 @@ def test_execute_records_exception_args():
     assert trace.exception_args == ("details", 42)
 
 
+@pytest.mark.parametrize(
+    "source",
+    ["result = 'ok'\n", "result = 'ok'\nprint(type(result).__name__)\n"],
+)
+def test_result_assignments_must_be_observed(source):
+    with pytest.raises(AssertionError, match="must pass that value directly"):
+        assert_result_is_observed(source)
+
+
+def test_directly_printed_result_is_observed():
+    assert_result_is_observed("result = 'ok'\nprint(result)\n")
+
+
 def test_render_trace_includes_stderr_and_exception_details():
     trace = Trace("started\n", "warning\n", ValueError, ("details", 42))
 
@@ -96,6 +134,7 @@ def test_render_trace_includes_stderr_and_exception_details():
 def test_code_sample(sample_path: Path):
     sample = parse_sample(sample_path.read_text(encoding="utf-8"))
     before = sample.prefix + sample.before
+    assert_result_is_observed(before)
     transformed = transform_code(
         before,
         assumptions=sample.assumptions,

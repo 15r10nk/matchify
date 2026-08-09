@@ -10,7 +10,8 @@ class ParamSpecType:
     pass
 
 class AnyType:
-    pass
+    def __repr__(self):
+        return "AnyType()"
 
 def get_proper_type(x):
     return x
@@ -25,7 +26,7 @@ elif isinstance(actual_type, ParamSpecType):
     result = "paramspec"
 else:
     result = AnyType()
-print(type(result).__name__)
+print(result)
 
 # after:
 class Instance:
@@ -39,7 +40,8 @@ class ParamSpecType:
     pass
 
 class AnyType:
-    pass
+    def __repr__(self):
+        return "AnyType()"
 
 def get_proper_type(x):
     return x
@@ -55,9 +57,9 @@ match actual_type:
         result = "paramspec"
     case _:
         result = AnyType()
-print(type(result).__name__)
+print(result)
 
 # assume:
 
 # trace:
-# AnyType
+# AnyType()
