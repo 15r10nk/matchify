@@ -1,6 +1,5 @@
 import argparse
 import hashlib
-import json
 import random
 import sys
 import tempfile
@@ -11,6 +10,7 @@ from io import StringIO
 from itertools import product
 from pathlib import Path
 
+from code_sample_writer import save_code_sample
 from matchify.cli import convert_file
 
 MAX_SAMPLE_VALUES_PER_CASE = 24
@@ -2075,7 +2075,7 @@ def execute_result(source: str) -> tuple[str, str, type[BaseException] | None]:
     )
 
 
-SAMPLES_DIR = Path("tests/samples")
+SAMPLES_DIR = Path("tests/code_samples")
 
 
 @dataclass(frozen=True)
@@ -2089,24 +2089,6 @@ class Issue:
     actual_trace: tuple[str, str, type[BaseException] | None]
     changed: bool
     error: str | None = None
-
-    def trace_text(self) -> str:
-        return format_trace(self.expected_trace)
-
-
-def exception_name(exception_type: type[BaseException] | None) -> str:
-    return "None" if exception_type is None else exception_type.__name__
-
-
-def format_trace(trace: tuple[str, str, type[BaseException] | None]) -> str:
-    return "\n".join(
-        [
-            f"result: {trace[0]}",
-            f"output: {trace[1]!r}",
-            f"exception: {exception_name(trace[2])}",
-            "",
-        ]
-    )
 
 
 def check_source(source: str) -> Issue | None:
@@ -2183,37 +2165,18 @@ def make_sample_id(issue: Issue) -> str:
 
 
 def save_issue(issue: Issue, samples_dir: Path) -> Path:
-    sample_dir = samples_dir / make_sample_id(issue)
-    sample_dir.mkdir(parents=True, exist_ok=True)
-    (sample_dir / "original.py").write_text(issue.original, encoding="utf-8")
-    (sample_dir / "converted.py").write_text(issue.converted, encoding="utf-8")
-    (sample_dir / "trace.txt").write_text(issue.trace_text(), encoding="utf-8")
-    (sample_dir / "meta.json").write_text(
-        json.dumps(
-            {
-                "kind": issue.kind,
-                "seed": issue.seed,
-                "index": issue.index,
-                "changed": issue.changed,
-                "error": issue.error,
-                "expected": {
-                    "result": issue.expected_trace[0],
-                    "output": issue.expected_trace[1],
-                    "exception": exception_name(issue.expected_trace[2]),
-                },
-                "actual": {
-                    "result": issue.actual_trace[0],
-                    "output": issue.actual_trace[1],
-                    "exception": exception_name(issue.actual_trace[2]),
-                },
-            },
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n",
-        encoding="utf-8",
+    return save_code_sample(
+        samples_dir=samples_dir,
+        sample_id=make_sample_id(issue),
+        before=issue.original,
+        after=issue.converted,
+        trace_output=issue.expected_trace[1],
+        metadata=(
+            ("generated-kind", issue.kind),
+            ("seed", issue.seed),
+            ("case", issue.index),
+        ),
     )
-    return sample_dir
 
 
 def find_issues(
