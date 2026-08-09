@@ -6,15 +6,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-import find_new_issue  # noqa: E402
-import find_new_issue_2  # noqa: E402
+import find_pattern_coverage_issue  # noqa: E402
+import find_random_trace_issue  # noqa: E402
 from code_sample_format import parse_sample  # noqa: E402
 from code_sample_runtime import Trace  # noqa: E402
 
 
-def test_find_new_issue_saves_flat_code_sample(tmp_path):
+def test_random_trace_finder_saves_flat_code_sample(tmp_path):
     source = 'print("before")\n'
-    issue = find_new_issue.Issue(
+    issue = find_random_trace_issue.Issue(
         kind="trace-mismatch",
         seed=12,
         index=3,
@@ -25,7 +25,7 @@ def test_find_new_issue_saves_flat_code_sample(tmp_path):
         changed=True,
     )
 
-    sample_path = find_new_issue.save_issue(issue, tmp_path)
+    sample_path = find_random_trace_issue.save_issue(issue, tmp_path)
 
     assert sample_path.parent == tmp_path
     assert sample_path.suffix == ".py"
@@ -43,9 +43,9 @@ def test_find_new_issue_saves_flat_code_sample(tmp_path):
     )
 
 
-def test_find_new_issue_2_saves_flat_code_sample(tmp_path):
+def test_pattern_coverage_finder_saves_flat_code_sample(tmp_path):
     source = 'print("branch")\n'
-    issue = find_new_issue_2.Issue(
+    issue = find_pattern_coverage_issue.Issue(
         kind="not-converted",
         seed=14,
         index=5,
@@ -58,7 +58,7 @@ def test_find_new_issue_2_saves_flat_code_sample(tmp_path):
         changed=False,
     )
 
-    sample_path = find_new_issue_2.save_issue(issue, tmp_path)
+    sample_path = find_pattern_coverage_issue.save_issue(issue, tmp_path)
 
     assert sample_path.parent == tmp_path
     assert sample_path.suffix == ".py"
@@ -76,5 +76,5 @@ def test_find_new_issue_2_saves_flat_code_sample(tmp_path):
 def test_issue_finders_default_to_code_samples_directory():
     expected = Path("tests/code_samples")
 
-    assert find_new_issue.SAMPLES_DIR == expected
-    assert find_new_issue_2.SAMPLES_DIR == expected
+    assert find_random_trace_issue.SAMPLES_DIR == expected
+    assert find_pattern_coverage_issue.SAMPLES_DIR == expected
