@@ -2,16 +2,14 @@ import argparse
 import hashlib
 import random
 import sys
-import tempfile
 from collections.abc import Callable
-from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
-from io import StringIO
 from itertools import product
 from pathlib import Path
 
+from code_sample_runtime import Trace, execute
 from code_sample_writer import save_code_sample
-from matchify.cli import convert_file
+from matchify import transform_code
 
 MAX_SAMPLE_VALUES_PER_CASE = 24
 
@@ -1028,11 +1026,11 @@ def generate_program_candidate(rng: random.Random) -> GeneratedProgram:
 
 
 def sample_values_cover_reachable_cases(program: GeneratedProgram) -> bool:
-    _, output, error = execute_result(program.to_trace_if_code())
-    if error is not None:
+    trace = execute_result(program.to_trace_if_code())
+    if trace.exception is not None:
         return False
 
-    reached = set(output.splitlines())
+    reached = set(trace.stdout.splitlines())
     required = {
         case.body
         for case in program.cases
@@ -2058,21 +2056,8 @@ def indent_code(code: str, prefix: str) -> str:
     return "\n".join(f"{prefix}{line}" if line else line for line in code.splitlines())
 
 
-def execute_result(source: str) -> tuple[str, str, type[BaseException] | None]:
-    stdout = StringIO()
-    stderr = StringIO()
-    exception_type = None
-    namespace: dict[str, object] = {}
-    try:
-        with redirect_stdout(stdout), redirect_stderr(stderr):
-            exec(source, namespace)
-    except BaseException as error:
-        exception_type = type(error)
-    return (
-        str(namespace.get("result")),
-        stdout.getvalue() + stderr.getvalue(),
-        exception_type,
-    )
+def execute_result(source: str) -> Trace:
+    return execute(source)
 
 
 SAMPLES_DIR = Path("tests/code_samples")
@@ -2085,33 +2070,17 @@ class Issue:
     index: int
     original: str
     converted: str
-    expected_trace: tuple[str, str, type[BaseException] | None]
-    actual_trace: tuple[str, str, type[BaseException] | None]
+    expected_trace: Trace
+    actual_trace: Trace
     changed: bool
     error: str | None = None
 
 
 def check_source(source: str) -> Issue | None:
-    with tempfile.TemporaryDirectory() as tmpdir:
-        path = Path(tmpdir) / "candidate.py"
-        path.write_text(source, encoding="utf-8")
-        expected_trace = execute_result(source)
-        converted_path, changed, error = convert_file(path)
-        converted = path.read_text(encoding="utf-8") if path.exists() else ""
-
-    if converted_path != path:
-        return Issue(
-            kind="wrong-path",
-            seed=-1,
-            index=-1,
-            original=source,
-            converted=converted,
-            expected_trace=expected_trace,
-            actual_trace=("", "", None),
-            changed=changed,
-            error=f"converted_path={converted_path}",
-        )
-    if error is not None:
+    expected_trace = execute_result(source)
+    try:
+        converted = transform_code(source)
+    except Exception as error:
         return Issue(
             kind="convert-error",
             seed=-1,
@@ -2119,10 +2088,11 @@ def check_source(source: str) -> Issue | None:
             original=source,
             converted=converted,
             expected_trace=expected_trace,
-            actual_trace=("", "", None),
-            changed=changed,
+            actual_trace=Trace("", "", None, None),
+            changed=False,
             error=repr(error),
         )
+    changed = converted != source
     if not changed:
         return None
 
@@ -2170,7 +2140,7 @@ def save_issue(issue: Issue, samples_dir: Path) -> Path:
         sample_id=make_sample_id(issue),
         before=issue.original,
         after=issue.converted,
-        trace_output=issue.expected_trace[1],
+        trace_output=issue.expected_trace.stdout,
         metadata=(
             ("generated-kind", issue.kind),
             ("seed", issue.seed),
