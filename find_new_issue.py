@@ -2140,7 +2140,7 @@ def save_issue(issue: Issue, samples_dir: Path) -> Path:
         sample_id=make_sample_id(issue),
         before=issue.original,
         after=issue.converted,
-        trace_output=issue.expected_trace.stdout,
+        trace=issue.expected_trace,
         metadata=(
             ("generated-kind", issue.kind),
             ("seed", issue.seed),
