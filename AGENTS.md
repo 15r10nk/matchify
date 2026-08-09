@@ -63,7 +63,7 @@ The test suite is organized as follows:
 - `tests/test_transform.py` and `tests/test_edge_cases.py`: source-to-source
   behavior and rejection cases.
 - `tests/test_cli.py`: file processing and CLI behavior.
-- `tests/test_generated_roundtrip.py`: generated programs whose runtime traces
+- `tests/test_code_samples.py`: executable source samples whose runtime traces
   are compared before and after transformation.
 
 Use `textwrap.dedent()` for multiline source fixtures and temporary directories

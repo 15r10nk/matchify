@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import json
 import random
 import sys
 import tempfile
@@ -13,10 +12,11 @@ from io import StringIO
 from pathlib import Path
 from typing import Protocol
 
+from code_sample_writer import save_code_sample
 from matchify.assumptions import Assumptions
 from matchify.cli import convert_file
 
-SAMPLES_DIR = Path("tests/samples")
+SAMPLES_DIR = Path("tests/code_samples")
 CLASS_NAMES = ("Point", "Token", "Node")
 ATTR_NAMES = ("x", "y", "kind", "items")
 LITERALS = ("-1", "0", "1", "2", "'red'", "'ready'")
@@ -496,9 +496,6 @@ class Issue:
     changed: bool
     error: str | None = None
 
-    def trace_text(self) -> str:
-        return format_trace(self.expected_trace)
-
 
 def render_body(case: Case, subject: str, *, include_captures: bool) -> str:
     names = case.pattern.capture_names()
@@ -539,21 +536,6 @@ def execute_result(source: str) -> tuple[str, str, type[BaseException] | None]:
         str(namespace.get("result")),
         stdout.getvalue() + stderr.getvalue(),
         exception_type,
-    )
-
-
-def exception_name(exception_type: type[BaseException] | None) -> str:
-    return "None" if exception_type is None else exception_type.__name__
-
-
-def format_trace(trace: tuple[str, str, type[BaseException] | None]) -> str:
-    return "\n".join(
-        [
-            f"result: {trace[0]}",
-            f"output: {trace[1]!r}",
-            f"exception: {exception_name(trace[2])}",
-            "",
-        ]
     )
 
 
@@ -818,9 +800,9 @@ def check_program(program: Program, style: IfStyle, *, seed: int) -> Issue | Non
 
 
 def issue_survives(source: str, style: IfStyle) -> bool:
-    # Minimization only has original.py, so classify against itself by checking whether
-    # Matchify still has a conversion problem. This intentionally skips not-converted
-    # enhancement samples because they need the match reference for classification.
+    # The minimizer only supplies the original source, so classify against that source
+    # itself. This intentionally skips not-converted enhancement samples because they
+    # need the match reference for classification.
     with tempfile.TemporaryDirectory() as tmpdir:
         path = Path(tmpdir) / "candidate.py"
         path.write_text(source, encoding="utf-8")
@@ -850,39 +832,24 @@ def make_sample_id(issue: Issue) -> str:
 
 
 def save_issue(issue: Issue, samples_dir: Path) -> Path:
-    sample_dir = samples_dir / make_sample_id(issue)
-    sample_dir.mkdir(parents=True, exist_ok=True)
-    (sample_dir / "original.py").write_text(issue.original, encoding="utf-8")
-    (sample_dir / "converted.py").write_text(issue.converted, encoding="utf-8")
-    (sample_dir / "trace.txt").write_text(issue.trace_text(), encoding="utf-8")
-    (sample_dir / "match_reference.py").write_text(
-        issue.match_reference, encoding="utf-8"
+    trace_output = (
+        issue.actual_trace[1]
+        if issue.kind == "generator-bug"
+        else issue.expected_trace[1]
     )
-    (sample_dir / "meta.json").write_text(
-        json.dumps(
-            {
-                "kind": issue.kind,
-                "seed": issue.seed,
-                "index": issue.index,
-                "style": issue.style,
-                "changed": issue.changed,
-                "error": issue.error,
-                "expected": {
-                    "output": issue.expected_trace[1],
-                    "exception": exception_name(issue.expected_trace[2]),
-                },
-                "actual": {
-                    "output": issue.actual_trace[1],
-                    "exception": exception_name(issue.actual_trace[2]),
-                },
-            },
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n",
-        encoding="utf-8",
+    return save_code_sample(
+        samples_dir=samples_dir,
+        sample_id=make_sample_id(issue),
+        before=issue.original,
+        after=issue.converted,
+        trace_output=trace_output,
+        metadata=(
+            ("generated-kind", issue.kind),
+            ("style", issue.style),
+            ("seed", issue.seed),
+            ("case", issue.index),
+        ),
     )
-    return sample_dir
 
 
 def find_issues(
