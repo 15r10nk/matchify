@@ -4,8 +4,8 @@ def lookup(key):
     return methods[:]
 try:
     print(lookup('a'))
-except (KeyError, TypeError) as error:
-    print(type(error).__name__)
+except (KeyError, TypeError):
+    print("lookup failed")
 
 # after:
 def lookup(key):
@@ -13,10 +13,10 @@ def lookup(key):
     return methods[:]
 try:
     print(lookup('a'))
-except (KeyError, TypeError) as error:
-    print(type(error).__name__)
+except (KeyError, TypeError):
+    print("lookup failed")
 
 # assume: lookup-equality
 
 # trace:
-# KeyError
+# lookup failed

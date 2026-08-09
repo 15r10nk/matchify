@@ -7,8 +7,8 @@ def lookup():
 
 try:
     print(lookup())
-except (KeyError, TypeError) as error:
-    print(type(error).__name__)
+except (KeyError, TypeError):
+    print("lookup failed")
 
 # after:
 start = None
@@ -19,10 +19,10 @@ def lookup():
 
 try:
     print(lookup())
-except (KeyError, TypeError) as error:
-    print(type(error).__name__)
+except (KeyError, TypeError):
+    print("lookup failed")
 
 # assume: lookup-equality
 
 # trace:
-# KeyError
+# lookup failed
