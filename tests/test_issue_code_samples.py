@@ -8,6 +8,7 @@ sys.path.insert(0, str(ROOT))
 
 import find_new_issue  # noqa: E402
 import find_new_issue_2  # noqa: E402
+from code_sample_runtime import Trace  # noqa: E402
 
 
 def test_find_new_issue_saves_flat_code_sample(tmp_path):
@@ -18,8 +19,8 @@ def test_find_new_issue_saves_flat_code_sample(tmp_path):
         index=3,
         original=source,
         converted='print("after")\n',
-        expected_trace=("None", "before\n", None),
-        actual_trace=("None", "after\n", None),
+        expected_trace=Trace("before\n", "", None, None),
+        actual_trace=Trace("after\n", "", None, None),
         changed=True,
     )
 
@@ -51,8 +52,8 @@ def test_find_new_issue_2_saves_flat_code_sample(tmp_path):
         original=source,
         converted=source,
         match_reference=source,
-        expected_trace=("None", "branch\n", None),
-        actual_trace=("None", "branch\n", None),
+        expected_trace=Trace("branch\n", "", None, None),
+        actual_trace=Trace("branch\n", "", None, None),
         changed=False,
     )
 

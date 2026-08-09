@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
-from io import StringIO
 from pathlib import Path
 
 import pytest
 from inline_snapshot import external_file
 
+from code_sample_runtime import Trace, execute
 from matchify import Assumptions, transform_code
 from matchify.assumptions import parse_assumption_names
 
@@ -24,14 +23,6 @@ class Sample:
     before: str
     assumptions: Assumptions
     ignore_types_pattern: str | None
-
-
-@dataclass(frozen=True)
-class Trace:
-    stdout: str
-    stderr: str
-    exception: type[BaseException] | None
-    exception_args: tuple[object, ...] | None
 
 
 def sample_paths() -> list[Path]:
@@ -63,20 +54,6 @@ def parse_sample(source: str) -> Sample:
         Assumptions.from_names(names),
         ignore_types_pattern,
     )
-
-
-def execute(source: str) -> Trace:
-    stdout = StringIO()
-    stderr = StringIO()
-    exception = None
-    exception_args = None
-    try:
-        with redirect_stdout(stdout), redirect_stderr(stderr):
-            exec(source, {})
-    except BaseException as error:
-        exception = type(error)
-        exception_args = error.args
-    return Trace(stdout.getvalue(), stderr.getvalue(), exception, exception_args)
 
 
 def render_sample(sample: Sample, after: str, trace: Trace) -> str:

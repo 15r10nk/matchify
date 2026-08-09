@@ -4,17 +4,14 @@ import argparse
 import hashlib
 import random
 import sys
-import tempfile
-from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
 from enum import Enum
-from io import StringIO
 from pathlib import Path
 from typing import Protocol
 
+from code_sample_runtime import Trace, execute
 from code_sample_writer import save_code_sample
-from matchify.assumptions import Assumptions
-from matchify.cli import convert_file
+from matchify import Assumptions, transform_code
 
 SAMPLES_DIR = Path("tests/code_samples")
 CLASS_NAMES = ("Point", "Token", "Node")
@@ -491,8 +488,8 @@ class Issue:
     original: str
     converted: str
     match_reference: str
-    expected_trace: tuple[str, str, type[BaseException] | None]
-    actual_trace: tuple[str, str, type[BaseException] | None]
+    expected_trace: Trace
+    actual_trace: Trace
     changed: bool
     error: str | None = None
 
@@ -522,21 +519,8 @@ def indent_code(code: str, prefix: str) -> str:
     return "\n".join(f"{prefix}{line}" if line else line for line in code.splitlines())
 
 
-def execute_result(source: str) -> tuple[str, str, type[BaseException] | None]:
-    stdout = StringIO()
-    stderr = StringIO()
-    exception_type = None
-    namespace: dict[str, object] = {}
-    try:
-        with redirect_stdout(stdout), redirect_stderr(stderr):
-            exec(source, namespace)
-    except BaseException as error:
-        exception_type = type(error)
-    return (
-        str(namespace.get("result")),
-        stdout.getvalue() + stderr.getvalue(),
-        exception_type,
-    )
+def execute_result(source: str) -> Trace:
+    return execute(source)
 
 
 def generate_program(rng: random.Random) -> Program:
@@ -731,30 +715,9 @@ def check_program(program: Program, style: IfStyle, *, seed: int) -> Issue | Non
             error="if renderer does not match match renderer",
         )
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        path = Path(tmpdir) / "candidate.py"
-        path.write_text(original, encoding="utf-8")
-        converted_path, changed, error = convert_file(
-            path,
-            assumptions=Assumptions.from_names(),
-        )
-        converted = path.read_text(encoding="utf-8") if path.exists() else ""
-
-    if converted_path != path:
-        return Issue(
-            kind="wrong-path",
-            seed=-1,
-            index=-1,
-            style=style.value,
-            original=original,
-            converted=converted,
-            match_reference=match_reference,
-            expected_trace=expected_trace,
-            actual_trace=("", "", None),
-            changed=changed,
-            error=f"converted_path={converted_path}",
-        )
-    if error is not None:
+    try:
+        converted = transform_code(original, assumptions=Assumptions.from_names())
+    except Exception as error:
         return Issue(
             kind="convert-error",
             seed=-1,
@@ -764,10 +727,11 @@ def check_program(program: Program, style: IfStyle, *, seed: int) -> Issue | Non
             converted=converted,
             match_reference=match_reference,
             expected_trace=expected_trace,
-            actual_trace=("", "", None),
-            changed=changed,
-            error=error,
+            actual_trace=Trace("", "", None, None),
+            changed=False,
+            error=repr(error),
         )
+    changed = converted != original
     if not changed:
         return Issue(
             kind="not-converted",
@@ -803,14 +767,12 @@ def issue_survives(source: str, style: IfStyle) -> bool:
     # The minimizer only supplies the original source, so classify against that source
     # itself. This intentionally skips not-converted enhancement samples because they
     # need the match reference for classification.
-    with tempfile.TemporaryDirectory() as tmpdir:
-        path = Path(tmpdir) / "candidate.py"
-        path.write_text(source, encoding="utf-8")
-        expected_trace = execute_result(source)
-        _, changed, error = convert_file(path)
-        converted = path.read_text(encoding="utf-8")
-    if error is not None:
+    expected_trace = execute_result(source)
+    try:
+        converted = transform_code(source)
+    except Exception:
         return True
+    changed = converted != source
     return changed and execute_result(converted) != expected_trace
 
 
@@ -833,9 +795,9 @@ def make_sample_id(issue: Issue) -> str:
 
 def save_issue(issue: Issue, samples_dir: Path) -> Path:
     trace_output = (
-        issue.actual_trace[1]
+        issue.actual_trace.stdout
         if issue.kind == "generator-bug"
-        else issue.expected_trace[1]
+        else issue.expected_trace.stdout
     )
     return save_code_sample(
         samples_dir=samples_dir,
@@ -899,12 +861,14 @@ def find_issues(
 
 
 def check_minimized_issue(source: str, original_issue: Issue) -> Issue | None:
-    with tempfile.TemporaryDirectory() as tmpdir:
-        path = Path(tmpdir) / "candidate.py"
-        path.write_text(source, encoding="utf-8")
-        expected_trace = execute_result(source)
-        _, changed, error = convert_file(path)
-        converted = path.read_text(encoding="utf-8")
+    expected_trace = execute_result(source)
+    try:
+        converted = transform_code(source)
+        error = None
+    except Exception as caught:
+        converted = source
+        error = repr(caught)
+    changed = converted != source
     if error is None and (not changed or execute_result(converted) == expected_trace):
         return None
     return Issue(
@@ -916,7 +880,11 @@ def check_minimized_issue(source: str, original_issue: Issue) -> Issue | None:
         converted=converted,
         match_reference=source,
         expected_trace=expected_trace,
-        actual_trace=("", "", None) if error is not None else execute_result(converted),
+        actual_trace=(
+            Trace("", "", None, None)
+            if error is not None
+            else execute_result(converted)
+        ),
         changed=changed,
         error=error,
     )
