@@ -31,6 +31,10 @@ class Sample:
     ignore_types_pattern: str | None
 
 
+class SampleFormatError(ValueError):
+    pass
+
+
 def sample_paths() -> list[Path]:
     return sorted(SAMPLES_DIR.glob("*.py"))
 
@@ -56,19 +60,23 @@ def assert_result_is_observed(source: str) -> None:
 
 
 def parse_sample(source: str) -> Sample:
-    assert source.count(BEFORE_MARKER) == 1
-    assert source.count(AFTER_MARKER) == 1
+    if source.count(BEFORE_MARKER) != 1:
+        raise SampleFormatError("sample needs exactly one '# before:' marker")
+    if source.count(AFTER_MARKER) != 1:
+        raise SampleFormatError("sample needs exactly one '# after:' marker")
     prefix, remainder = source.split(BEFORE_MARKER)
     before, generated = remainder.split(AFTER_MARKER)
     assume_lines = [
         line for line in generated.splitlines() if line.startswith(ASSUME_MARKER)
     ]
-    assert len(assume_lines) == 1
+    if len(assume_lines) != 1:
+        raise SampleFormatError("sample needs exactly one '# assume:' line")
     names = parse_assumption_names(assume_lines[0].removeprefix(ASSUME_MARKER))
     ignore_types_lines = [
         line for line in generated.splitlines() if line.startswith(IGNORE_TYPES_MARKER)
     ]
-    assert len(ignore_types_lines) <= 1
+    if len(ignore_types_lines) > 1:
+        raise SampleFormatError("sample allows at most one '# ignore-types:' line")
     ignore_types_pattern = None
     if ignore_types_lines:
         ignore_types_pattern = (
@@ -103,6 +111,23 @@ def test_execute_records_exception_args():
 
     assert trace.exception is ValueError
     assert trace.exception_args == ("details", 42)
+
+
+@pytest.mark.parametrize(
+    ("source", "message"),
+    [
+        ("# after:\n# assume:\n", "exactly one '# before:'"),
+        ("# before:\n# assume:\n", "exactly one '# after:'"),
+        ("# before:\n# after:\n", "exactly one '# assume:'"),
+        (
+            "# before:\n# after:\n# assume:\n# ignore-types: A\n" "# ignore-types: B\n",
+            "at most one '# ignore-types:'",
+        ),
+    ],
+)
+def test_parse_sample_reports_invalid_structure(source, message):
+    with pytest.raises(SampleFormatError, match=message):
+        parse_sample(source)
 
 
 @pytest.mark.parametrize(
