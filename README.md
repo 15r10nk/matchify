@@ -11,6 +11,12 @@ Matchify automatically converts eligible `if`/`elif`/`else` chains into
 Python 3.10+ `match` statements while preserving runtime behavior and source
 formatting.
 
+> [!NOTE]
+> Matchify was built with assistance from AI tools. Its implementation and
+> generated transformations may contain mistakes, so review changes and run
+> your project's tests before relying on them. Feedback and bug reports are
+> very welcome.
+
 ## Examples
 
 **Simple equality chain:**
@@ -239,6 +245,10 @@ repos:
 
 By default, Matchify enables no risky assumptions. `--safe` makes that explicit.
 `--risky` enables all available risky assumptions.
+`--safe` is conservative, but it is not a formal guarantee that every rewrite
+preserves behavior. Python features such as custom equality, descriptors, and
+dynamic class behavior can still expose transformer bugs or semantic edge
+cases, so review the generated changes and run your project's tests.
 When a skipped `if`/`elif` chain would require a risky assumption, the CLI
 prints the file location and the required `--assume` value instead of converting
 that chain.
