@@ -20,4 +20,4 @@ python_versions:
 - '3.13'
 - '3.14'
 show_project_logo: false
-use_mkdocs: false
+use_mkdocs: true
