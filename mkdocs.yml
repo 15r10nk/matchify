@@ -1,0 +1,8 @@
+site_name: matchify
+site_url: https://15r10nk.github.io/matchify/
+repo_url: https://github.com/15r10nk/matchify
+theme:
+  name: material
+nav:
+- Home: index.md
+- Contributing: contributing.md
