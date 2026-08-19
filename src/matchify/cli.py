@@ -11,6 +11,11 @@ from .assumptions import (
     Assumptions,
     parse_assumption_names,
 )
+from .conversion_filter import (
+    DEFAULT_CONVERSION_FILTER,
+    ConversionFilter,
+    ConversionFilterDiagnostic,
+)
 from .transform import transform_code
 
 
@@ -22,6 +27,8 @@ def convert_file(
     assume_pure_subjects: bool = False,
     report_assumption_diagnostics: bool = False,
     check: bool = False,
+    convert_if: str | ConversionFilter | None = None,
+    report_filter_diagnostics: bool = False,
 ) -> tuple[pathlib.Path, bool, str | None]:
     """Convert a single file.
 
@@ -31,16 +38,21 @@ def convert_file(
     try:
         source = path.read_text(encoding="utf-8")
         diagnostics: list[AssumptionDiagnostic] = []
+        filter_diagnostics: list[ConversionFilterDiagnostic] = []
         transformed_code = transform_code(
             source,
             ignore_types_pattern=ignore_types_pattern,
             assumptions=assumptions,
             assume_pure_subjects=assume_pure_subjects,
             diagnostics=diagnostics,
+            convert_if=convert_if,
+            filter_diagnostics=filter_diagnostics,
         )
 
         if report_assumption_diagnostics:
             report_assumption_requirements(path, diagnostics)
+        if report_filter_diagnostics:
+            report_filter_rejections(path, filter_diagnostics)
         if transformed_code != source:
             if not check:
                 path.write_text(transformed_code, encoding="utf-8")
@@ -83,6 +95,17 @@ def report_assumption_requirements(
         print(
             f"Info: {path}:{diagnostic.line}:{diagnostic.column + 1}: "
             f"if/elif chain requires --assume {assumptions}"
+        )
+
+
+def report_filter_rejections(
+    path: pathlib.Path, diagnostics: list[ConversionFilterDiagnostic]
+) -> None:
+    """Print convertible chains rejected by the stylistic filter."""
+    for diagnostic in diagnostics:
+        print(
+            f"Info: {path}:{diagnostic.line}:{diagnostic.column + 1}: "
+            "if/elif chain rejected by --convert-if"
         )
 
 
@@ -152,10 +175,37 @@ def main() -> None:
         default=r".*_TYPES$",
         help="Regex pattern for isinstance type variables to ignore (default: .*_TYPES$)",
     )
+    conversion_group = parser.add_mutually_exclusive_group()
+    conversion_group.add_argument(
+        "--convert-if",
+        metavar="EXPRESSION",
+        action="append",
+        help=(
+            "Convert eligible if/elif chains only when the metrics expression matches "
+            f"(default: {DEFAULT_CONVERSION_FILTER})"
+        ),
+    )
+    conversion_group.add_argument(
+        "--all",
+        action="store_true",
+        help="Convert every eligible chain (equivalent to --convert-if True)",
+    )
 
     args = parser.parse_args()
+    if args.convert_if is not None and len(args.convert_if) > 1:
+        parser.error("--convert-if may only be specified once")
     try:
         assumptions = resolve_assumptions(args)
+        expression = (
+            "True"
+            if args.all
+            else (
+                args.convert_if[0]
+                if args.convert_if is not None
+                else DEFAULT_CONVERSION_FILTER
+            )
+        )
+        conversion_filter = ConversionFilter.parse(expression)
     except ValueError as error:
         parser.error(str(error))
 
@@ -176,6 +226,8 @@ def main() -> None:
             assumptions=assumptions,
             report_assumption_diagnostics=True,
             check=args.check,
+            convert_if=conversion_filter,
+            report_filter_diagnostics=args.verbose,
         )
         converted, unchanged, errors = report_result(
             *result, verbose=args.verbose, check=args.check
@@ -191,6 +243,8 @@ def main() -> None:
                 assumptions=assumptions,
                 report_assumption_diagnostics=True,
                 check=args.check,
+                convert_if=conversion_filter,
+                report_filter_diagnostics=args.verbose,
             )
             for result in executor.map(convert, python_files):
                 converted, unchanged, errors = report_result(

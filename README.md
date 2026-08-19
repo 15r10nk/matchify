@@ -1,8 +1,8 @@
+<!-- --8<-- [start:Header] -->
 # Matchify
 
 ![ci](https://github.com/15r10nk/matchify/actions/workflows/ci.yml/badge.svg?branch=main)
 [![Docs](https://img.shields.io/badge/docs-mkdocs-green)](https://15r10nk.github.io/matchify/latest/)
-
 [![pypi version](https://img.shields.io/pypi/v/matchify.svg)](https://pypi.org/project/matchify/)
 ![Python Versions](https://img.shields.io/pypi/pyversions/matchify)
 [![PyPI - Downloads](https://img.shields.io/pypi/dw/matchify)](https://pypacktrends.com/?packages=matchify&time_range=2years)
@@ -11,12 +11,15 @@
 Matchify automatically converts eligible `if`/`elif`/`else` chains into
 Python 3.10+ `match` statements while preserving runtime behavior and source
 formatting.
+<!-- --8<-- [end:Header] -->
 
+<!-- --8<-- [start:Feedback] -->
 > [!NOTE]
 > Matchify was built with assistance from AI tools. Its implementation and
 > generated transformations may contain mistakes, so review changes and run
 > your project's tests before relying on them. Feedback and bug reports are
 > very welcome.
+<!-- --8<-- [end:Feedback] -->
 
 ## Examples
 
@@ -197,6 +200,9 @@ matchify path/to/file.py
 # Convert all Python files in a directory
 matchify path/to/project/
 
+# Convert every eligible chain, including simple two-branch chains
+matchify path/to/project/ --all
+
 # Convert with verbose output
 matchify path/to/project/ -v
 
@@ -214,7 +220,11 @@ matchify path/to/project/ --safe
 
 # Enable all risky assumptions
 matchify path/to/project/ --risky
+
+# Convert only chains that meet a stylistic threshold
+matchify path/to/project/ --convert-if "isinstance_checks >= 2 or branches >= 4"
 ```
+
 
 ## pre-commit
 
@@ -244,172 +254,31 @@ repos:
 
 ## Risky assumptions
 
-By default, Matchify enables no risky assumptions. `--safe` makes that explicit.
-`--risky` enables all available risky assumptions.
-`--safe` is conservative, but it is not a formal guarantee that every rewrite
-preserves behavior. Python features such as custom equality, descriptors, and
-dynamic class behavior can still expose transformer bugs or semantic edge
-cases, so review the generated changes and run your project's tests.
-When a skipped `if`/`elif` chain would require a risky assumption, the CLI
-prints the file location and the required `--assume` value instead of converting
-that chain.
+By default, Matchify enables no risky assumptions. `--safe` makes that explicit,
+while `--risky` enables all available assumptions. See the
+[risky assumptions documentation](https://15r10nk.github.io/matchify/latest/assumptions/)
+for the semantic tradeoffs and individual `--assume` names.
 
-### `--assume=pure-subjects`
 
-Permits transformations such as `a.x == 1 and b.y == 2` into a match on
-`(a.x, b.y)`. This evaluates every subject eagerly, so enable it only when those
-name, attribute, and subscript reads cannot raise exceptions or produce
-observable side effects. Without the option, later `and` operands remain guards
-and preserve short-circuiting.
+## Selective conversion with `--convert-if`
 
-```python
-# Before
-if a.x == 1 and b.y == 2:
-    handle_first()
-elif a.x == 3 and b.y == 4:
-    handle_second()
+By default, Matchify converts structurally useful chains and leaves simple
+two-branch literal chains unchanged. The default filter is:
 
-# After
-match (a.x, b.y):
-    case 1, 2:
-        handle_first()
-    case 3, 4:
-        handle_second()
+```text
+branches >= 3 or isinstance_checks or attribute_checks or sequence_checks
 ```
 
-### `--assume=use-object`
+Use `--convert-if` to choose a different threshold based on source and generated
+metrics:
 
-Permits generic attribute patterns such as `object(x=1)` when different
-branches inspect attributes of a common object without an explicit `isinstance`
-check. This performs pattern-time attribute lookups, so enable it only when
-those lookups cannot raise exceptions or produce observable side effects.
-
-```python
-# Before
-if value.x == 1:
-    handle_x()
-elif value.y == 2:
-    handle_y()
-
-# After
-match value:
-    case object(x=1):
-        handle_x()
-    case object(y=2):
-        handle_y()
+```bash
+matchify path/to/project/ --convert-if "branches >= 4 and guard_conditions == 0"
 ```
 
-### `--assume=identity-equality`
-
-Permits conversions from qualified identity comparisons such as
-`op is Op.ADD` to value patterns such as `case Op.ADD`. Match value patterns
-compare with equality, not identity, so enable it only when identity and
-equality are equivalent for those values.
-
-```python
-# Before
-if op is Op.ADD:
-    add()
-elif op is Op.SUB:
-    subtract()
-
-# After
-match op:
-    case Op.ADD:
-        add()
-    case Op.SUB:
-        subtract()
-```
-
-### `--assume=hashable-subjects`
-
-Permits membership tests against literal sets to become OR patterns. Set
-membership hashes the subject and can raise `TypeError` for an unhashable value,
-while a pattern only performs equality comparisons. Enable it only when match
-subjects are hashable. Custom `__hash__` and `__eq__` implementations may still
-make lookup behavior or side effects differ from pattern matching.
-
-```python
-# Before
-if value in {1, 2}:
-    handle_small()
-elif value == 3:
-    handle_three()
-
-# After
-match value:
-    case 1 | 2:
-        handle_small()
-    case 3:
-        handle_three()
-```
-
-### `--assume=list-sequence-pattern`
-
-Permits a sequence pattern to imply an explicit `isinstance(value, list)`
-check. Python sequence patterns can also match other sequence types, so enable
-it only when that broader match is acceptable.
-
-```python
-# Before
-if isinstance(value, list) and len(value) == 1 and value[0] == 1:
-    handle_one()
-elif value is None:
-    handle_none()
-
-# After
-match value:
-    case 1,:
-        handle_one()
-    case None:
-        handle_none()
-```
-
-### `--assume=tuple-sequence-pattern`
-
-Permits a sequence pattern to imply an explicit `isinstance(value, tuple)`
-check. Python sequence patterns can also match other sequence types, so enable
-it only when that broader match is acceptable. Checks against `(list, tuple)`
-require both sequence assumptions.
-
-```python
-# Before
-if isinstance(value, tuple) and len(value) == 1 and value[0] == 1:
-    handle_one()
-elif value is None:
-    handle_none()
-
-# After
-match value:
-    case 1,:
-        handle_one()
-    case None:
-        handle_none()
-```
-
-### `--assume=lookup-equality`
-
-Permits dictionary lookup tables embedded in statements to become `match`
-statements. Dictionary lookup uses hashing while patterns use equality, and
-dictionary values are evaluated only in the selected case instead of eagerly
-when constructing the dictionary. Enable it only when those equality and
-evaluation-order differences are acceptable. Tuple keys, including nested
-tuples, become sequence patterns and can therefore also match equivalent
-non-tuple sequences.
-
-```python
-# Before
-result = {"create": "POST", "read": "GET"}[operation]
-
-# After
-match operation:
-    case "create":
-        result = "POST"
-    case "read":
-        result = "GET"
-    case _matchify_key:
-        raise KeyError(_matchify_key)
-```
+Use `--all` to convert every eligible chain. See the
+[selective conversion documentation](https://15r10nk.github.io/matchify/latest/selective-conversion/)
+for the expression syntax and complete metric reference.
 
 ## Development
 

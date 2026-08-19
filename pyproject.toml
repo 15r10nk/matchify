@@ -104,7 +104,8 @@ dependencies = [
   "mike>=2",
   "mkdocs>=1.4.2",
   "mkdocs-material[imaging]>=8.5.10",
-  "mkdocstrings>=0.19.0"
+  "mkdocstrings>=0.19.0",
+  "markdown-exec[ansi]"
 ]
 scripts.build = "mkdocs build {args}"
 scripts.deploy = "mike {args}"

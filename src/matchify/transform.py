@@ -13,6 +13,11 @@ from .assumptions import (
     Assumptions,
 )
 from .compiler import IfChainCompiler
+from .conversion_filter import (
+    ConversionFilter,
+    ConversionFilterDiagnostic,
+    with_generated_metrics,
+)
 from .lookup_tables import (
     compile_inline_lookup,
     compile_local_lookups,
@@ -31,6 +36,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
         *,
         assumptions: Assumptions | None = None,
         assume_pure_subjects: bool = False,
+        convert_if: str | ConversionFilter | None = None,
     ):
         super().__init__()
         resolved_assumptions = assumptions or Assumptions.from_names()
@@ -41,6 +47,12 @@ class IfToMatchTransformer(cst.CSTTransformer):
         self.assumptions = resolved_assumptions
         self.ignore_types_pattern = ignore_types_pattern
         self.diagnostics: list[AssumptionDiagnostic] = []
+        self.filter_diagnostics: list[ConversionFilterDiagnostic] = []
+        self.conversion_filter = (
+            ConversionFilter.parse(convert_if)
+            if isinstance(convert_if, str)
+            else convert_if
+        )
         self._elif_nodes: set[int] = set()
         self.compiler = IfChainCompiler(
             ignore_types_pattern=ignore_types_pattern,
@@ -69,6 +81,11 @@ class IfToMatchTransformer(cst.CSTTransformer):
         match_stmt = self.compiler.compile(
             chain, leading_lines=updated_node.leading_lines
         )
+        if self.conversion_filter is not None and not self.conversion_filter.matches(
+            with_generated_metrics(chain.metrics, match_stmt)
+        ):
+            self._record_filter_diagnostic(original_node)
+            return updated_node
         return match_stmt
 
     def leave_SimpleStatementLine(
@@ -125,6 +142,22 @@ class IfToMatchTransformer(cst.CSTTransformer):
             )
         )
 
+    def _record_filter_diagnostic(self, node: cst.If) -> None:
+        position = self.get_metadata(
+            PositionProvider,
+            node,
+            CodeRange(
+                start=CodePosition(line=0, column=0),
+                end=CodePosition(line=0, column=0),
+            ),
+        )
+        self.filter_diagnostics.append(
+            ConversionFilterDiagnostic(
+                line=position.start.line,
+                column=position.start.column,
+            )
+        )
+
     def _find_required_assumptions(self, node: cst.If) -> frozenset[str]:
         missing = sorted(ALL_RISKY_ASSUMPTIONS - self.assumptions.names)
         for size in range(1, len(missing) + 1):
@@ -148,6 +181,8 @@ def transform_code(
     assumptions: Assumptions | None = None,
     assume_pure_subjects: bool = False,
     diagnostics: list[AssumptionDiagnostic] | None = None,
+    convert_if: str | ConversionFilter | None = None,
+    filter_diagnostics: list[ConversionFilterDiagnostic] | None = None,
 ) -> str:
     """Transform Python source code by converting if/elif/else chains to match statements.
 
@@ -157,6 +192,8 @@ def transform_code(
         assumptions: Enabled risky transformation assumptions
         assume_pure_subjects: Allow eager composite subjects from boolean conditions
         diagnostics: Optional list populated with skipped assumption-only conversions
+        convert_if: Optional expression selecting which eligible chains to convert
+        filter_diagnostics: Optional list populated with filter-rejected conversions
 
     Returns:
         Transformed source code as a string
@@ -167,9 +204,12 @@ def transform_code(
         ignore_types_pattern=ignore_types_pattern,
         assumptions=assumptions,
         assume_pure_subjects=assume_pure_subjects,
+        convert_if=convert_if,
     )
     transformed = MetadataWrapper(module).visit(transformer)
     if diagnostics is not None:
         diagnostics.extend(transformer.diagnostics)
+    if filter_diagnostics is not None:
+        filter_diagnostics.extend(transformer.filter_diagnostics)
 
     return transformed.code

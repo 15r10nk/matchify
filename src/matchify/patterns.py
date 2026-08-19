@@ -85,7 +85,9 @@ def build_or_pattern(patterns: list[cst.MatchPattern]) -> cst.MatchPattern:
     elements = [
         cst.MatchOrElement(
             pattern=pattern,
-            separator=cst.BitOr() if index < len(patterns) - 1 else None,
+            separator=(
+                cst.BitOr() if index < len(patterns) - 1 else cst.MaybeSentinel.DEFAULT
+            ),
         )
         for index, pattern in enumerate(patterns)
     ]
