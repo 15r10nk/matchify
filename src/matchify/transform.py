@@ -12,6 +12,11 @@ from .assumptions import (
     Assumptions,
 )
 from .compiler import IfChainCompiler
+from .conversion_filter import (
+    ConversionFilter,
+    ConversionFilterDiagnostic,
+    with_generated_metrics,
+)
 from .lookup_tables import (
     compile_inline_lookup,
     compile_local_lookups,
@@ -69,12 +74,19 @@ class IfToMatchTransformer(cst.CSTTransformer):
         ignore_types_pattern: str | None = r".*_TYPES$",
         *,
         assumptions: Assumptions | None = None,
+        convert_if: str | ConversionFilter | None = None,
     ):
         super().__init__()
         resolved_assumptions = assumptions or Assumptions.from_names()
         self.assumptions = resolved_assumptions
         self.ignore_types_pattern = ignore_types_pattern
         self.diagnostics: list[AssumptionDiagnostic] = []
+        self.filter_diagnostics: list[ConversionFilterDiagnostic] = []
+        self.conversion_filter = (
+            ConversionFilter.parse(convert_if)
+            if isinstance(convert_if, str)
+            else convert_if
+        )
         self._elif_nodes: set[int] = set()
         self.compiler = IfChainCompiler(
             ignore_types_pattern=ignore_types_pattern,
@@ -103,6 +115,11 @@ class IfToMatchTransformer(cst.CSTTransformer):
         match_stmt = self.compiler.compile(
             chain, leading_lines=tuple(updated_node.leading_lines)
         )
+        if self.conversion_filter is not None and not self.conversion_filter.matches(
+            with_generated_metrics(chain.metrics, match_stmt)
+        ):
+            self._record_filter_diagnostic(original_node)
+            return updated_node
         return match_stmt
 
     def leave_SimpleStatementLine(
@@ -165,6 +182,22 @@ class IfToMatchTransformer(cst.CSTTransformer):
             )
         )
 
+    def _record_filter_diagnostic(self, node: cst.If) -> None:
+        position = self.get_metadata(
+            PositionProvider,
+            node,
+            CodeRange(
+                start=CodePosition(line=0, column=0),
+                end=CodePosition(line=0, column=0),
+            ),
+        )
+        self.filter_diagnostics.append(
+            ConversionFilterDiagnostic(
+                line=position.start.line,
+                column=position.start.column,
+            )
+        )
+
     def _find_required_assumptions(self, node: cst.If) -> frozenset[str]:
         return find_required_assumptions(
             node,
@@ -185,12 +218,19 @@ class _ChainPreviewVisitor(cst.CSTVisitor):
         *,
         ignore_types_pattern: str | None,
         assumptions: Assumptions,
+        convert_if: str | ConversionFilter | None = None,
     ) -> None:
         super().__init__()
         self._module = module
         self._source_lines = source.splitlines(keepends=True)
         self._ignore_types_pattern = ignore_types_pattern
         self._assumptions = assumptions
+        self.filter_diagnostics: list[ConversionFilterDiagnostic] = []
+        self._conversion_filter = (
+            ConversionFilter.parse(convert_if)
+            if isinstance(convert_if, str)
+            else convert_if
+        )
         self._elif_nodes: set[int] = set()
         self._compiler = IfChainCompiler(
             ignore_types_pattern=ignore_types_pattern,
@@ -226,6 +266,11 @@ class _ChainPreviewVisitor(cst.CSTVisitor):
                 return True
 
         match_stmt = compiler.compile(chain, leading_lines=())
+        if self._conversion_filter is not None and not self._conversion_filter.matches(
+            with_generated_metrics(chain.metrics, match_stmt)
+        ):
+            self._record_filter_diagnostic(node)
+            return True
         self._append_preview(
             node,
             node.with_changes(leading_lines=()),
@@ -264,6 +309,22 @@ class _ChainPreviewVisitor(cst.CSTVisitor):
         if Assumptions.LOOKUP_EQUALITY in self._assumptions:
             return frozenset()
         return frozenset({Assumptions.LOOKUP_EQUALITY.assumption_name})
+
+    def _record_filter_diagnostic(self, node: cst.If) -> None:
+        position = self.get_metadata(
+            PositionProvider,
+            node,
+            CodeRange(
+                start=CodePosition(line=0, column=0),
+                end=CodePosition(line=0, column=0),
+            ),
+        )
+        self.filter_diagnostics.append(
+            ConversionFilterDiagnostic(
+                line=position.start.line,
+                column=position.start.column,
+            )
+        )
 
     def _append_preview(
         self,
@@ -304,6 +365,8 @@ def collect_chain_previews(
     ignore_types_pattern: str | None = None,
     assumptions: Assumptions | None = None,
     include_gated: bool = False,
+    convert_if: str | ConversionFilter | None = None,
+    filter_diagnostics: list[ConversionFilterDiagnostic] | None = None,
 ) -> list[ChainPreview]:
     """Return per-conversion snippets for preview diffs."""
     module = cst.parse_module(source)
@@ -312,8 +375,11 @@ def collect_chain_previews(
         source,
         ignore_types_pattern=ignore_types_pattern,
         assumptions=assumptions or Assumptions.from_names(),
+        convert_if=convert_if,
     )
     MetadataWrapper(module).visit(visitor)
+    if filter_diagnostics is not None:
+        filter_diagnostics.extend(visitor.filter_diagnostics)
     if include_gated:
         return visitor.previews
     return [preview for preview in visitor.previews if not preview.extra_assumptions]
@@ -325,6 +391,8 @@ def transform_code(
     *,
     assumptions: Assumptions | None = None,
     diagnostics: list[AssumptionDiagnostic] | None = None,
+    convert_if: str | ConversionFilter | None = None,
+    filter_diagnostics: list[ConversionFilterDiagnostic] | None = None,
 ) -> str:
     """Transform Python source code by converting if/elif/else chains to match statements.
 
@@ -333,6 +401,8 @@ def transform_code(
         ignore_types_pattern: Optional regex pattern for isinstance type variables to ignore
         assumptions: Enabled risky transformation assumptions
         diagnostics: Optional list populated with skipped assumption-only conversions
+        convert_if: Optional expression selecting which eligible chains to convert
+        filter_diagnostics: Optional list populated with filter-rejected conversions
 
     Returns:
         Transformed source code as a string
@@ -342,9 +412,12 @@ def transform_code(
     transformer = IfToMatchTransformer(
         ignore_types_pattern=ignore_types_pattern,
         assumptions=assumptions,
+        convert_if=convert_if,
     )
     transformed = MetadataWrapper(module).visit(transformer)
     if diagnostics is not None:
         diagnostics.extend(transformer.diagnostics)
+    if filter_diagnostics is not None:
+        filter_diagnostics.extend(transformer.filter_diagnostics)
 
     return transformed.code

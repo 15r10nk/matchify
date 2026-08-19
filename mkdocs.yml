@@ -3,6 +3,16 @@ site_url: https://15r10nk.github.io/matchify/
 repo_url: https://github.com/15r10nk/matchify
 theme:
   name: material
+plugins:
+- search
+- markdown-exec
+markdown_extensions:
+- admonition
+- pymdownx.highlight
+- pymdownx.snippets
+- pymdownx.superfences
 nav:
 - Home: index.md
+- Risky assumptions: assumptions.md
+- Selective conversion: selective-conversion.md
 - Contributing: contributing.md

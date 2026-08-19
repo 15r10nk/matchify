@@ -18,6 +18,7 @@ from .conditions import (
     parse_condition,
     select_assumed_pure_subject_paths,
 )
+from .conversion_filter import ConversionMetrics, source_metrics
 from .facts import BranchFacts
 from .pattern_builder import normalize_condition
 from .patterns import build_wildcard_pattern
@@ -44,6 +45,7 @@ class IfChain(NamedTuple):
     branches: tuple[IfBranch, ...]
     else_body: cst.IndentedBlock | None
     else_leading_lines: tuple[cst.EmptyLine, ...]
+    metrics: ConversionMetrics
 
 
 class ParsedBranch(NamedTuple):
@@ -123,6 +125,9 @@ class IfChainCompiler:
             branches=tuple(branches),
             else_body=else_body,
             else_leading_lines=else_leading_lines,
+            metrics=source_metrics(
+                tuple(branch.condition for branch in parsed_branches)
+            ),
         )
 
     def _select_chain_subject(

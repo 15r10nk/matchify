@@ -267,6 +267,8 @@ class TestConvertFile:
             check=True,
             verbose=False,
             quiet=True,
+            convert_if="True",
+            report_filter_diagnostics=False,
         )
 
         converted, unchanged, errors, changed = convert_files(
@@ -284,6 +286,24 @@ class TestConvertFile:
         assert kept[0].text is not None
         assert "match x:" in kept[0].text
         capsys.readouterr()
+
+    def test_convert_file_accepts_conversion_filter(self, tmp_path):
+        test_file = tmp_path / "test.py"
+        source = dedent(
+            """
+            if x == 1:
+                print("one")
+            elif x == 2:
+                print("two")
+            """
+        ).strip()
+        test_file.write_text(source, encoding="utf-8")
+
+        _, changed, error = convert_file(test_file, convert_if="branches >= 3")
+        assert changed is False
+        assert error is None
+        assert test_file.read_text(encoding="utf-8") == source
+        assert test_file.read_text(encoding="utf-8") == source
 
 
 class TestMain:
@@ -341,7 +361,7 @@ class TestMain:
 
         original_argv = sys.argv
         try:
-            sys.argv = ["matchify", flag, str(test_file)]
+            sys.argv = ["matchify", "--all", flag, str(test_file)]
             main()
         finally:
             sys.argv = original_argv
@@ -368,7 +388,7 @@ class TestMain:
 
         original_argv = sys.argv
         try:
-            sys.argv = ["matchify", str(test_file)]
+            sys.argv = ["matchify", "--all", str(test_file)]
             main()
         finally:
             sys.argv = original_argv
@@ -390,7 +410,7 @@ class TestMain:
 
         original_argv = sys.argv
         try:
-            sys.argv = ["matchify", str(test_file)]
+            sys.argv = ["matchify", "--all", str(test_file)]
             main()
         finally:
             sys.argv = original_argv
@@ -416,7 +436,7 @@ class TestMain:
 
         original_argv = sys.argv
         try:
-            sys.argv = ["matchify", str(test_file)]
+            sys.argv = ["matchify", "--all", "--write", str(test_file)]
             with pytest.raises(SystemExit) as exc_info:
                 main()
         finally:
@@ -490,7 +510,7 @@ class TestMain:
 
             original_argv = sys.argv
             try:
-                sys.argv = ["matchify", "--write", str(test_file)]
+                sys.argv = ["matchify", "--all", "--write", str(test_file)]
                 main()
 
                 result = test_file.read_text(encoding="utf-8")
@@ -517,7 +537,7 @@ class TestMain:
 
         original_argv = sys.argv
         try:
-            sys.argv = ["matchify", "--check", str(test_file)]
+            sys.argv = ["matchify", "--all", "--check", str(test_file)]
             with pytest.raises(SystemExit) as exc_info:
                 main()
         finally:
@@ -538,7 +558,7 @@ class TestMain:
 
         original_argv = sys.argv
         try:
-            sys.argv = ["matchify", "--check", str(test_file)]
+            sys.argv = ["matchify", "--all", "--check", str(test_file)]
             main()
         finally:
             sys.argv = original_argv
@@ -561,7 +581,7 @@ class TestMain:
 
         original_argv = sys.argv
         try:
-            sys.argv = ["matchify", "--check", str(test_file)]
+            sys.argv = ["matchify", "--all", "--check", str(test_file)]
             with pytest.raises(SystemExit) as exc_info:
                 main()
         finally:
@@ -586,7 +606,7 @@ class TestMain:
 
         original_argv = sys.argv
         try:
-            sys.argv = ["matchify", "--show", str(test_file)]
+            sys.argv = ["matchify", "--all", "--show", str(test_file)]
             main()
         finally:
             sys.argv = original_argv
@@ -616,7 +636,7 @@ class TestMain:
 
         original_argv = sys.argv
         try:
-            sys.argv = ["matchify", "--check", "--jobs", "2", str(test_dir)]
+            sys.argv = ["matchify", "--all", "--check", "--jobs", "2", str(test_dir)]
             with pytest.raises(SystemExit) as exc_info:
                 main()
         finally:
@@ -641,7 +661,7 @@ class TestMain:
 
         original_argv = sys.argv
         try:
-            sys.argv = ["matchify", "--show", "--write", str(test_file)]
+            sys.argv = ["matchify", "--all", "--show", "--write", str(test_file)]
             main()
         finally:
             sys.argv = original_argv
@@ -672,7 +692,7 @@ class TestMain:
 
         original_argv = sys.argv
         try:
-            sys.argv = ["matchify", "--show", "--check", str(test_file)]
+            sys.argv = ["matchify", "--all", "--show", "--check", str(test_file)]
             with pytest.raises(SystemExit) as exc_info:
                 main()
         finally:
@@ -703,7 +723,7 @@ class TestMain:
 
         original_argv = sys.argv
         try:
-            sys.argv = ["matchify", "--show", "--check", str(test_file)]
+            sys.argv = ["matchify", "--all", "--show", "--check", str(test_file)]
             with pytest.raises(SystemExit) as exc_info:
                 main()
         finally:
@@ -731,7 +751,7 @@ class TestMain:
 
         original_argv = sys.argv
         try:
-            sys.argv = ["matchify", "--show", "--check", str(test_file)]
+            sys.argv = ["matchify", "--all", "--show", "--check", str(test_file)]
             with pytest.raises(SystemExit) as exc_info:
                 main()
         finally:
@@ -758,7 +778,7 @@ class TestMain:
 
         original_argv = sys.argv
         try:
-            sys.argv = ["matchify", "--show-all", "--check", str(test_file)]
+            sys.argv = ["matchify", "--all", "--show-all", "--check", str(test_file)]
             main()
         finally:
             sys.argv = original_argv
@@ -790,7 +810,7 @@ class TestMain:
 
         original_argv = sys.argv
         try:
-            sys.argv = ["matchify", "--show-all", "--check", str(test_file)]
+            sys.argv = ["matchify", "--all", "--show-all", "--check", str(test_file)]
             main()
         finally:
             sys.argv = original_argv
@@ -821,7 +841,7 @@ class TestMain:
 
         original_argv = sys.argv
         try:
-            sys.argv = ["matchify", "--show-all", "--check", str(test_file)]
+            sys.argv = ["matchify", "--all", "--show-all", "--check", str(test_file)]
             with pytest.raises(SystemExit) as exc_info:
                 main()
         finally:
@@ -847,7 +867,7 @@ class TestMain:
 
         original_argv = sys.argv
         try:
-            sys.argv = ["matchify", "--show", "--check", str(test_file)]
+            sys.argv = ["matchify", "--all", "--show", "--check", str(test_file)]
             main()
         finally:
             sys.argv = original_argv
@@ -873,7 +893,7 @@ class TestMain:
 
         original_argv = sys.argv
         try:
-            sys.argv = ["matchify", "--show", "--check", str(test_file)]
+            sys.argv = ["matchify", "--all", "--show", "--check", str(test_file)]
             main()
         finally:
             sys.argv = original_argv
@@ -917,7 +937,7 @@ class TestMain:
 
         original_argv = sys.argv
         try:
-            sys.argv = ["matchify", "--show", "--check", str(test_file)]
+            sys.argv = ["matchify", "--all", "--show", "--check", str(test_file)]
             with pytest.raises(SystemExit) as exc_info:
                 main()
         finally:
@@ -981,7 +1001,7 @@ class TestMain:
 
         original_argv = sys.argv
         try:
-            sys.argv = ["matchify", "--show", "--write", str(test_file)]
+            sys.argv = ["matchify", "--all", "--show", "--write", str(test_file)]
             with pytest.raises(SystemExit) as exc_info:
                 main()
         finally:
@@ -1007,7 +1027,7 @@ class TestMain:
 
         original_argv = sys.argv
         try:
-            sys.argv = ["matchify", "--show", "--write", str(test_file)]
+            sys.argv = ["matchify", "--all", "--show", "--write", str(test_file)]
             with pytest.raises(RuntimeError, match="preview bug"):
                 main()
         finally:
@@ -1442,6 +1462,134 @@ class TestMain:
         assert exc_info.value.code == 2
         assert "Unknown risky assumption: unknown" in capsys.readouterr().err
 
+    def test_main_rejects_invalid_conversion_filter_before_processing(
+        self, capsys, tmp_path
+    ):
+        missing = tmp_path / "missing.py"
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", "--convert-if", "unknown > 1", str(missing)]
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+        finally:
+            sys.argv = original_argv
+
+        assert exc_info.value.code == 2
+        output = capsys.readouterr()
+        assert "Unknown --convert-if variable: unknown" in output.err
+        assert "Skipping" not in output.out
+
+    def test_main_rejects_repeated_conversion_filter(self, capsys, tmp_path):
+        test_file = tmp_path / "test.py"
+
+        original_argv = sys.argv
+        try:
+            sys.argv = [
+                "matchify",
+                "--convert-if",
+                "branches > 2",
+                "--convert-if",
+                "patterns > 2",
+                str(test_file),
+            ]
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+        finally:
+            sys.argv = original_argv
+
+        assert exc_info.value.code == 2
+        assert "--convert-if may only be specified once" in capsys.readouterr().err
+
+    def test_main_default_skips_simple_two_branch_chain(self, capsys, tmp_path):
+        test_file = tmp_path / "test.py"
+        source = dedent(
+            """
+            if value == 1:
+                print("one")
+            elif value == 2:
+                print("two")
+            """
+        ).strip()
+        test_file.write_text(source, encoding="utf-8")
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", "--write", str(test_file)]
+            main()
+        finally:
+            sys.argv = original_argv
+
+        assert test_file.read_text(encoding="utf-8") == source
+        assert "0 converted, 1 unchanged, 0 errors" in capsys.readouterr().out
+
+    def test_main_all_converts_simple_two_branch_chain(self, capsys, tmp_path):
+        test_file = tmp_path / "test.py"
+        test_file.write_text(
+            'if value == 1:\n    print("one")\nelif value == 2:\n    print("two")',
+            encoding="utf-8",
+        )
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", "--all", "--write", str(test_file)]
+            main()
+        finally:
+            sys.argv = original_argv
+
+        assert "match value:" in test_file.read_text(encoding="utf-8")
+        assert "1 converted, 0 unchanged, 0 errors" in capsys.readouterr().out
+
+    def test_main_rejects_all_with_conversion_filter(self, capsys, tmp_path):
+        original_argv = sys.argv
+        try:
+            sys.argv = [
+                "matchify",
+                "--all",
+                "--convert-if",
+                "branches >= 3",
+                str(tmp_path / "test.py"),
+            ]
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+        finally:
+            sys.argv = original_argv
+
+        assert exc_info.value.code == 2
+        assert "not allowed with argument --all" in capsys.readouterr().err
+
+    def test_verbose_reports_filter_rejection(self, capsys, tmp_path):
+        test_file = tmp_path / "test.py"
+        source = dedent(
+            """
+            if x == 1:
+                print("one")
+            elif x == 2:
+                print("two")
+            """
+        ).strip()
+        test_file.write_text(source, encoding="utf-8")
+
+        original_argv = sys.argv
+        try:
+            sys.argv = [
+                "matchify",
+                "--convert-if",
+                "branches >= 3",
+                "--verbose",
+                "--write",
+                str(test_file),
+            ]
+            main()
+        finally:
+            sys.argv = original_argv
+
+        output = capsys.readouterr().out
+        assert (
+            f"Info: {test_file}:1:1: if/elif chain rejected by --convert-if" in output
+        )
+        assert f"No changes: {test_file}" in output
+
     def test_module_entrypoint_with_single_file(self, capsys):
         """Test running the package module invokes the CLI entry point."""
 
@@ -1459,7 +1607,7 @@ class TestMain:
 
             original_argv = sys.argv
             try:
-                sys.argv = ["python -m matchify", "--write", str(test_file)]
+                sys.argv = ["python -m matchify", "--all", "--write", str(test_file)]
                 sys.modules.pop("matchify.__main__", None)
                 runpy.run_module("matchify.__main__", run_name="__main__")
 
@@ -1495,7 +1643,7 @@ class TestMain:
 
             original_argv = sys.argv
             try:
-                sys.argv = ["matchify", "--write", str(test_dir)]
+                sys.argv = ["matchify", "--all", "--write", str(test_dir)]
                 main()
 
                 # Both files should be converted
@@ -1532,7 +1680,7 @@ class TestMain:
 
             original_argv = sys.argv
             try:
-                sys.argv = ["matchify", "--write", str(test_dir)]
+                sys.argv = ["matchify", "--all", "--write", str(test_dir)]
                 main()
 
                 # Both files should be converted
@@ -1581,7 +1729,7 @@ class TestMain:
 
             original_argv = sys.argv
             try:
-                sys.argv = ["matchify", "--write", str(file1), str(file2)]
+                sys.argv = ["matchify", "--all", "--write", str(file1), str(file2)]
                 main()
 
                 # Both files should be converted
@@ -1688,7 +1836,7 @@ class TestCliOptionsAndErrors:
 
             original_argv = sys.argv
             try:
-                sys.argv = ["matchify", "--write", "--jobs", "2", str(test_dir)]
+                sys.argv = ["matchify", "--all", "--write", "--jobs", "2", str(test_dir)]
                 with pytest.raises(SystemExit) as exc_info:
                     main()
 
@@ -1741,7 +1889,7 @@ class TestCliOptionsAndErrors:
 
             original_argv = sys.argv
             try:
-                sys.argv = ["matchify", "--write", "--jobs", "2", str(test_dir)]
+                sys.argv = ["matchify", "--all", "--write", "--jobs", "2", str(test_dir)]
                 main()
 
                 captured = capsys.readouterr()
