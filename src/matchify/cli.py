@@ -164,7 +164,7 @@ def _print_location_heading(path: pathlib.Path, line: int) -> None:
     text.append(str(path), style=HEADING_PATH_STYLE)
     text.append(":", style=HEADING_SEPARATOR_STYLE)
     text.append(str(line), style=HEADING_LINE_STYLE)
-    console.print(text)
+    console.print(text, soft_wrap=True)
 
 
 def _print_diff_control_line(line: str, style: str | None = "bold cyan") -> None:

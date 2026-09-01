@@ -62,6 +62,21 @@ class TestConvertFile:
         assert "4" in rendered
         assert "\x1b[" in rendered
 
+    def test_location_heading_does_not_wrap_long_paths(self, monkeypatch):
+        output = StringIO()
+        monkeypatch.setattr(
+            "matchify.cli.console",
+            Console(file=output, force_terminal=False, color_system=None, width=40),
+        )
+        path = pathlib.Path(
+            "/tmp/pytest-of-runner/pytest-0/popen-gw1/test_main_show_prints_one_diff0/test.py"
+        )
+
+        _print_location_heading(path, 1)
+
+        rendered = output.getvalue()
+        assert rendered.splitlines()[0] == f"{path}:1"
+
     def test_report_diff_prints_ellipsis_between_hunks(self, monkeypatch):
         output = StringIO()
         monkeypatch.setattr(
