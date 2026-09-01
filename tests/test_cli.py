@@ -432,7 +432,7 @@ class TestMain:
         output = capsys.readouterr().out
         assert "2 -    if x == 1:" in output
         assert "2 +    match x:" in output
-        assert '3 +        case 1:' in output
+        assert "3 +        case 1:" in output
 
     def test_main_show_prints_one_diff_per_conversion(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
@@ -493,9 +493,7 @@ class TestMain:
         assert "+match x:" in output
         assert "Would convert:" not in output
 
-    def test_main_show_all_previews_assumption_gated_conversion(
-        self, capsys, tmp_path
-    ):
+    def test_main_show_all_previews_assumption_gated_conversion(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
         source = dedent(
             """
@@ -1023,7 +1021,14 @@ class TestCliOptionsAndErrors:
 
             original_argv = sys.argv
             try:
-                sys.argv = ["matchify", "--write", "--jobs", "2", "--verbose", str(test_dir)]
+                sys.argv = [
+                    "matchify",
+                    "--write",
+                    "--jobs",
+                    "2",
+                    "--verbose",
+                    str(test_dir),
+                ]
                 with pytest.raises(SystemExit) as exc_info:
                     main()
 

@@ -19,7 +19,6 @@ from .assumptions import (
 )
 from .transform import collect_chain_previews, transform_code
 
-
 console = Console()
 
 WORD_TOKEN_RE = re.compile(r"\s+|\w+|[^\w\s]")
@@ -122,18 +121,14 @@ def report_diff(before: str, after: str, *, start_line: int = 1) -> None:
     if not groups:
         return
 
-    width = len(
-        str(start_line + max(len(before_lines), len(after_lines), 1) - 1)
-    )
+    width = len(str(start_line + max(len(before_lines), len(after_lines), 1) - 1))
     for group_index, group in enumerate(groups):
         if group_index:
             _print_diff_control_line("...\n", style="dim")
         for tag, old_start, old_end, new_start, new_end in group:
             if tag == "equal":
                 for offset, line in enumerate(before_lines[old_start:old_end]):
-                    _print_equal_line(
-                        start_line + old_start + offset, width, line
-                    )
+                    _print_equal_line(start_line + old_start + offset, width, line)
             elif tag == "delete":
                 for offset, line in enumerate(before_lines[old_start:old_end]):
                     _print_word_line(
@@ -276,7 +271,11 @@ def _print_word_line(
     text.append(prefix, style=line_style)
     text.append(indentation, style=line_style)
     for index, token in enumerate(tokens):
-        style = changed_style if changed_tokens is None or index in changed_tokens else line_style
+        style = (
+            changed_style
+            if changed_tokens is None or index in changed_tokens
+            else line_style
+        )
         text.append(token, style=style)
     console.print(text, end="", soft_wrap=True)
 
