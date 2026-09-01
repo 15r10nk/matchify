@@ -1,7 +1,7 @@
 - id: matchify
   name: matchify
   description: Convert eligible if/elif chains to match statements.
-  entry: matchify
+  entry: matchify --write
   language: python
   types: [python]
 - id: matchify-check
