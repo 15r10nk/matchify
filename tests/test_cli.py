@@ -6,11 +6,10 @@ from importlib import import_module
 from io import StringIO
 from textwrap import dedent
 
-import pytest
-from rich.console import Console
-
 import libcst as cst
+import pytest
 from libcst.metadata import CodePosition, CodeRange
+from rich.console import Console
 
 from matchify.assumptions import Assumptions
 from matchify.cli import _print_location_heading, convert_file, main, report_diff
@@ -705,7 +704,9 @@ class TestMain:
         assert "Additional conversions" not in output
         assert "0 would convert" in output
 
-    def test_main_show_with_syntax_error_still_reports_processing(self, capsys, tmp_path):
+    def test_main_show_with_syntax_error_still_reports_processing(
+        self, capsys, tmp_path
+    ):
         test_file = tmp_path / "test.py"
         test_file.write_text("if x == :\n    print('broken')", encoding="utf-8")
 
