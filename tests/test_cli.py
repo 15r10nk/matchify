@@ -9,8 +9,12 @@ from textwrap import dedent
 import pytest
 from rich.console import Console
 
+import libcst as cst
+from libcst.metadata import CodePosition, CodeRange
+
 from matchify.assumptions import Assumptions
 from matchify.cli import _print_location_heading, convert_file, main, report_diff
+from matchify.transform import _ChainPreviewVisitor
 
 
 class TestConvertFile:
@@ -47,6 +51,45 @@ class TestConvertFile:
         )
 
         assert output.getvalue() == ""
+
+    def test_report_diff_skips_identical_snippets(self, monkeypatch):
+        output = StringIO()
+        monkeypatch.setattr(
+            "matchify.cli.console",
+            Console(file=output, force_terminal=False, color_system=None),
+        )
+
+        report_diff("same\n", "same\n", start_line=1)
+
+        assert output.getvalue() == ""
+
+    def test_report_diff_prints_deleted_and_inserted_lines(self, monkeypatch):
+        output = StringIO()
+        monkeypatch.setattr(
+            "matchify.cli.console",
+            Console(file=output, force_terminal=False, color_system=None),
+        )
+
+        report_diff("keep\nremoved\n", "keep\n", start_line=4)
+        report_diff("keep\n", "keep\ninserted\n", start_line=8)
+
+        rendered = output.getvalue()
+        assert "5 -removed" in rendered
+        assert "9 +inserted" in rendered
+
+    def test_report_diff_prints_unpaired_removed_replace_lines(self, monkeypatch):
+        output = StringIO()
+        monkeypatch.setattr(
+            "matchify.cli.console",
+            Console(file=output, force_terminal=False, color_system=None),
+        )
+
+        report_diff("alpha\nbeta extra\n", "omega\n", start_line=1)
+
+        rendered = output.getvalue()
+        assert "1 -alpha" in rendered
+        assert "2 -beta extra" in rendered
+        assert "1 +omega" in rendered
 
     def test_location_heading_uses_color(self, monkeypatch):
         output = StringIO()
@@ -304,6 +347,25 @@ class TestMain:
         assert "Would convert:" not in output
         assert "Wrote changes to 1 file(s)" in output
 
+    def test_main_interactively_declines_writing(self, capsys, tmp_path, monkeypatch):
+        test_file = tmp_path / "test.py"
+        source = "if x == 1:\n    pass\nelif x == 2:\n    pass\n"
+        test_file.write_text(source, encoding="utf-8")
+        monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+        monkeypatch.setattr("builtins.input", lambda prompt: "n")
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", str(test_file)]
+            main()
+        finally:
+            sys.argv = original_argv
+
+        assert test_file.read_text(encoding="utf-8") == source
+        output = capsys.readouterr().out
+        assert "Wrote changes" not in output
+        assert "1 would convert" in output
+
     def test_main_rejects_write_and_check_together(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
         test_file.write_text("print('x')", encoding="utf-8")
@@ -534,6 +596,151 @@ class TestMain:
         assert "Additional conversions require --assume use-object:" in output
         assert "1 +match value:" in output
         assert "+++" not in output
+
+    def test_main_show_all_previews_multiple_gated_conversions(self, capsys, tmp_path):
+        test_file = tmp_path / "test.py"
+        source = dedent(
+            """
+            if first.i == 5:
+                print("i")
+            elif first.j == 6:
+                print("j")
+
+            if second.i == 7:
+                print("k")
+            elif second.j == 8:
+                print("l")
+            """
+        ).strip()
+        test_file.write_text(source, encoding="utf-8")
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", "--show-all", "--check", str(test_file)]
+            main()
+        finally:
+            sys.argv = original_argv
+
+        output = capsys.readouterr().out
+        assert f"{test_file}:1" in output
+        assert f"{test_file}:6" in output
+        assert "Additional conversions require --assume use-object:" in output
+
+    def test_main_show_all_keeps_eligible_and_gated_conversions_apart(
+        self, capsys, tmp_path
+    ):
+        test_file = tmp_path / "test.py"
+        source = dedent(
+            """
+            if x == 1:
+                print("one")
+            elif x == 2:
+                print("two")
+
+            if value.i == 5:
+                print("i")
+            elif value.j == 6:
+                print("j")
+            """
+        ).strip()
+        test_file.write_text(source, encoding="utf-8")
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", "--show-all", "--check", str(test_file)]
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+        finally:
+            sys.argv = original_argv
+
+        assert exc_info.value.code == 1
+        output = capsys.readouterr().out
+        assert "1 +match x:" in output
+        assert "Additional conversions require --assume use-object:" in output
+        assert "+match value:" in output
+
+    def test_main_show_skips_ineligible_chains(self, capsys, tmp_path):
+        test_file = tmp_path / "test.py"
+        source = dedent(
+            """
+            if x > 1:
+                print("big")
+            elif x > 2:
+                print("bigger")
+            """
+        ).strip()
+        test_file.write_text(source, encoding="utf-8")
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", "--show", "--check", str(test_file)]
+            main()
+        finally:
+            sys.argv = original_argv
+
+        output = capsys.readouterr().out
+        assert "+match" not in output
+        assert "0 would convert" in output
+
+    def test_main_show_all_skips_chains_that_stay_ineligible(self, capsys, tmp_path):
+        test_file = tmp_path / "test.py"
+        source = dedent(
+            """
+            if x == {1}:
+                print("one")
+            elif x == {2}:
+                print("two")
+            """
+        ).strip()
+        test_file.write_text(source, encoding="utf-8")
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", "--show-all", "--check", str(test_file)]
+            main()
+        finally:
+            sys.argv = original_argv
+
+        output = capsys.readouterr().out
+        assert "Additional conversions" not in output
+        assert "0 would convert" in output
+
+    def test_main_show_with_syntax_error_still_reports_processing(self, capsys, tmp_path):
+        test_file = tmp_path / "test.py"
+        test_file.write_text("if x == :\n    print('broken')", encoding="utf-8")
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", "--show", "--check", str(test_file)]
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+        finally:
+            sys.argv = original_argv
+
+        assert exc_info.value.code == 1
+        output = capsys.readouterr().out
+        assert "Error processing" in output
+
+    def test_preview_indent_fallback_for_unknown_positions(self):
+        module = cst.parse_module("x = 1\n")
+        visitor = _ChainPreviewVisitor(
+            module,
+            "x = 1\n",
+            ignore_types_pattern=None,
+            assumptions=Assumptions.from_names(),
+            include_gated=False,
+        )
+        missing = CodeRange(
+            start=CodePosition(line=0, column=0),
+            end=CodePosition(line=0, column=0),
+        )
+        too_far = CodeRange(
+            start=CodePosition(line=99, column=0),
+            end=CodePosition(line=99, column=0),
+        )
+
+        assert visitor._indent_for(missing) == ""
+        assert visitor._indent_for(too_far) == ""
 
     def test_main_check_with_error_exits_one(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"

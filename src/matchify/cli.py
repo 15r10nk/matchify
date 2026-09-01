@@ -17,7 +17,7 @@ from .assumptions import (
     Assumptions,
     parse_assumption_names,
 )
-from .transform import collect_chain_previews, transform_code
+from .transform import ChainPreview, collect_chain_previews, transform_code
 
 console = Console()
 
@@ -317,17 +317,16 @@ def report_previews(
     if not show_all:
         return
 
-    gated = [preview for preview in previews if preview.extra_assumptions]
-    for required in sorted({item.extra_assumptions for item in gated}, key=sorted):
+    gated: dict[frozenset[str], list[ChainPreview]] = {}
+    for preview in previews:
+        if preview.extra_assumptions:
+            gated.setdefault(preview.extra_assumptions, []).append(preview)
+    for required in sorted(gated, key=sorted):
         names = ",".join(sorted(required))
         print(f"\nAdditional conversions require --assume {names}:")
-        first_gated = True
-        for preview in gated:
-            if preview.extra_assumptions != required:
-                continue
-            if not first_gated:
+        for index, preview in enumerate(gated[required]):
+            if index:
                 print()
-            first_gated = False
             _print_location_heading(path, preview.line)
             report_diff(
                 preview.before,

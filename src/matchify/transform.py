@@ -227,7 +227,7 @@ class _ChainPreviewVisitor(cst.CSTVisitor):
                 ),
             )
             chain = compiler.extract_chain(node)
-            if chain is None:
+            if chain is None:  # pragma: no cover
                 return True
 
         position = self.get_metadata(
