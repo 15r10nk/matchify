@@ -286,19 +286,22 @@ def report_previews(
     ignore_types_pattern: str | None,
     assumptions: Assumptions,
     show_all: bool,
-) -> None:
+) -> int:
     """Show conversions without changing *path*.
 
     Each if/elif conversion is printed as its own diff under ``<file>:<line>``.
     ``--show-all`` also previews conversions unlocked by the minimal missing
     assumption set.
+
+    Returns the number of assumption-gated conversions. Those diffs are printed
+    only when ``show_all`` is true.
     """
     source = path.read_text(encoding="utf-8")
     previews = collect_chain_previews(
         source,
         ignore_types_pattern=ignore_types_pattern,
         assumptions=assumptions,
-        include_gated=show_all,
+        include_gated=True,
     )
     first = True
     for preview in previews:
@@ -314,13 +317,14 @@ def report_previews(
             start_line=preview.line,
         )
 
-    if not show_all:
-        return
-
     gated: dict[frozenset[str], list[ChainPreview]] = {}
     for preview in previews:
         if preview.extra_assumptions:
             gated.setdefault(preview.extra_assumptions, []).append(preview)
+    gated_count = sum(len(group) for group in gated.values())
+    if not show_all:
+        return gated_count
+
     for required in sorted(gated, key=sorted):
         names = ",".join(sorted(required))
         print(f"\nAdditional conversions require --assume {names}:")
@@ -333,6 +337,19 @@ def report_previews(
                 preview.after,
                 start_line=preview.line,
             )
+    return gated_count
+
+
+def report_hidden_conversions(count: int) -> None:
+    """Tell ``--show`` users about gated conversions they can preview."""
+    if not count:
+        return
+    noun = "conversion" if count == 1 else "conversions"
+    view = "it" if count == 1 else "them"
+    print(
+        f"{count} {noun} not shown because of missing --assume. "
+        f"View {view} with --show-all."
+    )
 
 
 def report_result(
@@ -454,10 +471,11 @@ def main() -> None:
     dry_run = args.check or interactive
     showing = args.show or args.show_all
 
+    hidden_count = 0
     if args.show or args.show_all:
         for path in python_files:
             try:
-                report_previews(
+                hidden_count += report_previews(
                     path,
                     ignore_types_pattern=args.no_types,
                     assumptions=assumptions,
@@ -507,6 +525,8 @@ def main() -> None:
         f"\nSummary: {converted_count} {changed_label}, "
         f"{unchanged_count} unchanged, {error_count} errors"
     )
+    if args.show and not args.show_all:
+        report_hidden_conversions(hidden_count)
     if interactive and converted_count and not error_count:
         answer = input("Write these changes? [y/N] ")
         if answer.strip().lower() in {"y", "yes"}:

@@ -268,7 +268,9 @@ prints the file location and the required `--assume` value instead of converting
 that chain.
 
 Use `--show` to review the currently eligible conversions as diffs.
-Combine it with `--check` to review without writing files. `--show-all` additionally
+Combine it with `--check` to review without writing files. `--show` also reports
+how many conversions were not shown because they need a missing `--assume` value
+and points you to `--show-all` to preview them. `--show-all` additionally
 prints the required `--assume` value and a separate diff for each group of
 conversions unlocked by that assumption.
 

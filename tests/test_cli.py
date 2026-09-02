@@ -13,7 +13,7 @@ from rich.console import Console
 
 from matchify.assumptions import Assumptions
 from matchify.cli import _print_location_heading, convert_file, main, report_diff
-from matchify.transform import _ChainPreviewVisitor
+from matchify.transform import _ChainPreviewVisitor, collect_chain_previews
 
 
 class TestConvertFile:
@@ -568,6 +568,7 @@ class TestMain:
         output = capsys.readouterr().out
         assert "+match x:" in output
         assert "Would convert:" not in output
+        assert "not shown" not in output
 
     def test_main_show_all_previews_assumption_gated_conversion(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
@@ -595,6 +596,7 @@ class TestMain:
         assert "Additional conversions require --assume use-object:" in output
         assert "1 +match value:" in output
         assert "+++" not in output
+        assert "not shown" not in output
 
     def test_main_show_all_previews_multiple_gated_conversions(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
@@ -680,6 +682,79 @@ class TestMain:
         output = capsys.readouterr().out
         assert "+match" not in output
         assert "0 would convert" in output
+        assert "not shown" not in output
+
+    def test_main_show_reports_one_hidden_assumption_gated_conversion(
+        self, capsys, tmp_path
+    ):
+        test_file = tmp_path / "test.py"
+        source = dedent(
+            """
+            if value.i == 5:
+                print("i")
+            elif value.j == 6:
+                print("j")
+            """
+        ).strip()
+        test_file.write_text(source, encoding="utf-8")
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", "--show", "--check", str(test_file)]
+            main()
+        finally:
+            sys.argv = original_argv
+
+        output = capsys.readouterr().out
+        assert "+match" not in output
+        assert "Additional conversions require" not in output
+        assert (
+            "1 conversion not shown because of missing --assume. "
+            "View it with --show-all."
+        ) in output
+        assert "0 would convert" in output
+
+    def test_main_show_reports_count_of_hidden_gated_conversions(
+        self, capsys, tmp_path
+    ):
+        test_file = tmp_path / "test.py"
+        source = dedent(
+            """
+            if x == 1:
+                print("one")
+            elif x == 2:
+                print("two")
+
+            if first.i == 5:
+                print("i")
+            elif first.j == 6:
+                print("j")
+
+            if second.i == 7:
+                print("k")
+            elif second.j == 8:
+                print("l")
+            """
+        ).strip()
+        test_file.write_text(source, encoding="utf-8")
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", "--show", "--check", str(test_file)]
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+        finally:
+            sys.argv = original_argv
+
+        assert exc_info.value.code == 1
+        output = capsys.readouterr().out
+        assert "+match x:" in output
+        assert "+match first:" not in output
+        assert "+match second:" not in output
+        assert (
+            "2 conversions not shown because of missing --assume. "
+            "View them with --show-all."
+        ) in output
 
     def test_main_show_all_skips_chains_that_stay_ineligible(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
@@ -742,6 +817,31 @@ class TestMain:
 
         assert visitor._indent_for(missing) == ""
         assert visitor._indent_for(too_far) == ""
+
+    def test_collect_chain_previews_omits_gated_unless_requested(self):
+        source = dedent(
+            """
+            if value.i == 5:
+                print("i")
+            elif value.j == 6:
+                print("j")
+            """
+        ).strip()
+
+        hidden = collect_chain_previews(
+            source,
+            assumptions=Assumptions.from_names(),
+            include_gated=False,
+        )
+        shown = collect_chain_previews(
+            source,
+            assumptions=Assumptions.from_names(),
+            include_gated=True,
+        )
+
+        assert hidden == []
+        assert len(shown) == 1
+        assert shown[0].extra_assumptions == frozenset({"use-object"})
 
     def test_main_check_with_error_exits_one(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
