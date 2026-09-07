@@ -6,45 +6,39 @@ from matchify import Assumptions, transform_code
 
 
 def test_rejects_dynamic_and_non_string_hasattr_names():
-    source = dedent(
-        r"""
+    source = dedent(r"""
         value = object()
         name = "field"
         if hasattr(value, name):
             result = "dynamic"
         elif hasattr(value, b"field"):
             result = "bytes"
-        """
-    ).strip()
+        """).strip()
 
     assert transform_code(source) == source
 
 
 def test_rejects_non_literal_and_starred_membership_containers():
-    source = dedent(
-        """
+    source = dedent("""
         values = (1, 2)
         value = 1
         if value in values:
             result = "dynamic"
         elif value in (*values,):
             result = "starred"
-        """
-    ).strip()
+        """).strip()
 
     assert transform_code(source) == source
 
 
 def test_single_literal_membership_becomes_a_value_pattern():
-    source = dedent(
-        """
+    source = dedent("""
         value = 1
         if value in (1,):
             result = "one"
         elif value in (2,):
             result = "two"
-        """
-    ).strip()
+        """).strip()
 
     transformed = transform_code(source)
 
@@ -54,36 +48,31 @@ def test_single_literal_membership_becomes_a_value_pattern():
 
 
 def test_rejects_unsafe_equality_on_a_selected_subject():
-    source = dedent(
-        """
+    source = dedent("""
         value = 1
         if value == 1 and value == factory():
             result = "first"
         elif value == 2 and value == factory():
             result = "second"
-        """
-    ).strip()
+        """).strip()
 
     assert transform_code(source) == source
 
 
 def test_rejects_unsafe_identity_on_a_selected_subject():
-    source = dedent(
-        """
+    source = dedent("""
         value = 1
         if value == 1 and value is marker:
             result = "first"
         elif value == 2 and value is marker:
             result = "second"
-        """
-    ).strip()
+        """).strip()
 
     assert transform_code(source) == source
 
 
 def test_conflicting_value_facts_fall_back_to_a_guard():
-    source = dedent(
-        """
+    source = dedent("""
         value = 1
         if value == 1 and value == 2:
             result = "impossible"
@@ -91,22 +80,19 @@ def test_conflicting_value_facts_fall_back_to_a_guard():
             result = "three"
         else:
             result = "other"
-        """
-    ).strip()
+        """).strip()
 
     assert transform_code(source) == source
 
 
 def test_subscript_or_expression_does_not_hide_a_later_value_subject():
-    source = dedent(
-        """
+    source = dedent("""
         value = 3
         if (value[0] == 1 or value[1] == 2) and value == 3:
             result = "three"
         elif value == 4:
             result = "four"
-        """
-    ).strip()
+        """).strip()
 
     transformed = transform_code(source)
 
@@ -115,27 +101,23 @@ def test_subscript_or_expression_does_not_hide_a_later_value_subject():
 
 
 def test_incompatible_class_and_subscript_facts_are_rejected():
-    source = dedent(
-        """
+    source = dedent("""
         if isinstance(value, First) and value[0] == 1:
             result = "first"
         elif isinstance(value, Second) and value[0] == 2:
             result = "second"
-        """
-    ).strip()
+        """).strip()
 
     assert transform_code(source) == source
 
 
 def test_sequence_type_guards_can_be_assumed_for_or_patterns():
-    source = dedent(
-        """
+    source = dedent("""
         if (isinstance(value, (list, tuple)) and len(value) == 1) or (isinstance(value, (list, tuple)) and len(value) == 2):
             result = "sequence"
         elif value is None:
             result = "none"
-        """
-    ).strip()
+        """).strip()
 
     transformed = transform_code(
         source,
@@ -149,14 +131,12 @@ def test_sequence_type_guards_can_be_assumed_for_or_patterns():
 
 
 def test_list_and_tuple_type_guards_are_kept_for_sequence_patterns():
-    source = dedent(
-        """
+    source = dedent("""
         if isinstance(value, list) and len(value) == 1:
             result = "list"
         elif isinstance(value, tuple) and len(value) == 2:
             result = "tuple"
-        """
-    ).strip()
+        """).strip()
 
     transformed = transform_code(source)
 
@@ -165,14 +145,12 @@ def test_list_and_tuple_type_guards_are_kept_for_sequence_patterns():
 
 
 def test_qualified_sequence_type_checks_remain_guards():
-    source = dedent(
-        """
+    source = dedent("""
         if isinstance(value, (list, types.TupleType)) and len(value) == 1:
             result = "sequence"
         elif value is None:
             result = "none"
-        """
-    ).strip()
+        """).strip()
 
     transformed = transform_code(source)
 
@@ -180,16 +158,14 @@ def test_qualified_sequence_type_checks_remain_guards():
 
 
 def test_sequence_type_guard_preserves_runtime_for_other_sequence_types():
-    source = dedent(
-        """
+    source = dedent("""
         value = range(1)
         result = "other"
         if isinstance(value, (list, tuple)) and len(value) == 1:
             result = "sequence"
         elif value is None:
             result = "none"
-        """
-    ).strip()
+        """).strip()
     transformed = transform_code(source)
     original_namespace = {}
     transformed_namespace = {}
@@ -202,14 +178,12 @@ def test_sequence_type_guard_preserves_runtime_for_other_sequence_types():
 
 
 def test_or_alternatives_with_different_guards_fall_back_to_a_guard():
-    source = dedent(
-        """
+    source = dedent("""
         if (value == 1 and first_flag) or (value == 2 and second_flag):
             result = "flagged"
         elif value == 3:
             result = "three"
-        """
-    ).strip()
+        """).strip()
 
     transformed = transform_code(source)
 
@@ -220,14 +194,12 @@ def test_or_alternatives_with_different_guards_fall_back_to_a_guard():
 
 
 def test_nested_or_fact_with_a_shared_guard_is_rendered():
-    source = dedent(
-        """
+    source = dedent("""
         if ((value == 1 or value == 2) and enabled) or (value == 3 and enabled):
             result = "enabled"
         elif value == 4:
             result = "four"
-        """
-    ).strip()
+        """).strip()
 
     transformed = transform_code(source)
 
@@ -235,15 +207,13 @@ def test_nested_or_fact_with_a_shared_guard_is_rendered():
 
 
 def test_capture_stays_in_body_when_class_attribute_is_not_patterned():
-    source = dedent(
-        """
+    source = dedent("""
         if isinstance(value, First):
             item = value.items[0]
             result = item
         elif isinstance(value, Second):
             result = "second"
-        """
-    ).strip()
+        """).strip()
 
     transformed = transform_code(source)
 
@@ -252,15 +222,13 @@ def test_capture_stays_in_body_when_class_attribute_is_not_patterned():
 
 
 def test_capture_stays_in_body_for_an_incompatible_attribute_parent():
-    source = dedent(
-        """
+    source = dedent("""
         if len(value) == 1 and value[0] == 1:
             item = value.items[0]
             result = item
         elif value is None:
             result = "none"
-        """
-    ).strip()
+        """).strip()
 
     transformed = transform_code(source)
 
@@ -269,15 +237,13 @@ def test_capture_stays_in_body_for_an_incompatible_attribute_parent():
 
 
 def test_nested_capture_stays_in_body_when_the_child_is_not_a_sequence():
-    source = dedent(
-        """
+    source = dedent("""
         if isinstance(value, First) and value.items == 1:
             item = value.items[0]
             result = item
         elif isinstance(value, Second) and value.items == 2:
             result = "second"
-        """
-    ).strip()
+        """).strip()
 
     transformed = transform_code(source)
 
@@ -286,15 +252,13 @@ def test_nested_capture_stays_in_body_when_the_child_is_not_a_sequence():
 
 
 def test_deep_capture_stays_in_body_when_intermediate_element_is_missing():
-    source = dedent(
-        """
+    source = dedent("""
         if len(value) == 2 and value[1] == 1:
             item = value[0][0]
             result = item
         elif value is None:
             result = "none"
-        """
-    ).strip()
+        """).strip()
 
     transformed = transform_code(source)
 
@@ -303,15 +267,13 @@ def test_deep_capture_stays_in_body_when_intermediate_element_is_missing():
 
 
 def test_capture_stays_in_body_when_only_one_or_alternative_can_bind():
-    source = dedent(
-        """
+    source = dedent("""
         if (len(value) == 2 and value[1] == 1) or value == 0:
             item = value[0]
             result = item
         elif value is None:
             result = "none"
-        """
-    ).strip()
+        """).strip()
 
     transformed = transform_code(source)
 
@@ -320,15 +282,13 @@ def test_capture_stays_in_body_when_only_one_or_alternative_can_bind():
 
 
 def test_accepts_deeply_qualified_class_patterns():
-    source = dedent(
-        """
+    source = dedent("""
         value = None
         if isinstance(value, package.models.First):
             result = "first"
         elif isinstance(value, package.models.Second):
             result = "second"
-        """
-    ).strip()
+        """).strip()
 
     transformed = transform_code(source)
 
@@ -338,8 +298,7 @@ def test_accepts_deeply_qualified_class_patterns():
 
 
 def test_duplicate_capture_with_multiple_remaining_statements():
-    source = dedent(
-        """
+    source = dedent("""
         value = [1, 2]
         if len(value) == 2 and value[1] == 2:
             first = value[0]
@@ -348,8 +307,7 @@ def test_duplicate_capture_with_multiple_remaining_statements():
             print(result)
         elif value is None:
             result = "none"
-        """
-    ).strip()
+        """).strip()
 
     transformed = transform_code(source)
 
