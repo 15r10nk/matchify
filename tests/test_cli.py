@@ -588,7 +588,7 @@ class TestMain:
         assert exc_info.value.code == 2
         assert "--convert-if may only be specified once" in capsys.readouterr().err
 
-    def test_main_default_skips_simple_two_branch_chain(self, capsys, tmp_path):
+    def test_main_default_converts_simple_two_branch_chain(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
         source = dedent(
             """
@@ -607,8 +607,8 @@ class TestMain:
         finally:
             sys.argv = original_argv
 
-        assert test_file.read_text(encoding="utf-8") == source
-        assert "0 converted, 1 unchanged, 0 errors" in capsys.readouterr().out
+        assert "match value:" in test_file.read_text(encoding="utf-8")
+        assert "1 converted, 0 unchanged, 0 errors" in capsys.readouterr().out
 
     def test_main_all_converts_simple_two_branch_chain(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"

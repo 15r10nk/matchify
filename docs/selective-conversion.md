@@ -3,16 +3,16 @@
 Some projects prefer `match` statements only when a conversion is sufficiently
 complex or removes enough repetition. `--convert-if` filters otherwise eligible
 `if`/`elif` conversions using metrics from the source chain and the proposed
-generated result. Without an explicit option, Matchify uses this filter:
+generated result. Without an explicit option, Matchify uses this filter and
+therefore converts every eligible chain:
 
 ```text
-branches >= 3 or isinstance_checks or attribute_checks or sequence_checks
+True
 ```
 
-This keeps conversions with three or more branches and structurally useful
-two-branch conversions, while leaving simple two-branch literal chains alone.
-Use `--all` to convert every eligible chain; it is shorthand for
-`--convert-if True`.
+`--all` is an explicit shorthand for `--convert-if True` and has the same
+behavior as the default. Use `--convert-if` to restrict conversions to chains
+that meet a project-specific threshold.
 
 For example, convert chains that contain at least two `isinstance` checks or at
 least four branches:
@@ -51,6 +51,67 @@ Expressions are parsed as a restricted syntax tree and are never passed to
 `eval()`. Function calls, attribute access, subscripts, other arithmetic
 operators, strings, and unknown variables are rejected before any files are
 processed.
+
+## Useful filters to try
+
+There is no universally best filter: the useful threshold depends on how often
+your project wants to use `match`. These expressions are practical starting
+points.
+
+Convert only chains with at least three branches:
+
+```bash
+matchify path/to/project/ --convert-if "branches >= 3"
+```
+
+Prefer conversions that produce repeated class or sequence structure:
+
+```bash
+matchify path/to/project/ \
+  --convert-if "class_patterns >= 2 or sequence_patterns >= 2"
+```
+
+Require the generated patterns to remove more structure than remains in
+guards:
+
+```bash
+matchify path/to/project/ \
+  --convert-if "pattern_nodes - guard_conditions >= 4"
+```
+
+Avoid conversions that retain any guards:
+
+```bash
+matchify path/to/project/ --convert-if "guarded_cases == 0"
+```
+
+Prefer conversions that combine several alternatives into OR patterns:
+
+```bash
+matchify path/to/project/ --convert-if "or_alternatives >= 3"
+```
+
+Limit generated nesting while still requiring multiple meaningful cases:
+
+```bash
+matchify path/to/project/ \
+  --convert-if "patterns >= 2 and max_pattern_depth <= 3"
+```
+
+Focus on conversions that bind values directly through capture patterns:
+
+```bash
+matchify path/to/project/ --convert-if "captures > 0"
+```
+
+Rules can be combined to express a project-specific style. For example, this
+accepts larger flat chains as well as compact class-pattern conversions, but
+rejects cases with guards:
+
+```bash
+matchify path/to/project/ \
+  --convert-if "guarded_cases == 0 and (branches >= 4 or class_patterns >= 2)"
+```
 
 ## Source metrics
 
@@ -224,6 +285,143 @@ match value:
         handle_two()
     case _:
         handle_other()
+```
+
+### `pattern_nodes`
+
+The total number of generated pattern nodes, including nested patterns,
+captures, and wildcards. Starred sequence elements and mapping-rest bindings do
+not count because they are not pattern nodes. This example has
+`pattern_nodes == 3`:
+
+```python
+# Before
+if value == 1:
+    handle_one()
+elif value == 2:
+    handle_two()
+else:
+    handle_other()
+
+# After: matchify --convert-if "pattern_nodes == 3"
+match value:
+    case 1:
+        handle_one()
+    case 2:
+        handle_two()
+    case _:
+        handle_other()
+```
+
+### `class_patterns`
+
+The number of generated class pattern nodes, including nested ones. This
+example has `class_patterns == 2`:
+
+```python
+# Before
+if isinstance(value, str):
+    handle_text()
+elif isinstance(value, int):
+    handle_number()
+
+# After: matchify --convert-if "class_patterns == 2"
+match value:
+    case str():
+        handle_text()
+    case int():
+        handle_number()
+```
+
+### `sequence_patterns`
+
+The number of generated list, tuple, or open sequence pattern nodes, including
+nested sequences. This example has `sequence_patterns == 2`:
+
+```python
+# Before
+if len(data) == 2 and data[0] == "x":
+    handle_x()
+elif len(data) == 2 and data[0] == "y":
+    handle_y()
+
+# After: matchify --convert-if "sequence_patterns == 2"
+match data:
+    case "x", _:
+        handle_x()
+    case "y", _:
+        handle_y()
+```
+
+### `or_alternatives`
+
+The total number of direct alternatives across all generated OR patterns.
+Nested OR patterns contribute their alternatives separately. This example has
+`or_alternatives == 3`:
+
+```python
+# Before
+if value in (1, 2, 3):
+    handle_small()
+elif value == 4:
+    handle_four()
+
+# After: matchify --convert-if "or_alternatives == 3"
+match value:
+    case 1 | 2 | 3:
+        handle_small()
+    case 4:
+        handle_four()
+```
+
+### `max_pattern_depth`
+
+The greatest structural nesting depth in any generated case pattern. A simple
+value, singleton, capture, or class pattern has depth 1. Each enclosing class,
+sequence, mapping, OR, or `as` pattern adds one level. A wildcard `case _` has
+depth 0. This example has `max_pattern_depth == 3`:
+
+```python
+# Before
+if (
+    isinstance(node, Point)
+    and isinstance(node.position, Position)
+    and node.position.x == 1
+):
+    handle_one()
+elif (
+    isinstance(node, Point)
+    and isinstance(node.position, Position)
+    and node.position.x == 2
+):
+    handle_two()
+
+# After: matchify --convert-if "max_pattern_depth == 3"
+match node:
+    case Point(position=Position(x=1)):
+        handle_one()
+    case Point(position=Position(x=2)):
+        handle_two()
+```
+
+### `guarded_cases`
+
+The number of generated cases that have a guard, regardless of how many
+conditions each guard contains. This example has `guarded_cases == 2`:
+
+```python
+# Before
+if value == 1 and enabled and ready:
+    handle_one()
+elif value == 2 and enabled and ready:
+    handle_two()
+
+# After: matchify --convert-if "guarded_cases == 2"
+match value:
+    case 1 if enabled and ready:
+        handle_one()
+    case 2 if enabled and ready:
+        handle_two()
 ```
 
 ### `guard_conditions`

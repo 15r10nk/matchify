@@ -1,9 +1,14 @@
 from textwrap import dedent
 
+import libcst as cst
 import pytest
 
 from matchify.assumptions import Assumptions
-from matchify.conversion_filter import ConversionFilter, ConversionMetrics
+from matchify.conversion_filter import (
+    ConversionFilter,
+    ConversionMetrics,
+    with_generated_metrics,
+)
 from matchify.transform import transform_code
 
 
@@ -90,7 +95,10 @@ def test_filter_can_select_using_all_source_and_result_metrics():
     expression = (
         "branches == 2 and isinstance_checks == 2 and literal_checks == 2 "
         "and attribute_checks == 2 and sequence_checks == 0 and max_depth == 1 "
-        "and patterns == 2 and guard_conditions == 0 and captures == 0"
+        "and patterns == 2 and pattern_nodes == 4 and class_patterns == 2 "
+        "and sequence_patterns == 0 and or_alternatives == 0 "
+        "and max_pattern_depth == 2 and guarded_cases == 0 "
+        "and guard_conditions == 0 and captures == 0"
     )
 
     assert "match value:" in transform_code(source, convert_if=expression)
@@ -116,6 +124,53 @@ def test_filter_counts_sequence_checks_guards_and_captures():
 
     assert "match data:" in transformed
     assert "case 1, result if enabled and ready:" in transformed
+
+
+def test_filter_counts_maximum_generated_pattern_depth():
+    source = dedent(
+        """
+        if isinstance(node, Point) and isinstance(node.position, Position) and node.position.x == 1:
+            print("one")
+        elif isinstance(node, Point) and isinstance(node.position, Position) and node.position.x == 2:
+            print("two")
+        """
+    ).strip()
+
+    assert "match node:" in transform_code(source, convert_if="max_pattern_depth == 3")
+    assert transform_code(source, convert_if="max_pattern_depth < 3") == source
+
+
+def test_maximum_pattern_depth_covers_all_pattern_containers():
+    module = cst.parse_module(
+        dedent(
+            """
+            match value:
+                case Point(position=Position(x=1)) if enabled:
+                    pass
+                case [1 | 2, {"key": captured}] as whole:
+                    pass
+                case [1, *rest]:
+                    pass
+                case {"key": 1, **remaining}:
+                    pass
+                case Wrapper(Point()):
+                    pass
+                case _:
+                    pass
+            """
+        )
+    )
+    match_statement = module.body[0]
+    assert isinstance(match_statement, cst.Match)
+
+    metrics = with_generated_metrics(ConversionMetrics(), match_statement)
+
+    assert metrics.max_pattern_depth == 4
+    assert metrics.pattern_nodes == 17
+    assert metrics.class_patterns == 4
+    assert metrics.sequence_patterns == 2
+    assert metrics.or_alternatives == 2
+    assert metrics.guarded_cases == 1
 
 
 def test_filter_runs_after_assumption_resolution():

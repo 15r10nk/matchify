@@ -262,11 +262,10 @@ for the semantic tradeoffs and individual `--assume` names.
 
 ## Selective conversion with `--convert-if`
 
-By default, Matchify converts structurally useful chains and leaves simple
-two-branch literal chains unchanged. The default filter is:
+By default, Matchify converts every eligible chain. This is equivalent to:
 
 ```text
-branches >= 3 or isinstance_checks or attribute_checks or sequence_checks
+--convert-if True
 ```
 
 Use `--convert-if` to choose a different threshold based on source and generated
@@ -276,7 +275,7 @@ metrics:
 matchify path/to/project/ --convert-if "branches >= 4 and guard_conditions == 0"
 ```
 
-Use `--all` to convert every eligible chain. See the
+Use `--all` as an explicit shorthand for the default `--convert-if True`. See the
 [selective conversion documentation](https://15r10nk.github.io/matchify/latest/selective-conversion/)
 for the expression syntax and complete metric reference.
 
