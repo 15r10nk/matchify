@@ -20,9 +20,7 @@ from .conditions import (
     ValuePredicate,
 )
 
-DEFAULT_CONVERSION_FILTER = (
-    "branches >= 3 or isinstance_checks or attribute_checks or sequence_checks"
-)
+DEFAULT_CONVERSION_FILTER = "True"
 
 
 @dataclass(frozen=True)
@@ -36,6 +34,12 @@ class ConversionMetrics:
     sequence_checks: int = 0
     max_depth: int = 0
     patterns: int = 0
+    pattern_nodes: int = 0
+    class_patterns: int = 0
+    sequence_patterns: int = 0
+    or_alternatives: int = 0
+    max_pattern_depth: int = 0
+    guarded_cases: int = 0
     guard_conditions: int = 0
     captures: int = 0
 
@@ -106,9 +110,30 @@ def source_metrics(conditions: tuple[BoolExpr, ...]) -> ConversionMetrics:
 def with_generated_metrics(
     metrics: ConversionMetrics, match_statement: cst.Match
 ) -> ConversionMetrics:
+    pattern_nodes = tuple(
+        pattern
+        for case in match_statement.cases
+        for pattern in _walk_patterns(case.pattern)
+    )
     return replace(
         metrics,
         patterns=sum(not _is_wildcard(case.pattern) for case in match_statement.cases),
+        pattern_nodes=len(pattern_nodes),
+        class_patterns=sum(
+            isinstance(pattern, cst.MatchClass) for pattern in pattern_nodes
+        ),
+        sequence_patterns=sum(
+            isinstance(pattern, cst.MatchSequence) for pattern in pattern_nodes
+        ),
+        or_alternatives=sum(
+            len(pattern.patterns)
+            for pattern in pattern_nodes
+            if isinstance(pattern, cst.MatchOr)
+        ),
+        max_pattern_depth=max(
+            (_pattern_depth(case.pattern) for case in match_statement.cases), default=0
+        ),
+        guarded_cases=sum(case.guard is not None for case in match_statement.cases),
         guard_conditions=sum(
             len(tuple(_flatten_boolean_cst(case.guard)))
             for case in match_statement.cases
@@ -140,6 +165,56 @@ def _is_wildcard(pattern: cst.MatchPattern) -> bool:
         and pattern.pattern is None
         and pattern.name is None
     )
+
+
+def _walk_patterns(pattern: cst.MatchPattern):
+    yield pattern
+    if isinstance(pattern, cst.MatchClass):
+        for item in pattern.patterns:
+            yield from _walk_patterns(item.value)
+        for item in pattern.kwds:
+            yield from _walk_patterns(item.pattern)
+    elif isinstance(pattern, cst.MatchSequence):
+        for item in pattern.patterns:
+            if isinstance(item, cst.MatchSequenceElement):
+                yield from _walk_patterns(item.value)
+    elif isinstance(pattern, cst.MatchMapping):
+        for item in pattern.elements:
+            yield from _walk_patterns(item.pattern)
+    elif isinstance(pattern, cst.MatchOr):
+        for item in pattern.patterns:
+            yield from _walk_patterns(item.pattern)
+    elif isinstance(pattern, cst.MatchAs) and pattern.pattern is not None:
+        yield from _walk_patterns(pattern.pattern)
+
+
+def _pattern_depth(pattern: cst.MatchPattern) -> int:
+    if _is_wildcard(pattern):
+        return 0
+    if isinstance(pattern, cst.MatchClass):
+        children = [item.value for item in pattern.patterns]
+        children.extend(item.pattern for item in pattern.kwds)
+        return 1 + max((_pattern_depth(child) for child in children), default=0)
+    if isinstance(pattern, cst.MatchSequence):
+        children = (
+            (
+                _pattern_depth(item.value)
+                if isinstance(item, cst.MatchSequenceElement)
+                else 1
+            )
+            for item in pattern.patterns
+        )
+        return 1 + max(children, default=0)
+    if isinstance(pattern, cst.MatchMapping):
+        children = [_pattern_depth(item.pattern) for item in pattern.elements]
+        if pattern.rest is not None:
+            children.append(1)
+        return 1 + max(children, default=0)
+    if isinstance(pattern, cst.MatchOr):
+        return 1 + max(_pattern_depth(item.pattern) for item in pattern.patterns)
+    if isinstance(pattern, cst.MatchAs) and pattern.pattern is not None:
+        return 1 + _pattern_depth(pattern.pattern)
+    return 1
 
 
 def _validate_expression(tree: ast.Expression) -> None:
