@@ -1,15 +1,13 @@
 """Command-line and file processing helpers."""
 
 import argparse
-import difflib
 import pathlib
-import re
 import sys
 from concurrent.futures import ProcessPoolExecutor
 from functools import partial
+from typing import NamedTuple
 
-from rich.console import Console
-from rich.text import Text
+from libcst import ParserSyntaxError
 
 from .assumptions import (
     ALL_RISKY_ASSUMPTIONS,
@@ -17,21 +15,38 @@ from .assumptions import (
     Assumptions,
     parse_assumption_names,
 )
+from .diff import print_location_heading, report_diff
 from .transform import ChainPreview, collect_chain_previews, transform_code
 
-console = Console()
 
-WORD_TOKEN_RE = re.compile(r"\s+|\w+|[^\w\s]")
-# Mirrors textual-diff-view's $error/$success backgrounds: 10% for a changed
-# line and 30% for the more prominent inline change.
-REMOVED_LINE_STYLE = "on #421b24"
-REMOVED_WORD_STYLE = "bold on #792432"
-ADDED_LINE_STYLE = "on #183d2c"
-ADDED_WORD_STYLE = "bold on #1c6b43"
-LINE_NUMBER_STYLE = "dim"
-HEADING_PATH_STYLE = "bold bright_cyan"
-HEADING_SEPARATOR_STYLE = "bold bright_black"
-HEADING_LINE_STYLE = "bold bright_yellow"
+class ConvertResult(NamedTuple):
+    """Outcome of processing one Python file."""
+
+    path: pathlib.Path
+    changed: bool
+    error: str | None
+    text: str | None = None
+
+
+class CliMode(NamedTuple):
+    """Resolved CLI mode flags."""
+
+    write: bool
+    check: bool
+    show: bool
+    show_all: bool
+    interactive: bool
+    verbose: bool
+    jobs: int | None
+    no_types: str
+
+    @property
+    def dry_run(self) -> bool:
+        return not self.write
+
+    @property
+    def showing(self) -> bool:
+        return self.show or self.show_all
 
 
 def convert_file(
@@ -48,6 +63,26 @@ def convert_file(
     Returns:
         Tuple of (path, changed, error_message)
     """
+    result = _convert_file(
+        path,
+        ignore_types_pattern,
+        assumptions=assumptions,
+        assume_pure_subjects=assume_pure_subjects,
+        report_assumption_diagnostics=report_assumption_diagnostics,
+        check=check,
+    )
+    return result.path, result.changed, result.error
+
+
+def _convert_file(
+    path: pathlib.Path,
+    ignore_types_pattern: str | None = None,
+    *,
+    assumptions: Assumptions | None = None,
+    assume_pure_subjects: bool = False,
+    report_assumption_diagnostics: bool = False,
+    check: bool = False,
+) -> ConvertResult:
     try:
         source = path.read_text(encoding="utf-8")
         diagnostics: list[AssumptionDiagnostic] = []
@@ -64,10 +99,10 @@ def convert_file(
         if transformed_code != source:
             if not check:
                 path.write_text(transformed_code, encoding="utf-8")
-            return (path, True, None)
-        return (path, False, None)
+            return ConvertResult(path, True, None, transformed_code)
+        return ConvertResult(path, False, None)
     except Exception as e:
-        return (path, False, str(e))
+        return ConvertResult(path, False, str(e))
 
 
 def collect_python_files(paths: list[pathlib.Path]) -> list[pathlib.Path]:
@@ -106,180 +141,6 @@ def report_assumption_requirements(
         )
 
 
-def report_diff(before: str, after: str, *, start_line: int = 1) -> None:
-    """Print a conversion diff without unified-diff headers."""
-    if before == after:
-        return
-    before_lines = before.splitlines(keepends=True)
-    after_lines = after.splitlines(keepends=True)
-    matcher = difflib.SequenceMatcher(
-        None,
-        [line.lstrip() for line in before_lines],
-        [line.lstrip() for line in after_lines],
-    )
-    groups = list(matcher.get_grouped_opcodes())
-    if not groups:
-        return
-
-    width = len(str(start_line + max(len(before_lines), len(after_lines), 1) - 1))
-    for group_index, group in enumerate(groups):
-        if group_index:
-            _print_diff_control_line("...\n", style="dim")
-        for tag, old_start, old_end, new_start, new_end in group:
-            if tag == "equal":
-                for offset, line in enumerate(before_lines[old_start:old_end]):
-                    _print_equal_line(start_line + old_start + offset, width, line)
-            elif tag == "delete":
-                for offset, line in enumerate(before_lines[old_start:old_end]):
-                    _print_word_line(
-                        "-",
-                        line,
-                        REMOVED_LINE_STYLE,
-                        REMOVED_WORD_STYLE,
-                        line_no=start_line + old_start + offset,
-                        width=width,
-                    )
-            elif tag == "insert":
-                for offset, line in enumerate(after_lines[new_start:new_end]):
-                    _print_word_line(
-                        "+",
-                        line,
-                        ADDED_LINE_STYLE,
-                        ADDED_WORD_STYLE,
-                        line_no=start_line + new_start + offset,
-                        width=width,
-                    )
-            else:
-                _print_replaced_lines(
-                    before_lines[old_start:old_end],
-                    after_lines[new_start:new_end],
-                    old_start_line=start_line + old_start,
-                    new_start_line=start_line + new_start,
-                    width=width,
-                )
-
-
-def _print_location_heading(path: pathlib.Path, line: int) -> None:
-    text = Text()
-    text.append(str(path), style=HEADING_PATH_STYLE)
-    text.append(":", style=HEADING_SEPARATOR_STYLE)
-    text.append(str(line), style=HEADING_LINE_STYLE)
-    console.print(text, soft_wrap=True)
-
-
-def _print_diff_control_line(line: str, style: str | None = "bold cyan") -> None:
-    console.print(
-        line,
-        end="",
-        style=style,
-        markup=False,
-        highlight=False,
-        soft_wrap=True,
-    )
-
-
-def _print_equal_line(line_no: int, width: int, line: str) -> None:
-    text = _line_number_text(line_no, width)
-    text.append(f" {line}")
-    console.print(text, end="", highlight=False, soft_wrap=True)
-
-
-def _line_number_text(line_no: int, width: int) -> Text:
-    return Text(f"{line_no:>{width}} ", style=LINE_NUMBER_STYLE)
-
-
-def _print_replaced_lines(
-    old_lines: list[str],
-    new_lines: list[str],
-    *,
-    old_start_line: int,
-    new_start_line: int,
-    width: int,
-) -> None:
-    paired_count = min(len(old_lines), len(new_lines))
-    for offset, (old_line, new_line) in enumerate(
-        zip(old_lines[:paired_count], new_lines[:paired_count])
-    ):
-        old_tokens = WORD_TOKEN_RE.findall(old_line.lstrip())
-        new_tokens = WORD_TOKEN_RE.findall(new_line.lstrip())
-        token_matcher = difflib.SequenceMatcher(None, old_tokens, new_tokens)
-        old_changed = _changed_token_indexes(token_matcher.get_opcodes(), old=True)
-        new_changed = _changed_token_indexes(token_matcher.get_opcodes(), old=False)
-        _print_word_line(
-            "-",
-            old_line,
-            REMOVED_LINE_STYLE,
-            REMOVED_WORD_STYLE,
-            old_changed,
-            line_no=old_start_line + offset,
-            width=width,
-        )
-        _print_word_line(
-            "+",
-            new_line,
-            ADDED_LINE_STYLE,
-            ADDED_WORD_STYLE,
-            new_changed,
-            line_no=new_start_line + offset,
-            width=width,
-        )
-    for offset, line in enumerate(old_lines[paired_count:]):
-        _print_word_line(
-            "-",
-            line,
-            REMOVED_LINE_STYLE,
-            REMOVED_WORD_STYLE,
-            line_no=old_start_line + paired_count + offset,
-            width=width,
-        )
-    for offset, line in enumerate(new_lines[paired_count:]):
-        _print_word_line(
-            "+",
-            line,
-            ADDED_LINE_STYLE,
-            ADDED_WORD_STYLE,
-            line_no=new_start_line + paired_count + offset,
-            width=width,
-        )
-
-
-def _changed_token_indexes(
-    opcodes: list[tuple[str, int, int, int, int]], *, old: bool
-) -> set[int]:
-    indexes: set[int] = set()
-    for tag, old_start, old_end, new_start, new_end in opcodes:
-        if tag != "equal":
-            start, end = (old_start, old_end) if old else (new_start, new_end)
-            indexes.update(range(start, end))
-    return indexes
-
-
-def _print_word_line(
-    prefix: str,
-    line: str,
-    line_style: str,
-    changed_style: str,
-    changed_tokens: set[int] | None = None,
-    *,
-    line_no: int,
-    width: int,
-) -> None:
-    indentation_length = len(line) - len(line.lstrip())
-    indentation = line[:indentation_length]
-    tokens = WORD_TOKEN_RE.findall(line[indentation_length:])
-    text = _line_number_text(line_no, width)
-    text.append(prefix, style=line_style)
-    text.append(indentation, style=line_style)
-    for index, token in enumerate(tokens):
-        style = (
-            changed_style
-            if changed_tokens is None or index in changed_tokens
-            else line_style
-        )
-        text.append(token, style=style)
-    console.print(text, end="", soft_wrap=True)
-
-
 def report_previews(
     path: pathlib.Path,
     *,
@@ -289,7 +150,7 @@ def report_previews(
 ) -> int:
     """Show conversions without changing *path*.
 
-    Each if/elif conversion is printed as its own diff under ``<file>:<line>``.
+    Each conversion is printed as its own diff under ``<file>:<line>``.
     ``--show-all`` also previews conversions unlocked by the minimal missing
     assumption set.
 
@@ -297,47 +158,34 @@ def report_previews(
     only when ``show_all`` is true.
     """
     source = path.read_text(encoding="utf-8")
-    previews = collect_chain_previews(
+    eligible: list[ChainPreview] = []
+    gated: dict[frozenset[str], list[ChainPreview]] = {}
+    for preview in collect_chain_previews(
         source,
         ignore_types_pattern=ignore_types_pattern,
         assumptions=assumptions,
         include_gated=True,
-    )
-    first = True
-    for preview in previews:
-        if preview.extra_assumptions:
-            continue
-        if not first:
-            print()
-        first = False
-        _print_location_heading(path, preview.line)
-        report_diff(
-            preview.before,
-            preview.after,
-            start_line=preview.line,
-        )
-
-    gated: dict[frozenset[str], list[ChainPreview]] = {}
-    for preview in previews:
+    ):
         if preview.extra_assumptions:
             gated.setdefault(preview.extra_assumptions, []).append(preview)
-    gated_count = sum(len(group) for group in gated.values())
-    if not show_all:
-        return gated_count
+        else:
+            eligible.append(preview)
 
-    for required in sorted(gated, key=sorted):
-        names = ",".join(sorted(required))
-        print(f"\nAdditional conversions require --assume {names}:")
-        for index, preview in enumerate(gated[required]):
-            if index:
-                print()
-            _print_location_heading(path, preview.line)
-            report_diff(
-                preview.before,
-                preview.after,
-                start_line=preview.line,
-            )
-    return gated_count
+    _emit_previews(path, eligible)
+    if show_all:
+        for required in sorted(gated, key=sorted):
+            names = ",".join(sorted(required))
+            print(f"\nAdditional conversions require --assume {names}:")
+            _emit_previews(path, gated[required])
+    return sum(len(group) for group in gated.values())
+
+
+def _emit_previews(path: pathlib.Path, previews: list[ChainPreview]) -> None:
+    for index, preview in enumerate(previews):
+        if index:
+            print()
+        print_location_heading(path, preview.line)
+        report_diff(preview.before, preview.after, start_line=preview.line)
 
 
 def report_hidden_conversions(count: int) -> None:
@@ -374,7 +222,7 @@ def report_result(
     return (0, 1, 0)
 
 
-def main() -> None:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Convert if/elif/else chains to Python 3.10+ match statements"
     )
@@ -423,13 +271,16 @@ def main() -> None:
     mode_group.add_argument(
         "--check",
         action="store_true",
-        help="Do not write files; exit with 1 if any file would change or errors occur",
+        help=(
+            "Do not write files; show diffs and exit with 1 if any file would "
+            "change or errors occur"
+        ),
     )
     show_group = parser.add_mutually_exclusive_group()
     show_group.add_argument(
         "--show",
         action="store_true",
-        help="Show eligible conversions as diffs",
+        help="Show eligible conversions as diffs without failing when files would change",
     )
     show_group.add_argument(
         "--show-all",
@@ -445,98 +296,156 @@ def main() -> None:
         default=r".*_TYPES$",
         help="Regex pattern for isinstance type variables to ignore (default: .*_TYPES$)",
     )
+    return parser
 
+
+def resolve_cli_mode(
+    args: argparse.Namespace, parser: argparse.ArgumentParser
+) -> CliMode:
+    show_all = args.show_all
+    show = args.show or (args.check and not show_all)
+    interactive = not args.write and not args.check and not show and not show_all
+    if interactive:
+        if not sys.stdin.isatty():
+            parser.error(
+                "--write, --check, or --show is required in a non-interactive shell"
+            )
+        show = True
+    return CliMode(
+        write=args.write,
+        check=args.check,
+        show=show,
+        show_all=show_all,
+        interactive=interactive,
+        verbose=args.verbose,
+        jobs=args.jobs,
+        no_types=args.no_types,
+    )
+
+
+def preview_files(
+    python_files: list[pathlib.Path],
+    *,
+    ignore_types_pattern: str | None,
+    assumptions: Assumptions,
+    show_all: bool,
+) -> int:
+    hidden_count = 0
+    for path in python_files:
+        try:
+            hidden_count += report_previews(
+                path,
+                ignore_types_pattern=ignore_types_pattern,
+                assumptions=assumptions,
+                show_all=show_all,
+            )
+        except (OSError, UnicodeError, ParserSyntaxError):
+            # convert_file reports the processing error in the normal flow.
+            pass
+    return hidden_count
+
+
+def convert_files(
+    python_files: list[pathlib.Path],
+    *,
+    ignore_types_pattern: str | None,
+    assumptions: Assumptions,
+    jobs: int | None,
+    report_assumption_diagnostics: bool,
+    check: bool,
+    verbose: bool,
+    quiet: bool,
+) -> tuple[int, int, int, list[ConvertResult]]:
+    convert = partial(
+        _convert_file,
+        ignore_types_pattern=ignore_types_pattern,
+        assumptions=assumptions,
+        report_assumption_diagnostics=report_assumption_diagnostics,
+        check=check,
+    )
+    if len(python_files) == 1:
+        results = [convert(python_files[0])]
+    else:
+        with ProcessPoolExecutor(max_workers=jobs or None) as executor:
+            results = list(executor.map(convert, python_files))
+
+    converted_count = unchanged_count = error_count = 0
+    changed: list[ConvertResult] = []
+    for result in results:
+        converted, unchanged, errors = report_result(
+            result.path,
+            result.changed,
+            result.error,
+            verbose=verbose,
+            check=check,
+            quiet=quiet,
+        )
+        converted_count += converted
+        unchanged_count += unchanged
+        error_count += errors
+        if result.changed and result.error is None:
+            changed.append(result)
+    return converted_count, unchanged_count, error_count, changed
+
+
+def confirm_write(changed: list[ConvertResult]) -> None:
+    answer = input("Write these changes? [y/N] ")
+    if answer.strip().lower() not in {"y", "yes"}:
+        return
+    write_errors = 0
+    for result in changed:
+        try:
+            result.path.write_text(result.text or "", encoding="utf-8")
+        except OSError as error:
+            print(f"Error processing {result.path}: {error}")
+            write_errors += 1
+    if write_errors:
+        raise SystemExit(1)
+    print(f"Wrote changes to {len(changed)} file(s)")
+
+
+def main() -> None:
+    parser = build_parser()
     args = parser.parse_args()
     try:
         assumptions = resolve_assumptions(args)
     except ValueError as error:
         parser.error(str(error))
-
-    interactive = not args.write and not args.check
-    if interactive and not sys.stdin.isatty():
-        parser.error("--write or --check is required in a non-interactive shell")
-    if interactive:
-        args.show = True
+    mode = resolve_cli_mode(args, parser)
 
     python_files = collect_python_files(args.paths)
-
     if not python_files:
         print("No Python files found to process")
         return
 
-    converted_count = 0
-    unchanged_count = 0
-    error_count = 0
-    changed_paths: list[pathlib.Path] = []
-    dry_run = args.check or interactive
-    showing = args.show or args.show_all
-
     hidden_count = 0
-    if args.show or args.show_all:
-        for path in python_files:
-            try:
-                hidden_count += report_previews(
-                    path,
-                    ignore_types_pattern=args.no_types,
-                    assumptions=assumptions,
-                    show_all=args.show_all,
-                )
-            except Exception:
-                # convert_file reports the processing error in the normal flow.
-                pass
-
-    if len(python_files) == 1:
-        result = convert_file(
-            python_files[0],
-            ignore_types_pattern=args.no_types,
+    if mode.showing:
+        hidden_count = preview_files(
+            python_files,
+            ignore_types_pattern=mode.no_types,
             assumptions=assumptions,
-            report_assumption_diagnostics=not args.show,
-            check=dry_run,
+            show_all=mode.show_all,
         )
-        converted, unchanged, errors = report_result(
-            *result, verbose=args.verbose, check=dry_run, quiet=showing
-        )
-        converted_count += converted
-        unchanged_count += unchanged
-        error_count += errors
-        if result[1] and result[2] is None:
-            changed_paths.append(result[0])
-    else:
-        with ProcessPoolExecutor(max_workers=args.jobs or None) as executor:
-            convert = partial(
-                convert_file,
-                ignore_types_pattern=args.no_types,
-                assumptions=assumptions,
-                report_assumption_diagnostics=not args.show,
-                check=dry_run,
-            )
-            for result in executor.map(convert, python_files):
-                converted, unchanged, errors = report_result(
-                    *result, verbose=args.verbose, check=dry_run, quiet=showing
-                )
-                converted_count += converted
-                unchanged_count += unchanged
-                error_count += errors
-                if result[1] and result[2] is None:
-                    changed_paths.append(result[0])
 
-    changed_label = "would convert" if dry_run else "converted"
+    converted_count, unchanged_count, error_count, changed = convert_files(
+        python_files,
+        ignore_types_pattern=mode.no_types,
+        assumptions=assumptions,
+        jobs=mode.jobs,
+        report_assumption_diagnostics=not mode.show_all,
+        check=mode.dry_run,
+        verbose=mode.verbose,
+        quiet=mode.showing,
+    )
+
+    changed_label = "would convert" if mode.dry_run else "converted"
     print(
         f"\nSummary: {converted_count} {changed_label}, "
         f"{unchanged_count} unchanged, {error_count} errors"
     )
-    if args.show and not args.show_all:
+    if mode.show and not mode.show_all:
         report_hidden_conversions(hidden_count)
-    if interactive and converted_count and not error_count:
-        answer = input("Write these changes? [y/N] ")
-        if answer.strip().lower() in {"y", "yes"}:
-            for path in changed_paths:
-                convert_file(
-                    path,
-                    ignore_types_pattern=args.no_types,
-                    assumptions=assumptions,
-                )
-            print(f"Wrote changes to {len(changed_paths)} file(s)")
-
-    if error_count or (args.check and converted_count):
+    if mode.interactive and converted_count and not error_count:
+        confirm_write(changed)
+    if error_count or (mode.check and converted_count):
         raise SystemExit(1)

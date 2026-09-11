@@ -32,7 +32,7 @@ def _indent_snippet(code: str, indent: str) -> str:
 
 
 class ChainPreview(NamedTuple):
-    """One if/elif conversion that can be shown as a standalone diff."""
+    """One conversion that can be shown as a standalone diff."""
 
     line: int
     column: int
@@ -175,7 +175,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
 
 
 class _ChainPreviewVisitor(cst.CSTVisitor):
-    """Collect standalone before/after snippets for convertible if-chains."""
+    """Collect standalone before/after snippets for convertible if-chains and lookups."""
 
     METADATA_DEPENDENCIES = (PositionProvider,)
 
@@ -186,14 +186,12 @@ class _ChainPreviewVisitor(cst.CSTVisitor):
         *,
         ignore_types_pattern: str | None,
         assumptions: Assumptions,
-        include_gated: bool,
     ) -> None:
         super().__init__()
         self._module = module
         self._source_lines = source.splitlines(keepends=True)
         self._ignore_types_pattern = ignore_types_pattern
         self._assumptions = assumptions
-        self._include_gated = include_gated
         self._elif_nodes: set[int] = set()
         self._compiler = IfChainCompiler(
             ignore_types_pattern=ignore_types_pattern,
@@ -211,8 +209,6 @@ class _ChainPreviewVisitor(cst.CSTVisitor):
         extra_assumptions: frozenset[str] = frozenset()
         chain = compiler.extract_chain(node)
         if chain is None:
-            if not self._include_gated:
-                return True
             extra_assumptions = find_required_assumptions(
                 node,
                 ignore_types_pattern=self._ignore_types_pattern,
@@ -230,6 +226,53 @@ class _ChainPreviewVisitor(cst.CSTVisitor):
             if chain is None:  # pragma: no cover
                 return True
 
+        match_stmt = compiler.compile(chain, leading_lines=())
+        self._append_preview(
+            node,
+            node.with_changes(leading_lines=()),
+            match_stmt,
+            extra_assumptions,
+        )
+        return True
+
+    def visit_SimpleStatementLine(self, node: cst.SimpleStatementLine) -> bool:
+        candidate = find_inline_lookup(node)
+        if candidate is None:
+            return False
+        match_stmt = compile_inline_lookup(node, candidate)
+        self._append_preview(
+            node,
+            node.with_changes(leading_lines=()),
+            match_stmt.with_changes(leading_lines=()),
+            self._lookup_extra_assumptions(),
+        )
+        return False
+
+    def visit_FunctionDef(self, node: cst.FunctionDef) -> bool:
+        if not isinstance(node.body, cst.IndentedBlock):
+            return True
+        compiled, required = compile_local_lookups(node.body, enabled=True)
+        if required:
+            self._append_preview(
+                node,
+                node.with_changes(leading_lines=()),
+                node.with_changes(body=compiled, leading_lines=()),
+                self._lookup_extra_assumptions(),
+            )
+        return True
+
+    def _lookup_extra_assumptions(self) -> frozenset[str]:
+        if self._assumptions.lookup_equality:
+            return frozenset()
+        return frozenset({LOOKUP_EQUALITY})
+
+    def _append_preview(
+        self,
+        node: cst.CSTNode,
+        before: cst.CSTNode,
+        after: cst.CSTNode,
+        extra_assumptions: frozenset[str],
+    ) -> None:
         position = self.get_metadata(
             PositionProvider,
             node,
@@ -238,24 +281,16 @@ class _ChainPreviewVisitor(cst.CSTVisitor):
                 end=CodePosition(line=0, column=0),
             ),
         )
-        match_stmt = compiler.compile(chain, leading_lines=())
         indent = self._indent_for(position)
         self.previews.append(
             ChainPreview(
                 line=position.start.line,
                 column=position.start.column,
-                before=_indent_snippet(
-                    self._module.code_for_node(node.with_changes(leading_lines=())),
-                    indent,
-                ),
-                after=_indent_snippet(
-                    self._module.code_for_node(match_stmt),
-                    indent,
-                ),
+                before=_indent_snippet(self._module.code_for_node(before), indent),
+                after=_indent_snippet(self._module.code_for_node(after), indent),
                 extra_assumptions=extra_assumptions,
             )
         )
-        return True
 
     def _indent_for(self, position: CodeRange) -> str:
         if position.start.line <= 0 or position.start.line > len(self._source_lines):
@@ -271,17 +306,18 @@ def collect_chain_previews(
     assumptions: Assumptions | None = None,
     include_gated: bool = False,
 ) -> list[ChainPreview]:
-    """Return per-chain conversion snippets for preview diffs."""
+    """Return per-conversion snippets for preview diffs."""
     module = cst.parse_module(source)
     visitor = _ChainPreviewVisitor(
         module,
         source,
         ignore_types_pattern=ignore_types_pattern,
         assumptions=assumptions or Assumptions.from_names(),
-        include_gated=include_gated,
     )
     MetadataWrapper(module).visit(visitor)
-    return visitor.previews
+    if include_gated:
+        return visitor.previews
+    return [preview for preview in visitor.previews if not preview.extra_assumptions]
 
 
 def transform_code(
