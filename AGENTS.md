@@ -20,6 +20,7 @@ Matchify converts eligible `if`/`elif`/`else` chains into Python 3.10+
   patterns.
 - `src/matchify/cli.py` implements file processing and the CLI;
   `src/matchify/__main__.py` is the `python -m matchify` entry point.
+- `src/matchify/diff.py` renders conversion diffs for `--show`.
 
 ## Transformation principles
 

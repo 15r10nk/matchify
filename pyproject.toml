@@ -19,6 +19,7 @@ classifiers = [
 ]
 dependencies = [
     "libcst>=1.8.6",
+    "rich>=13.0",
 ]
 description = "converts if-else code to match statements"
 license = "MIT"
