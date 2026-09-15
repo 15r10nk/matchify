@@ -29,8 +29,7 @@ class TestTransformCode:
         assert facts.guard is None
 
     def test_tuple_comparisons_are_not_converted(self):
-        source = dedent(
-            """
+        source = dedent("""
             class Box:
                 def __init__(self, x=None, y=None):
                     self.x = x
@@ -42,14 +41,12 @@ class TestTransformCode:
                 print("first")
             elif (a.x, b.y) == (3, 4):
                 print("second")
-            """
-        ).strip()
+            """).strip()
 
         check_code(source, source)
 
     def test_assumed_pure_and_subjects_use_a_composite_match_subject(self):
-        source = dedent(
-            """
+        source = dedent("""
             class Box:
                 def __init__(self, x=None, y=None):
                     self.x = x
@@ -61,11 +58,9 @@ class TestTransformCode:
                 print("first")
             elif a.x == 3 and b.y == 4:
                 print("second")
-            """
-        ).strip()
+            """).strip()
 
-        expected_without_flag = dedent(
-            """
+        expected_without_flag = dedent("""
             class Box:
                 def __init__(self, x=None, y=None):
                     self.x = x
@@ -78,8 +73,7 @@ class TestTransformCode:
                     print("first")
                 case 3 if b.y == 4:
                     print("second")
-            """
-        ).strip()
+            """).strip()
 
         check_code(source, expected_without_flag)
         check_code(
@@ -88,8 +82,7 @@ class TestTransformCode:
             assumptions=Assumptions.from_names({"use-object"}),
         )
 
-        expected_with_flag = dedent(
-            """
+        expected_with_flag = dedent("""
             class Box:
                 def __init__(self, x=None, y=None):
                     self.x = x
@@ -102,25 +95,21 @@ class TestTransformCode:
                     print("first")
                 case 3, 4:
                     print("second")
-            """
-        ).strip()
+            """).strip()
 
         check_code(source, expected_with_flag, assume_pure_subjects=True)
 
     def test_assumed_pure_subject_used_by_a_majority_joins_match_subject(self):
-        source = dedent(
-            """
+        source = dedent("""
             if op == Op.ADD:
                 print("add")
             elif op == Op.SUBTRACT and op2 == Op.ADD:
                 print("subtract add")
             elif op == Op.SUBTRACT and op2 == Op.SUBTRACT:
                 print("subtract subtract")
-            """
-        ).strip()
+            """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             match (op, op2):
                 case Op.ADD, _:
                     print("add")
@@ -128,14 +117,12 @@ class TestTransformCode:
                     print("subtract add")
                 case Op.SUBTRACT, Op.SUBTRACT:
                     print("subtract subtract")
-            """
-        ).strip()
+            """).strip()
 
         check_code(source, expected, assume_pure_subjects=True)
 
     def test_assumed_pure_attribute_subject_uses_object_patterns(self):
-        source = dedent(
-            """
+        source = dedent("""
             class Value:
                 i = 5
                 j = 6
@@ -145,11 +132,9 @@ class TestTransformCode:
                 print("i")
             elif value.j == 6:
                 print("j")
-            """
-        ).strip()
+            """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Value:
                 i = 5
                 j = 6
@@ -160,8 +145,7 @@ class TestTransformCode:
                     print("i")
                 case object(j=6):
                     print("j")
-            """
-        ).strip()
+            """).strip()
 
         check_code(source, source)
         check_code(source, source, assume_pure_subjects=True)
@@ -172,24 +156,20 @@ class TestTransformCode:
         )
 
     def test_assumed_pure_nested_attributes_get_recursive_object_patterns(self):
-        source = dedent(
-            """
+        source = dedent("""
             if value.left.i == 5:
                 print("left")
             elif value.right.j == 6:
                 print("right")
-            """
-        ).strip()
+            """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             match value:
                 case object(left=object(i=5)):
                     print("left")
                 case object(right=object(j=6)):
                     print("right")
-            """
-        ).strip()
+            """).strip()
 
         assert (
             transform_code(
@@ -200,24 +180,20 @@ class TestTransformCode:
         )
 
     def test_assumed_pure_attributes_with_one_root_share_one_object_pattern(self):
-        source = dedent(
-            """
+        source = dedent("""
             if value.x == 1 and value.y == 2:
                 print("first")
             elif value.x == 3 and value.y == 4:
                 print("second")
-            """
-        ).strip()
+            """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             match value:
                 case object(x=1, y=2):
                     print("first")
                 case object(x=3, y=4):
                     print("second")
-            """
-        ).strip()
+            """).strip()
 
         assert (
             transform_code(
@@ -228,8 +204,7 @@ class TestTransformCode:
         )
 
     def test_common_subject_is_built_from_branch_path_prefixes(self):
-        source = dedent(
-            """
+        source = dedent("""
             class Root:
                 def __init__(self, left, right):
                     self.left = left
@@ -246,11 +221,9 @@ class TestTransformCode:
                 print("left")
             elif isinstance(node.right, B) and isinstance(node, Root):
                 print("right")
-            """
-        ).strip()
+            """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Root:
                 def __init__(self, left, right):
                     self.left = left
@@ -268,15 +241,13 @@ class TestTransformCode:
                     print("left")
                 case Root(right=B()):
                     print("right")
-            """
-        ).strip()
+            """).strip()
 
         check_code(source, expected)
 
     def test_simple_if_elif_else_chain(self):
         """Test conversion of simple if/elif/else chain with == comparisons."""
-        source = dedent(
-            """
+        source = dedent("""
             x = 5
             if x == 1:
                 print("one")
@@ -284,11 +255,9 @@ class TestTransformCode:
                 print("two")
             else:
                 print("other")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             x = 5
             match x:
                 case 1:
@@ -297,40 +266,34 @@ class TestTransformCode:
                     print("two")
                 case _:
                     print("other")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_if_elif_without_else(self):
         """Test conversion of if/elif chain without else clause."""
-        source = dedent(
-            """
+        source = dedent("""
             status = "active"
             if status == "active":
                 print("activate")
             elif status == "inactive":
                 print("deactivate")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             status = "active"
             match status:
                 case "active":
                     print("activate")
                 case "inactive":
                     print("deactivate")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_multiple_statements_in_body(self):
         """Test conversion with multiple statements in case bodies."""
-        source = dedent(
-            """
+        source = dedent("""
             color = "red"
             if color == "red":
                 print("Red")
@@ -342,11 +305,9 @@ class TestTransformCode:
                 print("Unknown")
                 value = 0
             print(f"Value: {value}")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             color = "red"
             match color:
                 case "red":
@@ -359,15 +320,13 @@ class TestTransformCode:
                     print("Unknown")
                     value = 0
             print(f"Value: {value}")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_numeric_comparisons(self):
         """Test conversion with numeric literal comparisons."""
-        source = dedent(
-            """
+        source = dedent("""
             num = 1
             if num == 0:
                 print("zero")
@@ -375,11 +334,9 @@ class TestTransformCode:
                 print("one")
             elif num == 2:
                 print("two")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             num = 1
             match num:
                 case 0:
@@ -388,22 +345,19 @@ class TestTransformCode:
                     print("one")
                 case 2:
                     print("two")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_non_equality_comparisons_not_converted(self):
         """Test that non-equality comparisons are not transformed."""
-        source = dedent(
-            """
+        source = dedent("""
             x = 6
             if x > 5:
                 print("big")
             elif x < 2:
                 print("small")
-        """
-        ).strip()
+        """).strip()
 
         # Expected is same as source (no transformation)
         expected = source
@@ -411,16 +365,14 @@ class TestTransformCode:
 
     def test_different_variables_not_converted(self):
         """Test that chains comparing different variables are not converted."""
-        source = dedent(
-            """
+        source = dedent("""
             x = 1
             y = 2
             if x == 1:
                 print("x is 1")
             elif y == 2:
                 print("y is 2")
-        """
-        ).strip()
+        """).strip()
 
         # Expected is same as source (no transformation)
         expected = source
@@ -428,15 +380,13 @@ class TestTransformCode:
 
     def test_mixed_operators_not_converted(self):
         """Test that chains with mixed operators are not converted."""
-        source = dedent(
-            """
+        source = dedent("""
             x = 3
             if x == 1:
                 print("one")
             elif x != 2:
                 print("not two")
-        """
-        ).strip()
+        """).strip()
 
         # Expected is same as source (no transformation)
         expected = source
@@ -448,8 +398,7 @@ class TestTransformCode:
         Previously, nested if-statements inside match case bodies were not converted.
         Now they are recursively transformed.
         """
-        source = dedent(
-            """
+        source = dedent("""
             x = 1
             y = 2
             if x == 1:
@@ -459,11 +408,9 @@ class TestTransformCode:
                     print("three")
             elif x == 3:
                 print("outer three")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             x = 1
             y = 2
             match x:
@@ -475,15 +422,13 @@ class TestTransformCode:
                             print("three")
                 case 3:
                     print("outer three")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_attribute_access_variable(self):
         """Test conversion with attribute access as subject."""
-        source = dedent(
-            """
+        source = dedent("""
             class Obj:
                 status = "ready"
             obj = Obj()
@@ -491,11 +436,9 @@ class TestTransformCode:
                 print("start")
             elif obj.status == "busy":
                 print("wait")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Obj:
                 status = "ready"
             obj = Obj()
@@ -504,26 +447,22 @@ class TestTransformCode:
                     print("start")
                 case "busy":
                     print("wait")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_function_call_converted(self):
         """Test that comparisons with function calls ARE converted (they use same function)."""
-        source = dedent(
-            """
+        source = dedent("""
             def get_value():
                 return 1
             if get_value() == 1:
                 print("one")
             elif get_value() == 2:
                 print("two")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             def get_value():
                 return 1
             match get_value():
@@ -531,20 +470,17 @@ class TestTransformCode:
                     print("one")
                 case 2:
                     print("two")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_simple_if_only_not_converted(self):
         """Test that single if statement without elif is not converted."""
-        source = dedent(
-            """
+        source = dedent("""
             x = 1
             if x == 1:
                 print("one")
-        """
-        ).strip()
+        """).strip()
 
         # Expected is same as source (no transformation)
         expected = source
@@ -552,8 +488,7 @@ class TestTransformCode:
 
     def test_multiple_independent_if_chains(self):
         """Test that multiple independent if chains are all converted."""
-        source = dedent(
-            """
+        source = dedent("""
             x = 1
             if x == 1:
                 print("one")
@@ -564,11 +499,9 @@ class TestTransformCode:
                 print("a")
             elif y == "b":
                 print("b")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             x = 1
             match x:
                 case 1:
@@ -581,8 +514,7 @@ class TestTransformCode:
                     print("a")
                 case "b":
                     print("b")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
@@ -595,8 +527,7 @@ class TestTransformCode:
 
         The transformer now correctly detects these cases and does NOT convert them.
         """
-        source = dedent(
-            """
+        source = dedent("""
             WIDTH = 100
             HEIGHT = 200
             x = 100
@@ -606,8 +537,7 @@ class TestTransformCode:
                 print("matches height")
             else:
                 print("no match")
-        """
-        ).strip()
+        """).strip()
 
         # Expected is same as source (no transformation)
         expected = source
@@ -619,8 +549,7 @@ class TestTransformCode:
         This is a regression test: previously, if a chain failed to convert,
         it left _current_subject set, which prevented subsequent independent chains from converting.
         """
-        source = dedent(
-            """
+        source = dedent("""
             # This chain converts with the variable comparison preserved as a guard.
             if isinstance(override, CallableType) and override.min_args == original.min_args:
                 pass
@@ -635,11 +564,9 @@ class TestTransformCode:
                     exc_type = ttype.item
                 else:
                     pass
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             # This chain converts with the variable comparison preserved as a guard.
             match override:
                 case CallableType() if override.min_args == original.min_args:
@@ -656,8 +583,7 @@ class TestTransformCode:
                         exc_type = ttype.item
                     case _:
                         pass
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
@@ -667,8 +593,7 @@ class TestTransformCode:
         isinstance() calls can be converted to match statements using class patterns.
         isinstance(node, Point) becomes case Point().
         """
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 pass
             class Line:
@@ -680,11 +605,9 @@ class TestTransformCode:
                 print("line")
             else:
                 print("other")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 pass
             class Line:
@@ -697,15 +620,13 @@ class TestTransformCode:
                     print("line")
                 case _:
                     print("other")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_parenthesized_isinstance_class_converted(self):
         """Parentheses around classinfo are not emitted before pattern parentheses."""
-        source = dedent(
-            """
+        source = dedent("""
             class SomeClass:
                 pass
 
@@ -714,11 +635,9 @@ class TestTransformCode:
                 print("some")
             elif isinstance(value, str):
                 print("string")
-            """
-        ).strip()
+            """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class SomeClass:
                 pass
 
@@ -728,8 +647,7 @@ class TestTransformCode:
                     print("some")
                 case str():
                     print("string")
-            """
-        ).strip()
+            """).strip()
 
         check_code(source, expected)
 
@@ -738,8 +656,7 @@ class TestTransformCode:
 
         isinstance(value, (int, float)) becomes case int() | float().
         """
-        source = dedent(
-            """
+        source = dedent("""
             value = 42
             if isinstance(value, (int, float)):
                 print("number")
@@ -747,11 +664,9 @@ class TestTransformCode:
                 print("string")
             else:
                 print("other")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             value = 42
             match value:
                 case int() | float():
@@ -760,65 +675,55 @@ class TestTransformCode:
                     print("string")
                 case _:
                     print("other")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_isinstance_none_type_becomes_singleton_pattern(self):
         """The exact type(None) classinfo becomes a None singleton pattern."""
-        source = dedent(
-            """
+        source = dedent("""
             x = None
             if isinstance(x, type(None)):
                 print("none")
             elif x == 5:
                 print("five")
-            """
-        ).strip()
+            """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             x = None
             match x:
                 case None:
                     print("none")
                 case 5:
                     print("five")
-            """
-        ).strip()
+            """).strip()
 
         check_code(source, expected)
 
     def test_isinstance_tuple_with_none_type_becomes_or_pattern(self):
         """type(None) can participate in a mixed singleton and class OR pattern."""
-        source = dedent(
-            """
+        source = dedent("""
             x = None
             if isinstance(x, (type(None), str)):
                 print("optional string")
             elif x == 5:
                 print("five")
-            """
-        ).strip()
+            """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             x = None
             match x:
                 case None | str():
                     print("optional string")
                 case 5:
                     print("five")
-            """
-        ).strip()
+            """).strip()
 
         check_code(source, expected)
 
     def test_plain_list_tuple_isinstance_becomes_class_pattern(self):
         """Bare list/tuple isinstance dispatch can use class patterns."""
-        source = dedent(
-            """
+        source = dedent("""
             def perform_import(val):
                 if val is None:
                     return None
@@ -827,11 +732,9 @@ class TestTransformCode:
                 elif isinstance(val, (list, tuple)):
                     return [import_string(item) for item in val]
                 return val
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             def perform_import(val):
                 match val:
                     case None:
@@ -841,32 +744,27 @@ class TestTransformCode:
                     case list() | tuple():
                         return [import_string(item) for item in val]
                 return val
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_list_tuple_sequence_checks_require_both_assumptions(self):
-        source = dedent(
-            """
+        source = dedent("""
             value = [1, 2]
             if isinstance(value, (list, tuple)) and len(value) == 2 and value[0] == 1:
                 print("one")
             elif isinstance(value, (list, tuple)) and len(value) == 2 and value[0] == 2:
                 print("two")
-        """
-        ).strip()
+        """).strip()
 
-        expected_safe = dedent(
-            """
+        expected_safe = dedent("""
             value = [1, 2]
             match value:
                 case 1, _ if isinstance(value, (list, tuple)):
                     print("one")
                 case 2, _ if isinstance(value, (list, tuple)):
                     print("two")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected_safe)
         check_code(
@@ -889,8 +787,7 @@ class TestTransformCode:
 
     def test_qualified_constants_become_value_patterns(self):
         """Qualified constants can be compared by match value patterns."""
-        source = dedent(
-            """
+        source = dedent("""
             class Kind:
                 START = 1
                 STOP = 2
@@ -902,11 +799,9 @@ class TestTransformCode:
                 print("stop")
             else:
                 print("other")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Kind:
                 START = 1
                 STOP = 2
@@ -919,15 +814,13 @@ class TestTransformCode:
                     print("stop")
                 case _:
                     print("other")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_qualified_identity_requires_identity_equality_assumption(self):
         """Qualified identity checks need an explicit equality-semantics assumption."""
-        source = dedent(
-            """
+        source = dedent("""
             class Kind:
                 START = object()
                 STOP = object()
@@ -939,11 +832,9 @@ class TestTransformCode:
                 print("stop")
             else:
                 print("other")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Kind:
                 START = object()
                 STOP = object()
@@ -956,8 +847,7 @@ class TestTransformCode:
                     print("stop")
                 case _:
                     print("other")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, source)
         check_code(
@@ -968,8 +858,7 @@ class TestTransformCode:
 
     def test_bare_constants_are_not_value_patterns(self):
         """Bare names in patterns would capture instead of compare."""
-        source = dedent(
-            """
+        source = dedent("""
             START = 1
             STOP = 2
             kind = START
@@ -977,15 +866,13 @@ class TestTransformCode:
                 print("start")
             elif kind == STOP:
                 print("stop")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, source)
 
     def test_literal_membership_becomes_or_pattern(self):
         """Membership in a literal tuple can become an OR value pattern."""
-        source = dedent(
-            """
+        source = dedent("""
             option = "-h"
             if option in ("-h", "--help"):
                 print("help")
@@ -993,11 +880,9 @@ class TestTransformCode:
                 print("version")
             else:
                 print("other")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             option = "-h"
             match option:
                 case "-h" | "--help":
@@ -1006,32 +891,27 @@ class TestTransformCode:
                     print("version")
                 case _:
                     print("other")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_literal_set_membership_requires_hashable_subjects_assumption(self):
-        source = dedent(
-            """
+        source = dedent("""
             option = "-h"
             if option in {"-h", "--help"}:
                 print("help")
             elif option in {"-V", "--version"}:
                 print("version")
-            """
-        ).strip()
+            """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             option = "-h"
             match option:
                 case "-h" | "--help":
                     print("help")
                 case "-V" | "--version":
                     print("version")
-            """
-        ).strip()
+            """).strip()
 
         check_code(source, source)
         check_code(
@@ -1041,8 +921,7 @@ class TestTransformCode:
         )
 
     def test_unsafe_set_membership_is_not_converted(self):
-        source = dedent(
-            """
+        source = dedent("""
             values = {"a"}
             if value in {*values}:
                 print("starred")
@@ -1063,8 +942,7 @@ class TestTransformCode:
                 print("duplicate")
             elif value in {"b"}:
                 print("literal")
-            """
-        ).strip()
+            """).strip()
 
         check_code(
             source,
@@ -1074,8 +952,7 @@ class TestTransformCode:
 
     def test_nested_literal_membership_becomes_or_pattern(self):
         """Literal membership can be lowered inside class attributes."""
-        source = dedent(
-            """
+        source = dedent("""
             class Token:
                 def __init__(self, kind):
                     self.kind = kind
@@ -1085,11 +962,9 @@ class TestTransformCode:
                 print("math")
             elif isinstance(token, Token) and token.kind in ["load", "store"]:
                 print("memory")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Token:
                 def __init__(self, kind):
                     self.kind = kind
@@ -1100,43 +975,37 @@ class TestTransformCode:
                     print("math")
                 case Token(kind="load" | "store"):
                     print("memory")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_singleton_membership_is_not_converted(self):
         """Membership uses equality while singleton patterns use identity."""
-        source = dedent(
-            """
+        source = dedent("""
             value = 1
             if value in (True,):
                 print("true-ish")
             elif value in (False,):
                 print("false-ish")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, source)
 
     def test_negated_isinstance_chain_is_not_converted(self):
         """Negated isinstance does not introduce a guard-only predicate."""
-        source = dedent(
-            """
+        source = dedent("""
             value = "x"
             if isinstance(value, int):
                 print("int")
             elif not isinstance(value, str):
                 print("not string")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, source)
 
     def test_guard_branch_with_else_is_not_converted(self):
         """A chain must not emit both a guarded wildcard and an else wildcard."""
-        source = dedent(
-            """
+        source = dedent("""
             value = "x"
             if isinstance(value, int):
                 print("int")
@@ -1144,43 +1013,37 @@ class TestTransformCode:
                 print("not string")
             else:
                 print("other")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, source)
 
     def test_leading_guard_branch_is_not_converted(self):
         """Do not evaluate a later match subject before a leading guard branch."""
-        source = dedent(
-            """
+        source = dedent("""
             value = "x"
             if not isinstance(value, str):
                 print("not string")
             elif isinstance(value, int):
                 print("int")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, source)
 
     def test_all_negated_isinstance_chain_is_not_converted(self):
         """A chain with no structural pattern still remains unchanged."""
-        source = dedent(
-            """
+        source = dedent("""
             value = "x"
             if not isinstance(value, int):
                 print("not int")
             elif not isinstance(value, str):
                 print("not string")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, source)
 
     def test_other_isinstance_classinfo_call_becomes_guard(self):
         """Other classinfo calls cannot be rendered as class patterns."""
-        source = dedent(
-            """
+        source = dedent("""
             def get_type():
                 return int
 
@@ -1189,11 +1052,9 @@ class TestTransformCode:
                 print("dynamic")
             elif x == 5:
                 print("five")
-            """
-        ).strip()
+            """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             def get_type():
                 return int
 
@@ -1203,8 +1064,7 @@ class TestTransformCode:
                     print("dynamic")
                 case 5:
                     print("five")
-            """
-        ).strip()
+            """).strip()
 
         check_code(source, expected)
 
@@ -1213,8 +1073,7 @@ class TestTransformCode:
 
         'if x is None:' becomes 'case None:' using MatchSingleton pattern.
         """
-        source = dedent(
-            """
+        source = dedent("""
             x = None
             if x is None:
                 print("none")
@@ -1222,11 +1081,9 @@ class TestTransformCode:
                 print("one")
             elif x == 2:
                 print("two")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             x = None
             match x:
                 case None:
@@ -1235,8 +1092,7 @@ class TestTransformCode:
                     print("one")
                 case 2:
                     print("two")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
@@ -1245,8 +1101,7 @@ class TestTransformCode:
 
         Combines identity comparison (is None) with isinstance checks.
         """
-        source = dedent(
-            """
+        source = dedent("""
             class Color:
                 pass
             value = None
@@ -1256,11 +1111,9 @@ class TestTransformCode:
                 print("color")
             elif isinstance(value, str):
                 print("string")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Color:
                 pass
             value = None
@@ -1271,8 +1124,7 @@ class TestTransformCode:
                     print("color")
                 case str():
                     print("string")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
@@ -1283,8 +1135,7 @@ class TestTransformCode:
         the bare len() checks without index checks are not converted (to avoid
         incorrect semantics for dicts and other non-sequence types).
         """
-        source = dedent(
-            """
+        source = dedent("""
             class SimpleCommand:
                 pass
             command = (1, 2)
@@ -1294,8 +1145,7 @@ class TestTransformCode:
                 print("two")
             elif len(command) == 3:
                 print("three")
-        """
-        ).strip()
+        """).strip()
 
         # Expected is same as source (no transformation)
         expected = source
@@ -1306,8 +1156,7 @@ class TestTransformCode:
 
         Conditions like 'isinstance(node, Point) and node.x == 5' become 'case Point(x=5):'.
         """
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, x, y):
                     self.x = x
@@ -1317,11 +1166,9 @@ class TestTransformCode:
                 print("point at x=5")
             elif isinstance(node, Point):
                 print("other point")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, x, y):
                     self.x = x
@@ -1332,8 +1179,7 @@ class TestTransformCode:
                     print("point at x=5")
                 case Point():
                     print("other point")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
@@ -1343,8 +1189,7 @@ class TestTransformCode:
         Conditions like 'isinstance(node, Point) and node.x == 5 and node.y == 10'
         become 'case Point(x=5, y=10):'.
         """
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, x, y):
                     self.x = x
@@ -1354,11 +1199,9 @@ class TestTransformCode:
                 print("exact point")
             elif isinstance(node, Point):
                 print("other point")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, x, y):
                     self.x = x
@@ -1369,8 +1212,7 @@ class TestTransformCode:
                     print("exact point")
                 case Point():
                     print("other point")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
@@ -1380,8 +1222,7 @@ class TestTransformCode:
         Conditions like 'isinstance(node, Point) and node.x is None'
         become 'case Point(x=None):'.
         """
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, x, y):
                     self.x = x
@@ -1393,11 +1234,9 @@ class TestTransformCode:
                 print("x is 5")
             else:
                 print("other")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, x, y):
                     self.x = x
@@ -1410,8 +1249,7 @@ class TestTransformCode:
                     print("x is 5")
                 case _:
                     print("other")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
@@ -1421,8 +1259,7 @@ class TestTransformCode:
         Conditions like 'isinstance(obj, Config) and obj.enabled is True'
         become 'case Config(enabled=True):'.
         """
-        source = dedent(
-            """
+        source = dedent("""
             class Config:
                 def __init__(self, enabled):
                     self.enabled = enabled
@@ -1433,11 +1270,9 @@ class TestTransformCode:
                 print("disabled")
             else:
                 print("other")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Config:
                 def __init__(self, enabled):
                     self.enabled = enabled
@@ -1449,8 +1284,7 @@ class TestTransformCode:
                     print("disabled")
                 case _:
                     print("other")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
@@ -1459,8 +1293,7 @@ class TestTransformCode:
 
         Both top-level and attribute checks should support negative numbers.
         """
-        source = dedent(
-            """
+        source = dedent("""
             x = -5
             if x == -5:
                 print("negative five")
@@ -1468,11 +1301,9 @@ class TestTransformCode:
                 print("negative ten")
             else:
                 print("other")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             x = -5
             match x:
                 case -5:
@@ -1481,15 +1312,13 @@ class TestTransformCode:
                     print("negative ten")
                 case _:
                     print("other")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_negative_numbers_in_attributes(self):
         """Test that negative numbers work in isinstance attribute checks."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, x, y):
                     self.x = x
@@ -1499,11 +1328,9 @@ class TestTransformCode:
                 print("x is -5")
             elif isinstance(p, Point) and p.y == 10:
                 print("y is 10")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, x, y):
                     self.x = x
@@ -1514,15 +1341,13 @@ class TestTransformCode:
                     print("x is -5")
                 case Point(y=10):
                     print("y is 10")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_unary_plus_numbers_are_normalized_in_patterns(self):
         """Test that unary plus values do not create invalid `case +1` patterns."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, x):
                     self.x = x
@@ -1533,11 +1358,9 @@ class TestTransformCode:
                 print("plus float")
             else:
                 print("other")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, x):
                     self.x = x
@@ -1549,8 +1372,7 @@ class TestTransformCode:
                     print("plus float")
                 case _:
                     print("other")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
@@ -1559,8 +1381,7 @@ class TestTransformCode:
 
         Patterns like 'len(x) == 2 and x[0] == 0 and x[1] == 1' become 'case [0, 1]:'.
         """
-        source = dedent(
-            """
+        source = dedent("""
             point = (0, 1)
             if len(point) == 2 and point[0] == 0 and point[1] == 1:
                 print("origin offset")
@@ -1568,11 +1389,9 @@ class TestTransformCode:
                 print("diagonal")
             else:
                 print("other")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             point = (0, 1)
             match point:
                 case 0, 1:
@@ -1581,15 +1400,13 @@ class TestTransformCode:
                     print("diagonal")
                 case _:
                     print("other")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_sequence_pattern_three_elements(self):
         """Test sequence patterns with three elements."""
-        source = dedent(
-            """
+        source = dedent("""
             rgb = (255, 0, 0)
             if len(rgb) == 3 and rgb[0] == 255 and rgb[1] == 0 and rgb[2] == 0:
                 print("red")
@@ -1597,11 +1414,9 @@ class TestTransformCode:
                 print("green")
             else:
                 print("other")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             rgb = (255, 0, 0)
             match rgb:
                 case 255, 0, 0:
@@ -1610,55 +1425,47 @@ class TestTransformCode:
                     print("green")
                 case _:
                     print("other")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_sequence_pattern_with_strings(self):
         """Test sequence patterns with string literals."""
-        source = dedent(
-            """
+        source = dedent("""
             cmd = ["get", "item"]
             if len(cmd) == 2 and cmd[0] == "get" and cmd[1] == "item":
                 print("get item")
             elif len(cmd) == 2 and cmd[0] == "drop" and cmd[1] == "item":
                 print("drop item")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             cmd = ["get", "item"]
             match cmd:
                 case "get", "item":
                     print("get item")
                 case "drop", "item":
                     print("drop item")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_f_string_value_pattern_not_converted(self):
         """Test f-strings are not emitted as invalid value patterns."""
-        source = dedent(
-            """
+        source = dedent("""
             value = f"ready"
             if value == f"ready":
                 print("ready")
             elif value == "other":
                 print("other")
-        """
-        ).strip()
+        """).strip()
 
         expected = source
         check_code(source, expected)
 
     def test_f_string_attribute_check_becomes_guard(self):
         """Test f-string attribute comparisons stay guards."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, x):
                     self.x = x
@@ -1667,11 +1474,9 @@ class TestTransformCode:
                 print("ready")
             elif isinstance(value, Point):
                 print("point")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, x):
                     self.x = x
@@ -1681,22 +1486,19 @@ class TestTransformCode:
                     print("ready")
                 case Point():
                     print("point")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_f_string_sequence_element_check_becomes_guard(self):
         """F-string sequence element comparisons do not drive subject selection."""
-        source = dedent(
-            """
+        source = dedent("""
             value = [f"ready"]
             if len(value) == 1 and value[0] == f"ready":
                 print("ready")
             elif value == 0:
                 print("zero")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, source)
 
@@ -1705,15 +1507,13 @@ class TestTransformCode:
 
         If we check len() == 3 but only check indices 0 and 1, don't convert.
         """
-        source = dedent(
-            """
+        source = dedent("""
             point = (1, 2, 3)
             if len(point) == 3 and point[0] == 1 and point[1] == 2:
                 print("incomplete")
             elif len(point) == 3:
                 print("complete")
-        """
-        ).strip()
+        """).strip()
 
         # Expected is same as source (no transformation)
         expected = source
@@ -1721,15 +1521,13 @@ class TestTransformCode:
 
     def test_sequence_pattern_without_len_not_converted(self):
         """Test that subscript checks without len() are not converted."""
-        source = dedent(
-            """
+        source = dedent("""
             point = (1, 2)
             if point[0] == 1 and point[1] == 2:
                 print("no len check")
             elif point[0] == 0:
                 print("other")
-        """
-        ).strip()
+        """).strip()
 
         # Expected is same as source (no transformation)
         expected = source
@@ -1740,8 +1538,7 @@ class TestTransformCode:
 
         Tests nested pattern support: isinstance(x[i], Class) inside sequence patterns.
         """
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 pass
             x = [Point(), 2]
@@ -1751,11 +1548,9 @@ class TestTransformCode:
                 print("1 and 1")
             else:
                 print("other")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 pass
             x = [Point(), 2]
@@ -1766,15 +1561,13 @@ class TestTransformCode:
                     print("1 and 1")
                 case _:
                     print("other")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_isinstance_subscript_subject(self):
         """Test isinstance chains can match directly on a subscript expression."""
-        source = dedent(
-            """
+        source = dedent("""
             class A:
                 pass
             class B:
@@ -1785,11 +1578,9 @@ class TestTransformCode:
                 print("a")
             elif isinstance(items[0], B):
                 print("b")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class A:
                 pass
             class B:
@@ -1801,26 +1592,22 @@ class TestTransformCode:
                     print("a")
                 case B():
                     print("b")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_sequence_pattern_with_guard_condition(self):
         """Test sequence patterns with an independent guard condition."""
-        source = dedent(
-            """
+        source = dedent("""
             ENABLED = True
             point = (1, 2)
             if len(point) == 2 and point[0] == 1 and ENABLED:
                 print("enabled one")
             elif len(point) == 2 and point[0] == 0:
                 print("zero")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             ENABLED = True
             point = (1, 2)
             match point:
@@ -1828,55 +1615,47 @@ class TestTransformCode:
                     print("enabled one")
                 case 0, _:
                     print("zero")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_sequence_pattern_with_subject_guard_condition(self):
         """Test unsupported sequence-subject checks are preserved as guards."""
-        source = dedent(
-            """
+        source = dedent("""
             point = (1, 2)
             if len(point) == 2 and point[0] == 1 and point[1] > 0:
                 print("positive second")
             elif len(point) == 2 and point[0] == 0:
                 print("zero")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             point = (1, 2)
             match point:
                 case 1, _ if point[1] > 0:
                     print("positive second")
                 case 0, _:
                     print("zero")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_sequence_pattern_with_variable_element_guard(self):
         """Variable element comparisons do not drive sequence subject selection."""
-        source = dedent(
-            """
+        source = dedent("""
             expected = 1
             point = (1, 2)
             if len(point) == 2 and point[0] == expected:
                 print("expected first")
             elif len(point) == 2 and point[0] == 0:
                 print("zero")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, source)
 
     def test_sequence_pattern_with_class_element_attributes(self):
         """Test class attributes on an element inside a sequence pattern."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, x, y):
                     self.x = x
@@ -1886,11 +1665,9 @@ class TestTransformCode:
                 print("match")
             elif value == 1:
                 print("other")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, x, y):
                     self.x = x
@@ -1901,15 +1678,13 @@ class TestTransformCode:
                     print("match")
                 case 1:
                     print("other")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_sequence_pattern_with_nested_class_element_attributes(self):
         """Test nested class attributes on an element inside a sequence pattern."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, x):
                     self.x = x
@@ -1923,11 +1698,9 @@ class TestTransformCode:
                 print("match")
             elif value == 1:
                 print("other")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, x):
                     self.x = x
@@ -1942,15 +1715,13 @@ class TestTransformCode:
                     print("match")
                 case 1:
                     print("other")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_sequence_nested_element_non_literal_check_preserved_as_guard(self):
         """Test nested sequence element attribute comparisons stay guards."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, kind):
                     self.kind = kind
@@ -1964,11 +1735,9 @@ class TestTransformCode:
                 print("match")
             elif len(value) >= 1 and isinstance(value[0], Point):
                 print("point")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, kind):
                     self.kind = kind
@@ -1983,8 +1752,7 @@ class TestTransformCode:
                     print("match")
                 case Point(), *_:
                     print("point")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
@@ -1993,8 +1761,7 @@ class TestTransformCode:
 
         Tests multiple isinstance elements in a sequence pattern.
         """
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 pass
             class Color:
@@ -2004,11 +1771,9 @@ class TestTransformCode:
                 print("point, color, 1")
             elif len(x) == 3 and x[0] == 0 and x[1] == 0 and x[2] == 0:
                 print("zeros")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 pass
             class Color:
@@ -2019,40 +1784,34 @@ class TestTransformCode:
                     print("point, color, 1")
                 case 0, 0, 0:
                     print("zeros")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_sequence_pattern_with_or_element(self):
         """Test OR patterns inside a sequence element."""
-        source = dedent(
-            """
+        source = dedent("""
             value = [2, 3]
             if len(value) == 2 and (value[0] == 1 or value[0] == 2) and value[1] == 3:
                 print("match")
             elif value == 0:
                 print("zero")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             value = [2, 3]
             match value:
                 case 1 | 2, 3:
                     print("match")
                 case 0:
                     print("zero")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_sequence_pattern_with_class_or_element(self):
         """Test class OR patterns inside a sequence element."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 pass
 
@@ -2064,11 +1823,9 @@ class TestTransformCode:
                 print("point or token")
             elif value is None:
                 print("none")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 pass
 
@@ -2081,15 +1838,13 @@ class TestTransformCode:
                     print("point or token")
                 case None:
                     print("none")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_sequence_pattern_with_mixed_or_element(self):
         """Test mixed value and class OR patterns inside a sequence element."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 pass
 
@@ -2098,11 +1853,9 @@ class TestTransformCode:
                 print("one or point")
             elif value is None:
                 print("none")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 pass
 
@@ -2112,15 +1865,13 @@ class TestTransformCode:
                     print("one or point")
                 case None:
                     print("none")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_sequence_pattern_with_class_attribute_or_element(self):
         """Test class attribute OR patterns inside a sequence element."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, kind):
                     self.kind = kind
@@ -2134,11 +1885,9 @@ class TestTransformCode:
                 print("match")
             elif value is None:
                 print("none")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, kind):
                     self.kind = kind
@@ -2153,15 +1902,13 @@ class TestTransformCode:
                     print("match")
                 case None:
                     print("none")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_sequence_pattern_with_nested_class_attribute_or_element(self):
         """Test nested class attribute OR patterns inside a sequence element."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, node):
                     self.node = node
@@ -2178,11 +1925,9 @@ class TestTransformCode:
                 print("match")
             elif value is None:
                 print("none")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, node):
                     self.node = node
@@ -2200,15 +1945,13 @@ class TestTransformCode:
                     print("match")
                 case None:
                     print("none")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_sequence_pattern_with_safe_nested_class_attribute_or_element(self):
         """Test redundant hasattr checks in nested class OR sequence elements."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, node):
                     self.node = node
@@ -2225,11 +1968,9 @@ class TestTransformCode:
                 print("match")
             elif value is None:
                 print("none")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, node):
                     self.node = node
@@ -2247,8 +1988,7 @@ class TestTransformCode:
                     print("match")
                 case None:
                     print("none")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
@@ -2257,8 +1997,7 @@ class TestTransformCode:
 
         Tests combining isinstance and identity patterns in sequences.
         """
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 pass
             x = [Point(), None]
@@ -2266,11 +2005,9 @@ class TestTransformCode:
                 print("point and none")
             elif len(x) == 2 and x[0] == 1 and x[1] == 2:
                 print("1 and 2")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 pass
             x = [Point(), None]
@@ -2279,8 +2016,7 @@ class TestTransformCode:
                     print("point and none")
                 case 1, 2:
                     print("1 and 2")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
@@ -2290,8 +2026,7 @@ class TestTransformCode:
         Tests: isinstance(x[i], (Class1, Class2)) inside sequence patterns.
         Should convert to: case Class1() | Class2(), ...:
         """
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 pass
             class Line:
@@ -2301,11 +2036,9 @@ class TestTransformCode:
                 print("point or line and 1")
             elif len(x) == 2 and x[0] == 0 and x[1] == 0:
                 print("0 and 0")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 pass
             class Line:
@@ -2316,15 +2049,13 @@ class TestTransformCode:
                     print("point or line and 1")
                 case 0, 0:
                     print("0 and 0")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_sequence_pattern_with_isinstance_tuple_and_attribute(self):
         """Test attributes on an isinstance tuple inside a sequence pattern."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, x):
                     self.x = x
@@ -2338,11 +2069,9 @@ class TestTransformCode:
                 print("match")
             elif value == 0:
                 print("zero")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, x):
                     self.x = x
@@ -2357,8 +2086,7 @@ class TestTransformCode:
                     print("match")
                 case 0:
                     print("zero")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
@@ -2368,8 +2096,7 @@ class TestTransformCode:
         Tests: isinstance(x, Point) with x.a == val1 and x.b == val2 and x.c == val3
         Demonstrates that any number of attributes at the same level work without limits.
         """
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, x, y, z):
                     self.x = x
@@ -2380,11 +2107,9 @@ class TestTransformCode:
                 print("exact point")
             elif isinstance(p, Point):
                 print("other point")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, x, y, z):
                     self.x = x
@@ -2396,8 +2121,7 @@ class TestTransformCode:
                     print("exact point")
                 case Point():
                     print("other point")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
@@ -2406,8 +2130,7 @@ class TestTransformCode:
 
         Tests that 10 attributes at the same level work fine.
         """
-        source = dedent(
-            """
+        source = dedent("""
             class Data:
                 def __init__(self, a, b, c, d, e, f, g, h, i, j):
                     self.a = a
@@ -2425,11 +2148,9 @@ class TestTransformCode:
                 print("all ten")
             elif isinstance(x, Data):
                 print("other")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Data:
                 def __init__(self, a, b, c, d, e, f, g, h, i, j):
                     self.a = a
@@ -2448,8 +2169,7 @@ class TestTransformCode:
                     print("all ten")
                 case Data():
                     print("other")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
@@ -2458,8 +2178,7 @@ class TestTransformCode:
 
         Tests that 8-element sequences work fine (literals and isinstance mixed).
         """
-        source = dedent(
-            """
+        source = dedent("""
             class A:
                 pass
             class B:
@@ -2469,11 +2188,9 @@ class TestTransformCode:
                 print("eight elements")
             elif x == 0:
                 print("zero")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class A:
                 pass
             class B:
@@ -2484,8 +2201,7 @@ class TestTransformCode:
                     print("eight elements")
                 case 0:
                     print("zero")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
@@ -2494,8 +2210,7 @@ class TestTransformCode:
 
         Patterns like 'len(x) >= 2 and x[0] == 1 and x[1] == 2' become 'case [1, 2, *_]:'.
         """
-        source = dedent(
-            """
+        source = dedent("""
             data = [1, 2, 3, 4, 5]
             if len(data) >= 2 and data[0] == 1 and data[1] == 2:
                 print("starts with 1, 2")
@@ -2503,11 +2218,9 @@ class TestTransformCode:
                 print("starts with 0")
             else:
                 print("other")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             data = [1, 2, 3, 4, 5]
             match data:
                 case 1, 2, *_:
@@ -2516,40 +2229,34 @@ class TestTransformCode:
                     print("starts with 0")
                 case _:
                     print("other")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_sequence_pattern_star_with_wildcard_gap(self):
         """Test star patterns with unchecked prefix positions."""
-        source = dedent(
-            """
+        source = dedent("""
             data = [1, 99, 3, 4, 5]
             if len(data) >= 3 and data[0] == 1 and data[2] == 3:
                 print("starts with 1 and third is 3")
             elif len(data) >= 2 and data[1] == 0:
                 print("second is 0")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             data = [1, 99, 3, 4, 5]
             match data:
                 case 1, _, 3, *_:
                     print("starts with 1 and third is 3")
                 case _, 0, *_:
                     print("second is 0")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_sequence_pattern_star_with_isinstance(self):
         """Test star patterns with isinstance elements."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 pass
             data = [Point(), 1, 2, 3]
@@ -2557,11 +2264,9 @@ class TestTransformCode:
                 print("point then 1")
             elif len(data) >= 1 and isinstance(data[0], Point):
                 print("starts with point")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 pass
             data = [Point(), 1, 2, 3]
@@ -2570,8 +2275,7 @@ class TestTransformCode:
                     print("point then 1")
                 case Point(), *_:
                     print("starts with point")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
@@ -2580,8 +2284,7 @@ class TestTransformCode:
 
         Patterns like 'len(x) == 3 and x[0] == 1 and x[2] == 3' become 'case [1, _, 3]:'.
         """
-        source = dedent(
-            """
+        source = dedent("""
             data = [1, "middle", 3]
             if len(data) == 3 and data[0] == 1 and data[2] == 3:
                 print("1 and 3 with middle gap")
@@ -2589,11 +2292,9 @@ class TestTransformCode:
                 print("0 and 2 with middle gap")
             else:
                 print("other")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             data = [1, "middle", 3]
             match data:
                 case 1, _, 3:
@@ -2602,80 +2303,68 @@ class TestTransformCode:
                     print("0 and 2 with middle gap")
                 case _:
                     print("other")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_wildcard_pattern_two_consecutive(self):
         """Test wildcard pattern with two consecutive gaps (maximum allowed)."""
-        source = dedent(
-            """
+        source = dedent("""
             data = [1, "a", "b", 4]
             if len(data) == 4 and data[0] == 1 and data[3] == 4:
                 print("1 and 4 with two gaps")
             elif len(data) == 4 and data[0] == 0 and data[3] == 3:
                 print("0 and 3 with two gaps")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             data = [1, "a", "b", 4]
             match data:
                 case 1, _, _, 4:
                     print("1 and 4 with two gaps")
                 case 0, _, _, 3:
                     print("0 and 3 with two gaps")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_wildcard_pattern_three_consecutive_not_converted(self):
         """Test that three consecutive wildcards prevent conversion."""
-        source = dedent(
-            """
+        source = dedent("""
             data = [1, "a", "b", "c", 5]
             if len(data) == 5 and data[0] == 1 and data[4] == 5:
                 print("1 and 5 with three gaps")
             elif len(data) == 5 and data[0] == 0 and data[4] == 4:
                 print("0 and 4 with three gaps")
-        """
-        ).strip()
+        """).strip()
 
         # Should NOT be converted (3 consecutive wildcards)
         check_code(source, source)
 
     def test_sequence_element_beyond_checked_length_falls_back_to_guard(self):
         """Test out-of-range element checks are kept as a guard-only case."""
-        source = dedent(
-            """
+        source = dedent("""
             data = [1, 2, 3]
             if len(data) == 1 and data[2] == 3:
                 print("too far")
             elif len(data) == 1 and data[0] == 1:
                 print("one")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             data = [1, 2, 3]
             match data:
                 case _ if len(data) == 1 and data[2] == 3:
                     print("too far")
                 case 1,:
                     print("one")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_non_integer_sequence_subscripts_fall_back_to_guards(self):
         """Test non-patternable subscript forms remain guards instead of crashing."""
-        source = dedent(
-            """
+        source = dedent("""
             data = [1, 2]
             i = 0
             if len(data) == 2 and data[0, 1] == 1:
@@ -2686,11 +2375,9 @@ class TestTransformCode:
                 print("dynamic subscript")
             elif len(data) == 2 and data[0] == 1:
                 print("one")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             data = [1, 2]
             i = 0
             match data:
@@ -2702,40 +2389,34 @@ class TestTransformCode:
                     print("dynamic subscript")
                 case 1, _:
                     print("one")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_wildcard_pattern_multiple_groups(self):
         """Test wildcard pattern with multiple separate wildcard groups."""
-        source = dedent(
-            """
+        source = dedent("""
             data = [1, "a", 2, "b", "c", 5]
             if len(data) == 6 and data[0] == 1 and data[2] == 2 and data[5] == 5:
                 print("1, 2, 5 with gaps")
             elif len(data) == 6 and data[0] == 0 and data[2] == 1 and data[5] == 3:
                 print("0, 1, 3 with gaps")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             data = [1, "a", 2, "b", "c", 5]
             match data:
                 case 1, _, 2, _, _, 5:
                     print("1, 2, 5 with gaps")
                 case 0, _, 1, _, _, 3:
                     print("0, 1, 3 with gaps")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_wildcard_pattern_with_isinstance(self):
         """Test wildcard patterns mixed with isinstance checks."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 pass
             data = [Point(), "a", 3]
@@ -2743,11 +2424,9 @@ class TestTransformCode:
                 print("point and 3 with gap")
             elif len(data) == 3 and isinstance(data[0], Point) and data[2] == 5:
                 print("point and 5 with gap")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 pass
             data = [Point(), "a", 3]
@@ -2756,115 +2435,97 @@ class TestTransformCode:
                     print("point and 3 with gap")
                 case Point(), _, 5:
                     print("point and 5 with gap")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_wildcard_pattern_at_start(self):
         """Test wildcard at the beginning of a sequence."""
-        source = dedent(
-            """
+        source = dedent("""
             data = ["a", 1, 2]
             if len(data) == 3 and data[1] == 1 and data[2] == 2:
                 print("gap then 1, 2")
             elif len(data) == 3 and data[1] == 0 and data[2] == 1:
                 print("gap then 0, 1")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             data = ["a", 1, 2]
             match data:
                 case _, 1, 2:
                     print("gap then 1, 2")
                 case _, 0, 1:
                     print("gap then 0, 1")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_wildcard_pattern_at_end(self):
         """Test wildcard at the end of a sequence."""
-        source = dedent(
-            """
+        source = dedent("""
             data = [1, 2, "trailing"]
             if len(data) == 3 and data[0] == 1 and data[1] == 2:
                 print("1, 2 then gap")
             elif len(data) == 3 and data[0] == 0 and data[1] == 1:
                 print("0, 1 then gap")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             data = [1, 2, "trailing"]
             match data:
                 case 1, 2, _:
                     print("1, 2 then gap")
                 case 0, 1, _:
                     print("0, 1 then gap")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_wildcard_pattern_with_is_none(self):
         """Test wildcard patterns mixed with is None checks."""
-        source = dedent(
-            """
+        source = dedent("""
             data = [None, "a", 3]
             if len(data) == 3 and data[0] is None and data[2] == 3:
                 print("none and 3 with gap")
             elif len(data) == 3 and data[0] is None and data[2] == 5:
                 print("none and 5 with gap")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             data = [None, "a", 3]
             match data:
                 case None, _, 3:
                     print("none and 3 with gap")
                 case None, _, 5:
                     print("none and 5 with gap")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_wildcard_pattern_not_used_for_mixed(self):
         """Test that wildcard patterns work when some indices are checked."""
-        source = dedent(
-            """
+        source = dedent("""
             data = [1, "middle", 3]
             if len(data) == 3 and data[0] == 1 and data[2] == 3:
                 print(f"1 and 3 with {data[1]} in middle")
             elif len(data) == 3 and data[0] == 0 and data[2] == 2:
                 print(f"0 and 2 with {data[1]} in middle")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             data = [1, "middle", 3]
             match data:
                 case 1, _, 3:
                     print(f"1 and 3 with {data[1]} in middle")
                 case 0, _, 2:
                     print(f"0 and 2 with {data[1]} in middle")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_or_pattern_simple(self):
         """Test basic OR pattern with two values."""
-        source = dedent(
-            """
+        source = dedent("""
             x = 1
             if x == 1 or x == 2:
                 print("one or two")
@@ -2872,11 +2533,9 @@ class TestTransformCode:
                 print("three or four")
             else:
                 print("other")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             x = 1
             match x:
                 case 1 | 2:
@@ -2885,140 +2544,118 @@ class TestTransformCode:
                     print("three or four")
                 case _:
                     print("other")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_or_pattern_three_values(self):
         """Test OR pattern with three values."""
-        source = dedent(
-            """
+        source = dedent("""
             color = "red"
             if color == "red" or color == "green" or color == "blue":
                 print("primary color")
             elif color == "yellow" or color == "cyan" or color == "magenta":
                 print("secondary color")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             color = "red"
             match color:
                 case "red" | "green" | "blue":
                     print("primary color")
                 case "yellow" | "cyan" | "magenta":
                     print("secondary color")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_or_pattern_with_strings(self):
         """Test OR pattern with string literals."""
-        source = dedent(
-            """
+        source = dedent("""
             status = "ready"
             if status == "ready" or status == "running":
                 print("active")
             elif status == "stopped" or status == "error":
                 print("inactive")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             status = "ready"
             match status:
                 case "ready" | "running":
                     print("active")
                 case "stopped" | "error":
                     print("inactive")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_or_pattern_mixed_types(self):
         """Test OR pattern with mixed number types."""
-        source = dedent(
-            """
+        source = dedent("""
             value = 1
             if value == 1 or value == 2.5:
                 print("small")
             elif value == 10 or value == 20.0:
                 print("large")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             value = 1
             match value:
                 case 1 | 2.5:
                     print("small")
                 case 10 | 20.0:
                     print("large")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_or_pattern_with_is_none(self):
         """Test OR pattern with 'is None'."""
-        source = dedent(
-            """
+        source = dedent("""
             value = None
             if value is None or value is False:
                 print("falsy singleton")
             elif value is True:
                 print("truthy singleton")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             value = None
             match value:
                 case None | False:
                     print("falsy singleton")
                 case True:
                     print("truthy singleton")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_or_pattern_with_negative_numbers(self):
         """Test OR pattern with negative numbers."""
-        source = dedent(
-            """
+        source = dedent("""
             temp = -5
             if temp == -5 or temp == -10:
                 print("very cold")
             elif temp == 0 or temp == 5:
                 print("cold")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             temp = -5
             match temp:
                 case -5 | -10:
                     print("very cold")
                 case 0 | 5:
                     print("cold")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_or_pattern_in_mixed_chain(self):
         """Test OR pattern mixed with other pattern types in a chain."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 pass
             value = 1
@@ -3030,11 +2667,9 @@ class TestTransformCode:
                 print("none")
             else:
                 print("other")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 pass
             value = 1
@@ -3047,15 +2682,13 @@ class TestTransformCode:
                     print("none")
                 case _:
                     print("other")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_or_pattern_with_isinstance_classes(self):
         """Test OR pattern from isinstance checks on the same subject."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 pass
 
@@ -3067,11 +2700,9 @@ class TestTransformCode:
                 print("class")
             elif value == 1:
                 print("one")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 pass
 
@@ -3084,15 +2715,13 @@ class TestTransformCode:
                     print("class")
                 case 1:
                     print("one")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_or_pattern_with_mixed_value_and_isinstance(self):
         """Test OR pattern mixing a literal and a class pattern."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 pass
 
@@ -3101,11 +2730,9 @@ class TestTransformCode:
                 print("one or point")
             elif value is None:
                 print("none")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 pass
 
@@ -3115,15 +2742,13 @@ class TestTransformCode:
                     print("one or point")
                 case None:
                     print("none")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_or_pattern_with_class_attribute_alternative(self):
         """Test OR alternatives that contain class attribute patterns."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, kind):
                     self.kind = kind
@@ -3136,11 +2761,9 @@ class TestTransformCode:
                 print("match")
             elif value is None:
                 print("none")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, kind):
                     self.kind = kind
@@ -3154,15 +2777,13 @@ class TestTransformCode:
                     print("match")
                 case None:
                     print("none")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_or_pattern_with_redundant_hasattr_class_attribute_alternative(self):
         """Test safe hasattr checks do not block class attribute OR patterns."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, kind):
                     self.kind = kind
@@ -3175,11 +2796,9 @@ class TestTransformCode:
                 print("match")
             elif value is None:
                 print("none")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, kind):
                     self.kind = kind
@@ -3193,15 +2812,13 @@ class TestTransformCode:
                     print("match")
                 case None:
                     print("none")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_or_pattern_with_mixed_value_and_class_attribute_alternative(self):
         """Test OR pattern mixing a literal and a class attribute pattern."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, kind):
                     self.kind = kind
@@ -3211,11 +2828,9 @@ class TestTransformCode:
                 print("ready or point")
             elif value is None:
                 print("none")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, kind):
                     self.kind = kind
@@ -3226,15 +2841,13 @@ class TestTransformCode:
                     print("ready or point")
                 case None:
                     print("none")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_or_pattern_with_guarded_alternative_stays_guard(self):
         """Test OR alternatives with per-branch guards are not folded unsafely."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, kind):
                     self.kind = kind
@@ -3247,11 +2860,9 @@ class TestTransformCode:
                 print("match")
             elif value is None:
                 print("none")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, kind):
                     self.kind = kind
@@ -3265,15 +2876,13 @@ class TestTransformCode:
                     print("match")
                 case None:
                     print("none")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_or_pattern_with_common_simple_guard_is_lifted(self):
         """Test OR alternatives with the same simple guard share a case guard."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, kind):
                     self.kind = kind
@@ -3287,11 +2896,9 @@ class TestTransformCode:
                 print("match")
             elif value is None:
                 print("none")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, kind):
                     self.kind = kind
@@ -3306,15 +2913,13 @@ class TestTransformCode:
                     print("match")
                 case None:
                     print("none")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_or_pattern_with_common_call_guard_stays_guard(self):
         """Test common call guards are not lifted across OR alternatives."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 pass
 
@@ -3326,11 +2931,9 @@ class TestTransformCode:
                 print("match")
             elif value is None:
                 print("none")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 pass
 
@@ -3343,15 +2946,13 @@ class TestTransformCode:
                     print("match")
                 case None:
                     print("none")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_walrus_guard_is_preserved(self):
         """Test walrus checks outside the subject stay as case guards."""
-        source = dedent(
-            """
+        source = dedent("""
             class CallExpr:
                 pass
 
@@ -3366,11 +2967,9 @@ class TestTransformCode:
                 print("callable")
             elif obj is None:
                 print("none")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class CallExpr:
                 pass
 
@@ -3386,15 +2985,13 @@ class TestTransformCode:
                     print("callable")
                 case None:
                     print("none")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_or_pattern_with_sequence_alternative(self):
         """Test top-level sequence OR alternatives are bracketed correctly."""
-        source = dedent(
-            """
+        source = dedent("""
             class Token:
                 pass
 
@@ -3403,11 +3000,9 @@ class TestTransformCode:
                 print("match")
             elif value is None:
                 print("none")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Token:
                 pass
 
@@ -3417,33 +3012,28 @@ class TestTransformCode:
                     print("match")
                 case None:
                     print("none")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_or_pattern_with_safe_sequence_alternative(self):
         """Test safe sequence type checks do not block top-level sequence OR patterns."""
-        source = dedent(
-            """
+        source = dedent("""
             value = [1, 2]
             if (isinstance(value, (list, tuple)) and len(value) == 2 and value[0] == 1 and value[1] == 2) or value is None:
                 print("match")
             elif value is False:
                 print("false")
-        """
-        ).strip()
+        """).strip()
 
-        expected_safe = dedent(
-            """
+        expected_safe = dedent("""
             value = [1, 2]
             match value:
                 case _ if (isinstance(value, (list, tuple)) and len(value) == 2 and value[0] == 1 and value[1] == 2) or value is None:
                     print("match")
                 case False:
                     print("false")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected_safe)
         check_code(
@@ -3459,8 +3049,7 @@ class TestTransformCode:
 
     def test_or_pattern_with_sequence_attribute_alternative(self):
         """Test OR alternatives with class sequence attribute patterns."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, **attrs):
                     self.__dict__.update(attrs)
@@ -3470,11 +3059,9 @@ class TestTransformCode:
                 print("match")
             elif value is None:
                 print("none")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, **attrs):
                     self.__dict__.update(attrs)
@@ -3485,15 +3072,13 @@ class TestTransformCode:
                     print("match")
                 case None:
                     print("none")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_or_pattern_with_safe_sequence_attribute_alternative(self):
         """Test safe sequence type checks do not block class sequence OR patterns."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, **attrs):
                     self.__dict__.update(attrs)
@@ -3503,11 +3088,9 @@ class TestTransformCode:
                 print("match")
             elif value is None:
                 print("none")
-        """
-        ).strip()
+        """).strip()
 
-        expected_safe = dedent(
-            """
+        expected_safe = dedent("""
             class Point:
                 def __init__(self, **attrs):
                     self.__dict__.update(attrs)
@@ -3518,8 +3101,7 @@ class TestTransformCode:
                     print("match")
                 case None:
                     print("none")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected_safe)
         check_code(
@@ -3535,8 +3117,7 @@ class TestTransformCode:
 
     def test_or_pattern_with_sequence_element_redundant_hasattr(self):
         """Test safe hasattr checks do not block sequence element class patterns."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, kind):
                     self.kind = kind
@@ -3546,11 +3127,9 @@ class TestTransformCode:
                 print("match")
             elif value is None:
                 print("none")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, kind):
                     self.kind = kind
@@ -3561,15 +3140,13 @@ class TestTransformCode:
                     print("match")
                 case None:
                     print("none")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_or_pattern_with_nested_class_redundant_hasattr(self):
         """Test safe hasattr checks do not block nested class OR patterns."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, **attrs):
                     self.__dict__.update(attrs)
@@ -3583,11 +3160,9 @@ class TestTransformCode:
                 print("match")
             elif value is None:
                 print("none")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, **attrs):
                     self.__dict__.update(attrs)
@@ -3602,15 +3177,13 @@ class TestTransformCode:
                     print("match")
                 case None:
                     print("none")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_or_pattern_with_deep_nested_class_redundant_hasattr(self):
         """Test safe hasattr checks do not block deep nested class OR patterns."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, **attrs):
                     self.__dict__.update(attrs)
@@ -3628,11 +3201,9 @@ class TestTransformCode:
                 print("match")
             elif value is None:
                 print("none")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, **attrs):
                     self.__dict__.update(attrs)
@@ -3651,47 +3222,41 @@ class TestTransformCode:
                     print("match")
                 case None:
                     print("none")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_or_pattern_with_variable_not_converted(self):
         """Test that OR patterns with variables (non-literals) are not converted."""
-        source = dedent(
-            """
+        source = dedent("""
             x = 1
             y = 2
             if x == 1 or x == y:
                 print("match")
             elif x == 3:
                 print("three")
-        """
-        ).strip()
+        """).strip()
 
         # Should NOT be converted (y is a variable, not a literal)
         check_code(source, source)
 
     def test_or_pattern_different_subjects_not_converted(self):
         """Test that OR patterns comparing different subjects are not converted."""
-        source = dedent(
-            """
+        source = dedent("""
             x = 1
             y = 2
             if x == 1 or y == 2:
                 print("match")
             elif x == 3:
                 print("three")
-        """
-        ).strip()
+        """).strip()
 
         # Should NOT be converted (different subjects)
         check_code(source, source)
 
     def test_or_class_pattern_with_common_attribute_check(self):
         """Test common attribute checks are inserted into every OR class alternative."""
-        source = dedent(
-            """
+        source = dedent("""
             class A:
                 def __init__(self, kind):
                     self.kind = kind
@@ -3704,11 +3269,9 @@ class TestTransformCode:
                 print("match")
             elif isinstance(x, str):
                 print("str")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class A:
                 def __init__(self, kind):
                     self.kind = kind
@@ -3722,8 +3285,7 @@ class TestTransformCode:
                     print("match")
                 case str():
                     print("str")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
@@ -3733,8 +3295,7 @@ class TestTransformCode:
         When first statement is 'var = obj.attr[0]' and pattern has len(obj.attr) >= N,
         convert to use capture: case Class(attr=[var, *_]):
         """
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, x):
                     self.x = x
@@ -3745,11 +3306,9 @@ class TestTransformCode:
                 print(value)
             elif isinstance(n, Point):
                 print("empty")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, x):
                     self.x = x
@@ -3760,15 +3319,13 @@ class TestTransformCode:
                     print(value)
                 case Point():
                     print("empty")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_duplicate_capture_index_uses_alias_assignment(self):
         """Test duplicate captures for the same source index keep an alias."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, x):
                     self.x = x
@@ -3780,11 +3337,9 @@ class TestTransformCode:
                 print(first, again)
             elif isinstance(n, Point):
                 print("empty")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, x):
                     self.x = x
@@ -3796,15 +3351,13 @@ class TestTransformCode:
                     print(first, again)
                 case Point():
                     print("empty")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_capture_only_body_becomes_pass(self):
         """Test capture removal keeps an empty case body syntactically valid."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, x):
                     self.x = x
@@ -3814,11 +3367,9 @@ class TestTransformCode:
                 value = n.x[0]
             elif isinstance(n, Point):
                 print("empty")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, x):
                     self.x = x
@@ -3829,15 +3380,13 @@ class TestTransformCode:
                     pass
                 case Point():
                     print("empty")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_duplicate_capture_only_body_keeps_alias_without_pass(self):
         """Test duplicate-only captures replace the temporary pass body with aliases."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, x):
                     self.x = x
@@ -3848,11 +3397,9 @@ class TestTransformCode:
                 again = n.x[0]
             elif isinstance(n, Point):
                 print("empty")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, x):
                     self.x = x
@@ -3863,15 +3410,13 @@ class TestTransformCode:
                     again = first
                 case Point():
                     print("empty")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_invalid_capture_assignments_stay_in_body(self):
         """Test capture-like assignments stay in the body when they cannot bind safely."""
-        source = dedent(
-            """
+        source = dedent("""
             class A:
                 def __init__(self, x):
                     self.x = x
@@ -3905,11 +3450,9 @@ class TestTransformCode:
             elif isinstance(n, E) and len(n.x) >= 1:
                 value = n.x[i]
                 print(value)
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class A:
                 def __init__(self, x):
                     self.x = x
@@ -3944,25 +3487,21 @@ class TestTransformCode:
                 case E(x=[_, *_]):
                     value = n.x[i]
                     print(value)
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_capture_does_not_replace_an_existing_value_pattern(self):
-        source = dedent(
-            """
+        source = dedent("""
             value = [1]
             if len(value) == 1 and value[0] == 1:
                 item = value[0]
                 print(item)
             elif value == 0:
                 print("zero")
-            """
-        ).strip()
+            """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             value = [1]
             match value:
                 case 1,:
@@ -3970,8 +3509,7 @@ class TestTransformCode:
                     print(item)
                 case 0:
                     print("zero")
-            """
-        ).strip()
+            """).strip()
 
         check_code(source, expected)
 
@@ -3981,8 +3519,7 @@ class TestTransformCode:
         When first statements are 'a = obj.attr[0]', 'b = obj.attr[1]', etc.,
         convert to use multiple captures: case Class(attr=[a, b, *_]):
         """
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, x):
                     self.x = x
@@ -3994,11 +3531,9 @@ class TestTransformCode:
                 print(first, second)
             elif isinstance(n, Point):
                 print("empty")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, x):
                     self.x = x
@@ -4009,15 +3544,13 @@ class TestTransformCode:
                     print(first, second)
                 case Point():
                     print("empty")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_capture_pattern_three_values(self):
         """Test three capture pattern with consecutive assignments."""
-        source = dedent(
-            """
+        source = dedent("""
             class Data:
                 def __init__(self, values):
                     self.values = values
@@ -4030,11 +3563,9 @@ class TestTransformCode:
                 print(a, b, c)
             elif isinstance(d, Data):
                 print("other")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Data:
                 def __init__(self, values):
                     self.values = values
@@ -4045,8 +3576,7 @@ class TestTransformCode:
                     print(a, b, c)
                 case Data():
                     print("other")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
@@ -4056,8 +3586,7 @@ class TestTransformCode:
         If assignments skip indices (e.g., [0] then [2]), captures are created
         with wildcards for skipped indices.
         """
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, x):
                     self.x = x
@@ -4069,11 +3598,9 @@ class TestTransformCode:
                 print(first, third)
             elif isinstance(n, Point):
                 print("empty")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, x):
                     self.x = x
@@ -4084,8 +3611,7 @@ class TestTransformCode:
                     print(first, third)
                 case Point():
                     print("empty")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
@@ -4094,8 +3620,7 @@ class TestTransformCode:
 
         Captures from both x and y attributes should work.
         """
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, x, y):
                     self.x = x
@@ -4108,11 +3633,9 @@ class TestTransformCode:
                 print(x_val, y_val)
             elif isinstance(n, Point):
                 print("empty")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, x, y):
                     self.x = x
@@ -4124,15 +3647,13 @@ class TestTransformCode:
                     print(x_val, y_val)
                 case Point():
                     print("empty")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_capture_pattern_multi_attribute_multiple_captures(self):
         """Test capturing multiple values from multiple attributes."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, x, y):
                     self.x = x
@@ -4147,11 +3668,9 @@ class TestTransformCode:
                 print(x1, x2, y1, y2)
             elif isinstance(n, Point):
                 print("empty")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, x, y):
                     self.x = x
@@ -4163,15 +3682,13 @@ class TestTransformCode:
                     print(x1, x2, y1, y2)
                 case Point():
                     print("empty")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_capture_pattern_non_consecutive_multi_gap(self):
         """Test non-consecutive with multiple gaps (0, 1, 3, 5)."""
-        source = dedent(
-            """
+        source = dedent("""
             class Data:
                 def __init__(self, vals):
                     self.vals = vals
@@ -4185,11 +3702,9 @@ class TestTransformCode:
                 print(a, b, d_val, f)
             elif isinstance(d, Data):
                 print("other")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Data:
                 def __init__(self, vals):
                     self.vals = vals
@@ -4200,15 +3715,13 @@ class TestTransformCode:
                     print(a, b, d_val, f)
                 case Data():
                     print("other")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_capture_pattern_not_starting_from_zero(self):
         """Test captures starting from non-zero index."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, x):
                     self.x = x
@@ -4220,11 +3733,9 @@ class TestTransformCode:
                 print(second, third)
             elif isinstance(n, Point):
                 print("empty")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, x):
                     self.x = x
@@ -4235,15 +3746,13 @@ class TestTransformCode:
                     print(second, third)
                 case Point():
                     print("empty")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_capture_pattern_nested_attribute(self):
         """Test capturing from a sequence on a nested class attribute."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, data):
                     self.data = data
@@ -4258,11 +3767,9 @@ class TestTransformCode:
                 print(item)
             elif isinstance(n, Point):
                 print("point")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, data):
                     self.data = data
@@ -4277,15 +3784,13 @@ class TestTransformCode:
                     print(item)
                 case Point():
                     print("point")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_capture_pattern_class_union(self):
         """Test captures are added to every alternative in a class union."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, x):
                     self.x = x
@@ -4300,11 +3805,9 @@ class TestTransformCode:
                 print(item)
             elif isinstance(n, int):
                 print("int")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, x):
                     self.x = x
@@ -4319,15 +3822,13 @@ class TestTransformCode:
                     print(item)
                 case int():
                     print("int")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_capture_pattern_sequence_element_class_attribute(self):
         """Test captures from sequence element class attributes."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, items):
                     self.items = items
@@ -4338,11 +3839,9 @@ class TestTransformCode:
                 print(item)
             elif value == 0:
                 print("zero")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, items):
                     self.items = items
@@ -4353,67 +3852,57 @@ class TestTransformCode:
                     print(item)
                 case 0:
                     print("zero")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_capture_pattern_direct_sequence_subject(self):
         """Test capturing from the matched sequence subject itself."""
-        source = dedent(
-            """
+        source = dedent("""
             value = [1, 2]
             if len(value) == 2 and value[1] == 2:
                 first = value[0]
                 print(first)
             elif value is None:
                 print("none")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             value = [1, 2]
             match value:
                 case first, 2:
                     print(first)
                 case None:
                     print("none")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_capture_pattern_direct_star_sequence_subject(self):
         """Test capturing from the matched subject in an open sequence pattern."""
-        source = dedent(
-            """
+        source = dedent("""
             value = [1, 2, 3]
             if len(value) >= 2 and value[1] == 2:
                 first = value[0]
                 print(first)
             elif value is None:
                 print("none")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             value = [1, 2, 3]
             match value:
                 case first, 2, *_:
                     print(first)
                 case None:
                     print("none")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_capture_pattern_direct_sequence_subject_or_pattern(self):
         """Test direct sequence captures are added to every OR alternative."""
-        source = dedent(
-            """
+        source = dedent("""
             value = [1, 2, 3]
             if (len(value) >= 3 and value[1] == 2) or (len(value) >= 3 and value[1] == 3):
                 first = value[0]
@@ -4421,26 +3910,22 @@ class TestTransformCode:
                 print(first, third)
             elif value is None:
                 print("none")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             value = [1, 2, 3]
             match value:
                 case [first, 2, third, *_] | [first, 3, third, *_]:
                     print(first, third)
                 case None:
                     print("none")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_capture_pattern_sequence_attribute_or_pattern(self):
         """Test sequence attribute OR patterns can receive captures."""
-        source = dedent(
-            """
+        source = dedent("""
             class Wrapper:
                 def __init__(self, data):
                     self.data = data
@@ -4452,11 +3937,9 @@ class TestTransformCode:
                 print(first, third)
             elif value is None:
                 print("none")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Wrapper:
                 def __init__(self, data):
                     self.data = data
@@ -4467,15 +3950,13 @@ class TestTransformCode:
                     print(first, third)
                 case None:
                     print("none")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_capture_pattern_nested_class_union_sequence_attribute(self):
         """Test nested class union sequence attributes can receive captures."""
-        source = dedent(
-            """
+        source = dedent("""
             class Outer:
                 def __init__(self, child):
                     self.child = child
@@ -4494,11 +3975,9 @@ class TestTransformCode:
                 print(first)
             elif value is None:
                 print("none")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Outer:
                 def __init__(self, child):
                     self.child = child
@@ -4517,15 +3996,13 @@ class TestTransformCode:
                     print(first)
                 case None:
                     print("none")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_capture_pattern_sequence_element_class_union_nested_attribute(self):
         """Test nested captures inside sequence element class union alternatives."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, **attrs):
                     self.__dict__.update(attrs)
@@ -4540,11 +4017,9 @@ class TestTransformCode:
                 print(item)
             elif value is False:
                 print("false")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, **attrs):
                     self.__dict__.update(attrs)
@@ -4559,15 +4034,13 @@ class TestTransformCode:
                     print(item)
                 case False:
                     print("false")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_sequence_element_class_union_nested_attribute_redundant_hasattr(self):
         """Test redundant hasattr checks with nested sequence element class unions."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 pass
 
@@ -4582,11 +4055,9 @@ class TestTransformCode:
                 print("match")
             elif value is None:
                 print("none")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 pass
 
@@ -4602,8 +4073,7 @@ class TestTransformCode:
                     print("match")
                 case None:
                     print("none")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
@@ -4612,8 +4082,7 @@ class TestTransformCode:
 
         Demonstrates: literals, isinstance, isinstance+attrs, identity, sequences all together.
         """
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, x):
                     self.x = x
@@ -4630,11 +4099,9 @@ class TestTransformCode:
                 print("none")
             else:
                 print("other")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, x):
                     self.x = x
@@ -4652,8 +4119,7 @@ class TestTransformCode:
                     print("none")
                 case _:
                     print("other")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
@@ -4663,8 +4129,7 @@ class TestTransformCode:
         Tests: len(x) == 2 and isinstance(x[0], Container) and isinstance(x[0].inner, Point) (without additional attribute checks)
         This tests that isinstance with nested isinstance works inside sequences.
         """
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 pass
             class Container:
@@ -4675,11 +4140,9 @@ class TestTransformCode:
                 print("sequence with container")
             elif len(x) == 2 and x[0] == 1 and x[1] == 1:
                 print("ones")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 pass
             class Container:
@@ -4691,8 +4154,7 @@ class TestTransformCode:
                     print("sequence with container")
                 case 1, 1:
                     print("ones")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
@@ -4701,8 +4163,7 @@ class TestTransformCode:
 
         Demonstrates 12 branches in a single match statement.
         """
-        source = dedent(
-            """
+        source = dedent("""
             x = 5
             if x == 1:
                 print("one")
@@ -4728,11 +4189,9 @@ class TestTransformCode:
                 print("eleven")
             elif x == 12:
                 print("twelve")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             x = 5
             match x:
                 case 1:
@@ -4759,8 +4218,7 @@ class TestTransformCode:
                     print("eleven")
                 case 12:
                     print("twelve")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
@@ -4769,8 +4227,7 @@ class TestTransformCode:
 
         Demonstrates: sequences with isinstance + literals + identity in real usage.
         """
-        source = dedent(
-            """
+        source = dedent("""
             class Request:
                 pass
             class Response:
@@ -4789,11 +4246,9 @@ class TestTransformCode:
                 print("plain request")
             else:
                 print("unknown")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Request:
                 pass
             class Response:
@@ -4813,65 +4268,55 @@ class TestTransformCode:
                     print("plain request")
                 case _:
                     print("unknown")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_sequence_with_nested_sequence_simple(self):
         """Test simple nested sequence: [[1, 2], 3]."""
-        source = dedent(
-            """
+        source = dedent("""
             x = [[1, 2], 3]
             if len(x) == 2 and len(x[0]) == 2 and x[0][0] == 1 and x[0][1] == 2 and x[1] == 3:
                 print("match")
             elif x == 0:
                 print("zero")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             x = [[1, 2], 3]
             match x:
                 case [1, 2], 3:
                     print("match")
                 case 0:
                     print("zero")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_sequence_with_nested_star_sequence(self):
         """Test nested open-ended sequence: [[1, 2, ...], 3]."""
-        source = dedent(
-            """
+        source = dedent("""
             x = [[1, 2, 99], 3]
             if len(x) == 2 and len(x[0]) >= 2 and x[0][0] == 1 and x[0][1] == 2 and x[1] == 3:
                 print("match")
             elif x == 0:
                 print("zero")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             x = [[1, 2, 99], 3]
             match x:
                 case [1, 2, *_], 3:
                     print("match")
                 case 0:
                     print("zero")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_sequence_with_nested_sequence_and_isinstance(self):
         """Test nested sequence mixed with isinstance: [Point(), [1, 2]]."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 pass
 
@@ -4880,11 +4325,9 @@ class TestTransformCode:
                 print("match")
             elif z == 0:
                 print("zero")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 pass
 
@@ -4894,83 +4337,70 @@ class TestTransformCode:
                     print("match")
                 case 0:
                     print("zero")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_sequence_with_nested_sequence_strings(self):
         """Test nested sequence with strings: [["a", "b"], "c"]."""
-        source = dedent(
-            """
+        source = dedent("""
             x = [["a", "b"], "c"]
             if len(x) == 2 and len(x[0]) == 2 and x[0][0] == "a" and x[0][1] == "b" and x[1] == "c":
                 print("match")
             elif x == 0:
                 print("zero")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             x = [["a", "b"], "c"]
             match x:
                 case ["a", "b"], "c":
                     print("match")
                 case 0:
                     print("zero")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_sequence_with_multiple_nested_sequences(self):
         """Test multiple nested sequences in one pattern: [[1, 2], [3, 4]]."""
-        source = dedent(
-            """
+        source = dedent("""
             x = [[1, 2], [3, 4]]
             if len(x) == 2 and len(x[0]) == 2 and x[0][0] == 1 and x[0][1] == 2 and len(x[1]) == 2 and x[1][0] == 3 and x[1][1] == 4:
                 print("match")
             elif x == 0:
                 print("zero")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             x = [[1, 2], [3, 4]]
             match x:
                 case [1, 2], [3, 4]:
                     print("match")
                 case 0:
                     print("zero")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_sequence_with_deeply_nested_sequence(self):
         """Test recursive nested sequences: [[[1, 2]]]."""
-        source = dedent(
-            """
+        source = dedent("""
             x = [[[1, 2]]]
             if len(x) == 1 and len(x[0]) == 1 and len(x[0][0]) == 2 and x[0][0][0] == 1 and x[0][0][1] == 2:
                 print("match")
             elif x == 0:
                 print("zero")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             x = [[[1, 2]]]
             match x:
                 case [[1, 2]],:
                     print("match")
                 case 0:
                     print("zero")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
@@ -4980,8 +4410,7 @@ class TestTransformCode:
         Patterns like 'isinstance(obj, Data) and len(obj.value) == 3 and obj.value[0] == 1'
         become 'case Data(value=[1, 2, 3]):'.
         """
-        source = dedent(
-            """
+        source = dedent("""
             class Data:
                 def __init__(self, value):
                     self.value = value
@@ -4991,11 +4420,9 @@ class TestTransformCode:
                 print("match")
             elif isinstance(obj, Data):
                 print("other data")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Data:
                 def __init__(self, value):
                     self.value = value
@@ -5006,15 +4433,13 @@ class TestTransformCode:
                     print("match")
                 case Data():
                     print("other data")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_sequence_attribute_type_guard_preserves_len_check(self):
         """Test that attribute type guards do not hide sequence length checks."""
-        source = dedent(
-            """
+        source = dedent("""
             class Data:
                 def __init__(self, value):
                     self.value = value
@@ -5025,11 +4450,9 @@ class TestTransformCode:
                 print(first)
             elif isinstance(obj, Data):
                 print("other data")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Data:
                 def __init__(self, value):
                     self.value = value
@@ -5040,15 +4463,13 @@ class TestTransformCode:
                     print(first)
                 case Data():
                     print("other data")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_sequence_attribute_element_non_literal_check_preserved_as_guard(self):
         """Test non-literal checks on sequence attribute elements stay guards."""
-        source = dedent(
-            """
+        source = dedent("""
             class Node:
                 def __init__(self, y):
                     self.y = y
@@ -5062,11 +4483,9 @@ class TestTransformCode:
                 print("match")
             elif isinstance(value, Node):
                 print("node")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Node:
                 def __init__(self, y):
                     self.y = y
@@ -5081,15 +4500,13 @@ class TestTransformCode:
                     print("match")
                 case Node():
                     print("node")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_nested_sequence_attribute_relational_check_preserved_as_guard(self):
         """Test relational checks on nested sequence attributes stay guards."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, kind=None, y=None):
                     self.kind = kind
@@ -5103,11 +4520,9 @@ class TestTransformCode:
                 print("match")
             elif isinstance(value, Point):
                 print("point")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, kind=None, y=None):
                     self.kind = kind
@@ -5122,15 +4537,13 @@ class TestTransformCode:
                     print("match")
                 case Point():
                     print("point")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_isinstance_with_sequence_attribute_mixed_types(self):
         """Test class pattern with sequence attribute containing mixed types."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 pass
 
@@ -5143,11 +4556,9 @@ class TestTransformCode:
                 print("match")
             elif isinstance(obj, Data):
                 print("other")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 pass
 
@@ -5161,15 +4572,13 @@ class TestTransformCode:
                     print("match")
                 case Data():
                     print("other")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_isinstance_with_sequence_and_scalar_attributes(self):
         """Test class pattern with both sequence and scalar attributes."""
-        source = dedent(
-            """
+        source = dedent("""
             class Container:
                 def __init__(self, items, count):
                     self.items = items
@@ -5180,11 +4589,9 @@ class TestTransformCode:
                 print("match")
             elif isinstance(obj, Container):
                 print("other")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Container:
                 def __init__(self, items, count):
                     self.items = items
@@ -5196,15 +4603,13 @@ class TestTransformCode:
                     print("match")
                 case Container():
                     print("other")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_isinstance_with_or_attribute(self):
         """Test OR patterns inside a class attribute."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, x):
                     self.x = x
@@ -5214,11 +4619,9 @@ class TestTransformCode:
                 print("match")
             elif isinstance(value, Point):
                 print("other")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, x):
                     self.x = x
@@ -5229,15 +4632,13 @@ class TestTransformCode:
                     print("match")
                 case Point():
                     print("other")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_isinstance_with_nested_sequence_in_sequence_attribute(self):
         """Test raw nested sequences inside a class sequence attribute."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 def __init__(self, x):
                     self.x = x
@@ -5247,11 +4648,9 @@ class TestTransformCode:
                 print("match")
             elif isinstance(value, Point):
                 print("other")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 def __init__(self, x):
                     self.x = x
@@ -5262,15 +4661,13 @@ class TestTransformCode:
                     print("match")
                 case Point():
                     print("other")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_isinstance_with_sequence_and_nested_class_attributes(self):
         """Test class pattern with both sequence and nested class attributes."""
-        source = dedent(
-            """
+        source = dedent("""
             class Node:
                 pass
 
@@ -5286,11 +4683,9 @@ class TestTransformCode:
                 print("match")
             elif isinstance(value, Node):
                 print("other")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Node:
                 pass
 
@@ -5307,15 +4702,13 @@ class TestTransformCode:
                     print("match")
                 case Node():
                     print("other")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
     def test_nested_attribute_non_literal_check_preserved_as_guard(self):
         """Test nested non-literal attribute comparisons stay guards."""
-        source = dedent(
-            """
+        source = dedent("""
             class Point:
                 pass
 
@@ -5327,11 +4720,9 @@ class TestTransformCode:
                 print("match")
             elif isinstance(value, Point):
                 print("other")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Point:
                 pass
 
@@ -5344,8 +4735,7 @@ class TestTransformCode:
                     print("match")
                 case Point():
                     print("other")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
 
@@ -5354,8 +4744,7 @@ class TestTransformCode:
 
         Pattern like Data(value=[Data(value=[1,2,3])]) now fully converts with nested attributes.
         """
-        source = dedent(
-            """
+        source = dedent("""
             class Data:
                 def __init__(self, value):
                     self.value = value
@@ -5366,11 +4755,9 @@ class TestTransformCode:
                 print("match")
             elif isinstance(outer, Data):
                 print("other")
-        """
-        ).strip()
+        """).strip()
 
-        expected = dedent(
-            """
+        expected = dedent("""
             class Data:
                 def __init__(self, value):
                     self.value = value
@@ -5382,7 +4769,6 @@ class TestTransformCode:
                     print("match")
                 case Data():
                     print("other")
-        """
-        ).strip()
+        """).strip()
 
         check_code(source, expected)
