@@ -12,7 +12,7 @@ from libcst.metadata import CodePosition, CodeRange
 from rich.console import Console
 
 from matchify.assumptions import Assumptions
-from matchify.cli import convert_file, main
+from matchify.cli import convert_file, convert_files, main
 from matchify.diff import print_location_heading, report_diff
 from matchify.transform import _ChainPreviewVisitor, collect_chain_previews
 
@@ -273,6 +273,37 @@ class TestConvertFile:
         assert changed is True
         assert error is None
         assert test_file.read_text(encoding="utf-8") == source
+
+    def test_convert_files_omits_transformed_text_unless_kept(self, tmp_path, capsys):
+        test_file = tmp_path / "test.py"
+        test_file.write_text(
+            "if x == 1:\n    pass\nelif x == 2:\n    pass\n", encoding="utf-8"
+        )
+        kwargs = dict(
+            ignore_types_pattern=None,
+            assumptions=Assumptions.from_names(),
+            jobs=None,
+            report_assumption_diagnostics=False,
+            check=True,
+            verbose=False,
+            quiet=True,
+        )
+
+        converted, unchanged, errors, changed = convert_files(
+            [test_file], keep_text=False, **kwargs
+        )
+        assert (converted, unchanged, errors) == (1, 0, 0)
+        assert changed == []
+
+        converted, unchanged, errors, kept = convert_files(
+            [test_file], keep_text=True, **kwargs
+        )
+        assert (converted, unchanged, errors) == (1, 0, 0)
+        assert len(kept) == 1
+        assert kept[0].path == test_file
+        assert kept[0].text is not None
+        assert "match x:" in kept[0].text
+        capsys.readouterr()
 
 
 class TestMain:
@@ -536,6 +567,85 @@ class TestMain:
         output = capsys.readouterr().out
         assert "Would convert:" not in output
         assert "0 would convert, 1 unchanged, 0 errors" in output
+
+    def test_main_check_does_not_convert_files(self, capsys, tmp_path, monkeypatch):
+        test_file = tmp_path / "test.py"
+        source = "if x == 1:\n    pass\nelif x == 2:\n    pass\n"
+        test_file.write_text(source, encoding="utf-8")
+
+        def boom(*args, **kwargs):
+            raise AssertionError("check should not transform whole files")
+
+        monkeypatch.setattr("matchify.cli._convert_file", boom)
+        monkeypatch.setattr("matchify.cli.convert_files", boom)
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", "--check", str(test_file)]
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+        finally:
+            sys.argv = original_argv
+
+        assert exc_info.value.code == 1
+        assert test_file.read_text(encoding="utf-8") == source
+        output = capsys.readouterr().out
+        assert "+match x:" in output
+        assert "1 would convert, 0 unchanged, 0 errors" in output
+
+    def test_main_show_does_not_convert_files(self, capsys, tmp_path, monkeypatch):
+        test_file = tmp_path / "test.py"
+        source = "if x == 1:\n    pass\nelif x == 2:\n    pass\n"
+        test_file.write_text(source, encoding="utf-8")
+
+        def boom(*args, **kwargs):
+            raise AssertionError("show should not transform whole files")
+
+        monkeypatch.setattr("matchify.cli._convert_file", boom)
+        monkeypatch.setattr("matchify.cli.convert_files", boom)
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", "--show", str(test_file)]
+            main()
+        finally:
+            sys.argv = original_argv
+
+        assert test_file.read_text(encoding="utf-8") == source
+        output = capsys.readouterr().out
+        assert "+match x:" in output
+        assert "1 would convert, 0 unchanged, 0 errors" in output
+
+    def test_main_check_multiple_files_does_not_convert_files(
+        self, capsys, tmp_path, monkeypatch
+    ):
+        test_dir = tmp_path / "src"
+        test_dir.mkdir()
+        convertible = test_dir / "a.py"
+        unchanged = test_dir / "b.py"
+        convertible.write_text(
+            "if x == 1:\n    pass\nelif x == 2:\n    pass\n", encoding="utf-8"
+        )
+        unchanged.write_text("print('ok')\n", encoding="utf-8")
+
+        def boom(*args, **kwargs):
+            raise AssertionError("check should not transform whole files")
+
+        monkeypatch.setattr("matchify.cli._convert_file", boom)
+        monkeypatch.setattr("matchify.cli.convert_files", boom)
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", "--check", "--jobs", "2", str(test_dir)]
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+        finally:
+            sys.argv = original_argv
+
+        assert exc_info.value.code == 1
+        output = capsys.readouterr().out
+        assert "+match x:" in output
+        assert "1 would convert, 1 unchanged, 0 errors" in output
 
     def test_main_show_previews_diff_and_converts(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
@@ -884,6 +994,25 @@ class TestMain:
         output = capsys.readouterr().out
         assert "Error processing" in output
 
+    def test_main_show_write_with_syntax_error_does_not_write(self, capsys, tmp_path):
+        test_file = tmp_path / "test.py"
+        source = "if x == :\n    print('broken')"
+        test_file.write_text(source, encoding="utf-8")
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", "--show", "--write", str(test_file)]
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+        finally:
+            sys.argv = original_argv
+
+        assert exc_info.value.code == 1
+        assert test_file.read_text(encoding="utf-8") == source
+        output = capsys.readouterr().out
+        assert "Error processing" in output
+        assert "0 converted, 0 unchanged, 1 errors" in output
+
     def test_main_show_unexpected_preview_error_does_not_write(
         self, tmp_path, monkeypatch
     ):
@@ -894,7 +1023,7 @@ class TestMain:
         def boom(*args, **kwargs):
             raise RuntimeError("preview bug")
 
-        monkeypatch.setattr("matchify.cli.report_previews", boom)
+        monkeypatch.setattr("matchify.cli._preview_file", boom)
 
         original_argv = sys.argv
         try:

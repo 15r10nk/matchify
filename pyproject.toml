@@ -87,11 +87,7 @@ dependencies = [
 ]
 
 [tool.hatch.envs.hatch-test]
-dependencies = [
-  "coverage[toml]>=6.5",
-  "pytest",
-  "pytest-xdist"
-]
+dependency-groups = ["dev"]
 env-vars.TOP = "{root}"
 default-args = ["tests"]
 scripts.run = "coverage run -m pytest {args}"
