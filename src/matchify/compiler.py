@@ -135,10 +135,10 @@ class IfChainCompiler:
         if any(paths is None for paths in candidates):
             return None
         concrete_candidates = tuple(paths for paths in candidates if paths is not None)
-        if self.assumptions.assume_pure_subjects:
+        if Assumptions.PURE_SUBJECTS in self.assumptions:
             return MatchSubjectPlan.from_majority_candidates(concrete_candidates)
 
-        if self.assumptions.use_object:
+        if Assumptions.USE_OBJECT in self.assumptions:
             subject = MatchSubjectPlan.from_shared_candidates(concrete_candidates)
             if subject is not None and not subject.is_composite:
                 return subject
@@ -172,7 +172,7 @@ class IfChainCompiler:
             branch.condition,
             subject,
             assumptions=self.assumptions,
-            allow_object_anchors=self.assumptions.use_object,
+            allow_object_anchors=Assumptions.USE_OBJECT in self.assumptions,
         )
         return IfBranch(branch.body, branch.leading_lines, facts)
 

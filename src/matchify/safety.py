@@ -35,7 +35,7 @@ def is_safe_condition(
                     comparator
                 ):
                     if not (
-                        assumptions.identity_equality
+                        Assumptions.IDENTITY_EQUALITY in assumptions
                         and is_value_pattern_expr(comparator)
                     ):
                         return False

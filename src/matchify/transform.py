@@ -8,7 +8,6 @@ from libcst.metadata import CodePosition, CodeRange, MetadataWrapper, PositionPr
 
 from .assumptions import (
     ALL_RISKY_ASSUMPTIONS,
-    LOOKUP_EQUALITY,
     AssumptionDiagnostic,
     Assumptions,
 )
@@ -114,8 +113,11 @@ class IfToMatchTransformer(cst.CSTTransformer):
         candidate = find_inline_lookup(updated_node)
         if candidate is None:
             return updated_node
-        if not self.assumptions.lookup_equality:
-            self._record_diagnostic(original_node, frozenset({LOOKUP_EQUALITY}))
+        if Assumptions.LOOKUP_EQUALITY not in self.assumptions:
+            self._record_diagnostic(
+                original_node,
+                frozenset({Assumptions.LOOKUP_EQUALITY.assumption_name}),
+            )
             return updated_node
         return compile_inline_lookup(updated_node, candidate)
 
@@ -126,10 +128,13 @@ class IfToMatchTransformer(cst.CSTTransformer):
             return updated_node
         body, required = compile_local_lookups(
             updated_node.body,
-            enabled=self.assumptions.lookup_equality,
+            enabled=Assumptions.LOOKUP_EQUALITY in self.assumptions,
         )
-        if required and not self.assumptions.lookup_equality:
-            self._record_diagnostic(original_node, frozenset({LOOKUP_EQUALITY}))
+        if required and Assumptions.LOOKUP_EQUALITY not in self.assumptions:
+            self._record_diagnostic(
+                original_node,
+                frozenset({Assumptions.LOOKUP_EQUALITY.assumption_name}),
+            )
         return updated_node.with_changes(body=body)
 
     def _record_missing_assumption_diagnostic(
@@ -256,9 +261,9 @@ class _ChainPreviewVisitor(cst.CSTVisitor):
         return True
 
     def _lookup_extra_assumptions(self) -> frozenset[str]:
-        if self._assumptions.lookup_equality:
+        if Assumptions.LOOKUP_EQUALITY in self._assumptions:
             return frozenset()
-        return frozenset({LOOKUP_EQUALITY})
+        return frozenset({Assumptions.LOOKUP_EQUALITY.assumption_name})
 
     def _append_preview(
         self,

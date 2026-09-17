@@ -257,7 +257,10 @@ def extract_literal_membership_values(
 ) -> tuple[cst.BaseExpression, ...] | None:
     if not isinstance(container, cst.Tuple | cst.List | cst.Set):
         return None
-    if isinstance(container, cst.Set) and not assumptions.hashable_subjects:
+    if (
+        isinstance(container, cst.Set)
+        and Assumptions.HASHABLE_SUBJECTS not in assumptions
+    ):
         return None
     values: list[cst.BaseExpression] = []
     literal_set_values: list[object] = []
@@ -297,7 +300,7 @@ def parse_value_predicate(
             AccessPath.from_expression(predicate.left), target.comparator, predicate
         )
     if (
-        assumptions.identity_equality
+        Assumptions.IDENTITY_EQUALITY in assumptions
         and isinstance(target.operator, cst.Is)
         and is_value_pattern_expr(target.comparator)
     ):

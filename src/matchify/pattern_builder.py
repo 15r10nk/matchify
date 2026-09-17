@@ -251,8 +251,8 @@ def assumes_sequence_type_check(
         return False
     names = sequence_type_names(residual.classes)
     return bool(names) and all(
-        (name == "list" and assumptions.list_sequence_pattern)
-        or (name == "tuple" and assumptions.tuple_sequence_pattern)
+        (name == "list" and Assumptions.LIST_SEQUENCE_PATTERN in assumptions)
+        or (name == "tuple" and Assumptions.TUPLE_SEQUENCE_PATTERN in assumptions)
         for name in names
     )
 
