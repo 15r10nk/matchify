@@ -168,7 +168,7 @@ uv tool install matchify
 Or run it without installing:
 
 ```bash
-uvx matchify path/to/project/
+uvx matchify --write path/to/project/
 ```
 
 ## Key Features
@@ -191,29 +191,43 @@ uvx matchify path/to/project/
 
 ```bash
 # Convert a single file
-matchify path/to/file.py
+matchify --write path/to/file.py
 
 # Convert all Python files in a directory
-matchify path/to/project/
+matchify --write path/to/project/
 
 # Convert with verbose output
-matchify path/to/project/ -v
+matchify --write path/to/project/ -v
 
-# Check whether files would be converted without writing changes
+# Review diffs without writing changes
 matchify path/to/project/ --check
 
+# Show eligible conversions as diffs while converting
+matchify path/to/project/ --show --write
+
+# Also preview conversions that need a missing --assume value
+matchify path/to/project/ --show-all --check
+
 # Use parallel processing (default: number of CPUs)
-matchify path/to/project/ -j 8
+matchify path/to/project/ --write -j 8
 
 # Enable one risky assumption explicitly
-matchify path/to/project/ --assume pure-subjects
+matchify path/to/project/ --write --assume pure-subjects
 
 # Disable all risky assumptions
-matchify path/to/project/ --safe
+matchify path/to/project/ --write --safe
 
 # Enable all risky assumptions
-matchify path/to/project/ --risky
+matchify path/to/project/ --write --risky
 ```
+
+`--write` writes conversions and `--check` only reports them as diffs; the two
+options cannot be combined. `--check` implies `--show` and exits with 1 if any
+file would change. Explicit `--show` or `--show-all` without `--write` is a
+preview-only dry run that still exits 0 when conversions are available. In an
+interactive terminal, omitting `--write`, `--check`, and the show flags shows a
+diff and asks for confirmation before writing. In a non-interactive shell,
+choose `--write`, `--check`, or `--show` explicitly.
 
 ## pre-commit
 
@@ -252,6 +266,13 @@ cases, so review the generated changes and run your project's tests.
 When a skipped `if`/`elif` chain would require a risky assumption, the CLI
 prints the file location and the required `--assume` value instead of converting
 that chain.
+
+`--check` and `--show` review the currently eligible conversions as diffs.
+`--show --write` prints the same diffs while converting. Both report how many
+conversions were not shown because they need a missing `--assume` value and
+point you to `--show-all` to preview them. `--show-all` additionally prints the
+required `--assume` value and a separate diff for each group of conversions
+unlocked by that assumption.
 
 ### `--assume=pure-subjects`
 

@@ -68,6 +68,9 @@ PathFact = ValueFact | ClassFact | SequenceFact | OrFact
 class WildcardNode:
     """Wildcard placeholder used when a path creates an intermediate child."""
 
+    def render(self) -> cst.MatchPattern:
+        return build_wildcard_pattern()
+
 
 @dataclass(frozen=True)
 class ValueNode:
@@ -146,7 +149,7 @@ class OrNode:
     alternatives: tuple[PatternNode, ...]
 
     def render(self) -> cst.MatchPattern:
-        patterns = []
+        patterns: list[cst.MatchPattern] = []
         for node in self.alternatives:
             pattern = node.render()
             if isinstance(pattern, cst.MatchList):
@@ -162,7 +165,7 @@ def build_sequence_match_list(
     pattern_infos: list[cst.MatchPattern | None],
     use_star: bool,
 ) -> cst.MatchList:
-    elements = [
+    elements: list[cst.MatchSequenceElement] = [
         cst.MatchSequenceElement(
             value=(build_wildcard_pattern() if pattern_info is None else pattern_info),
             comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" ")),
@@ -171,10 +174,11 @@ def build_sequence_match_list(
     ]
 
     if use_star:
-        elements.append(
-            cst.MatchSequenceElement(value=cst.MatchStar(name=cst.Name("_")))
+        return cst.MatchList(
+            patterns=[*elements, cst.MatchStar(name=cst.Name("_"))],
+            lbracket=None,
+            rbracket=None,
         )
-        return cst.MatchList(patterns=elements, lbracket=None, rbracket=None)
 
     if len(elements) > 1:
         elements[-1] = cst.MatchSequenceElement(value=elements[-1].value)
@@ -281,6 +285,7 @@ def insert_node(root: PatternNode, path: AccessPath, node: PatternNode) -> Patte
         root, SequenceNode
     ), "Subscript paths need a sequence pattern parent"
     elements = dict(root.elements)
+    assert first_part.index is not None
     child = elements.get(first_part.index, WildcardNode())
     elements[first_part.index] = insert_node(child, path.tail(), node)
     return SequenceNode(root.length, root.use_star, tuple(elements.items()))
@@ -324,6 +329,7 @@ def insert_capture_node(
     if not isinstance(root, SequenceNode):
         return None
     elements = dict(root.elements)
+    assert first_part.index is not None
     child = elements.get(first_part.index)
     if child is None:
         if not path.tail().is_subject:
@@ -349,7 +355,9 @@ def render_child_node(node: PatternNode) -> cst.MatchPattern:
 def bracket_sequence_pattern(pattern: cst.MatchList) -> cst.MatchList:
     patterns = pattern.patterns
     if len(patterns) == 1:
-        patterns = [cst.MatchSequenceElement(value=patterns[0].value)]
+        single_pattern = patterns[0]
+        assert isinstance(single_pattern, cst.MatchSequenceElement)
+        patterns = [cst.MatchSequenceElement(value=single_pattern.value)]
     return pattern.with_changes(
         patterns=patterns,
         lbracket=cst.LeftSquareBracket(),

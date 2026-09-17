@@ -1,6 +1,8 @@
 """Lower typed condition predicates into the recursive pattern IR."""
 
+from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import cast
 
 import libcst as cst
 from libcst import matchers as m
@@ -156,7 +158,7 @@ def build_and_pattern(expr: AndExpr, assumptions: Assumptions) -> PatternBuildRe
     class_paths: set[AccessPath] = set()
 
     for part in expr.parts:
-        if is_sequence_type_check(part) and has_len_fact(part, expr.parts):
+        if isinstance(part, IsInstancePredicate) and has_len_fact(part, expr.parts):
             residuals.append(part)
             continue
         if isinstance(part, IsInstancePredicate) and part.path in class_paths:
@@ -193,9 +195,10 @@ def build_or_pattern(expr: OrExpr, assumptions: Assumptions) -> PatternBuildResu
         residuals.append(result.residual)
 
     residuals = drop_implied_or_residuals(residuals, alternatives, assumptions)
-    residual = common_residual(residuals)
-    if residual is _MIXED_RESIDUALS:
+    common = common_residual(residuals)
+    if common is _MIXED_RESIDUALS:
         return PatternBuildResult((), expr)
+    residual = cast(BoolExpr | None, common)
     residual_cst = residual_condition(residual)
     if residual_cst is not None and not is_liftable_or_residual(residual_cst):
         return PatternBuildResult((), expr)
@@ -239,7 +242,9 @@ def is_sequence_type_check(expr: BoolExpr | None) -> bool:
 def sequence_type_names(classes: tuple[cst.BaseExpression, ...]) -> frozenset[str]:
     if not all(isinstance(class_expr, cst.Name) for class_expr in classes):
         return frozenset()
-    names = frozenset(class_expr.value for class_expr in classes)
+    names = frozenset(
+        class_expr.value for class_expr in cast(Sequence[cst.Name], classes)
+    )
     return names if names <= {"list", "tuple"} else frozenset()
 
 
@@ -251,8 +256,8 @@ def assumes_sequence_type_check(
         return False
     names = sequence_type_names(residual.classes)
     return bool(names) and all(
-        (name == "list" and assumptions.list_sequence_pattern)
-        or (name == "tuple" and assumptions.tuple_sequence_pattern)
+        (name == "list" and Assumptions.LIST_SEQUENCE_PATTERN in assumptions)
+        or (name == "tuple" and Assumptions.TUPLE_SEQUENCE_PATTERN in assumptions)
         for name in names
     )
 
@@ -280,6 +285,8 @@ def residual_is_implied_by_facts(
     facts: tuple[PathFact, ...],
     assumptions: Assumptions,
 ) -> bool:
+    if not isinstance(residual, IsInstancePredicate):
+        return False
     return bool(
         assumes_sequence_type_check(residual, assumptions)
         and sequence_path_has_element_fact(residual.path, facts)
@@ -315,6 +322,8 @@ def residual_is_implied_by_alternative(
     facts: tuple[PathFact, ...],
     assumptions: Assumptions,
 ) -> bool:
+    if not isinstance(residual, IsInstancePredicate):
+        return False
     return bool(
         assumes_sequence_type_check(residual, assumptions)
         and (
@@ -369,8 +378,10 @@ def common_residual(
 
     first = residuals[0]
     first_condition = residual_condition(first)
+    assert first_condition is not None
     if any(
-        not residual_condition(residual).deep_equals(first_condition)
+        (candidate := residual_condition(residual)) is None
+        or not candidate.deep_equals(first_condition)
         for residual in residuals[1:]
     ):
         return _MIXED_RESIDUALS
