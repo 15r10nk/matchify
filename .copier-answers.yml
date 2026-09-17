@@ -1,5 +1,5 @@
 # Changes here will be overwritten by Copier
-_commit: v0.3.2
+_commit: v0.4.1
 _src_path: https://github.com/15r10nk/project-template.git
 author_email: 15r10nk@polarbit.de
 author_name: Frank Hoffmann
@@ -15,7 +15,6 @@ project_name: matchify
 pypy_versions:
 - pypy3.11
 python_versions:
-- '3.10'
 - '3.11'
 - '3.12'
 - '3.13'
