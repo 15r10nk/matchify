@@ -101,7 +101,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
             return updated_node
 
         match_stmt = self.compiler.compile(
-            chain, leading_lines=updated_node.leading_lines
+            chain, leading_lines=tuple(updated_node.leading_lines)
         )
         return match_stmt
 

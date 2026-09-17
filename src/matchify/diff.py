@@ -3,6 +3,7 @@
 import difflib
 import pathlib
 import re
+from collections.abc import Sequence
 
 from rich.console import Console
 from rich.text import Text
@@ -159,7 +160,7 @@ def _print_replaced_lines(
 
 
 def _changed_token_indexes(
-    opcodes: list[tuple[str, int, int, int, int]], *, old: bool
+    opcodes: Sequence[tuple[str, int, int, int, int]], *, old: bool
 ) -> set[int]:
     indexes: set[int] = set()
     for tag, old_start, old_end, new_start, new_end in opcodes:

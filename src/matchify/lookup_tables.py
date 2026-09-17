@@ -1,9 +1,12 @@
 """Compile dictionary subscriptions embedded in simple statements."""
 
 import ast
+from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import cast
 
 import libcst as cst
+from libcst import CSTNodeT
 from libcst import matchers as m
 
 from .patterns import build_value_pattern, is_value_pattern_expr
@@ -22,9 +25,11 @@ class _ReplaceNode(cst.CSTTransformer):
         self.replacement = replacement
 
     def on_leave(
-        self, original_node: cst.CSTNode, updated_node: cst.CSTNode
-    ) -> cst.CSTNode:
-        return self.replacement if original_node is self.target else updated_node
+        self, original_node: CSTNodeT, updated_node: CSTNodeT
+    ) -> CSTNodeT | cst.RemovalSentinel | cst.FlattenSentinel[CSTNodeT]:
+        if original_node is self.target:
+            return cast(CSTNodeT, self.replacement)
+        return updated_node
 
 
 def find_inline_lookup(statement: cst.SimpleStatementLine) -> LookupCandidate | None:
@@ -64,6 +69,8 @@ def lookup_entries(
     literal_keys: list[object] = []
     for element in table.elements:
         if isinstance(element, cst.StarredDictElement):
+            return None
+        if not isinstance(element, cst.DictElement):
             return None
         key = element.key
         value = element.value
@@ -136,10 +143,12 @@ def compile_local_lookups(
     """
     statements = list(body.body)
     required: list[cst.SimpleStatementLine] = []
+    removed_indexes: set[int] = set()
     for assignment_index, statement in tuple(enumerate(statements)):
         assignment = _local_dict_assignment(statement)
         if assignment is None:
             continue
+        assignment_statement = cast(cst.SimpleStatementLine, statement)
         name, table = assignment
         uses = [
             node
@@ -154,23 +163,28 @@ def compile_local_lookups(
         use_index, use_statement, subscription = use
         if use_index <= assignment_index:
             continue
-        required.append(statement)
+        required.append(assignment_statement)
         if not enabled:
             continue
         candidate = LookupCandidate(
-            subscription, table, subscription.slice[0].slice.value
+            subscription,
+            table,
+            _subscript_subject(subscription),
         )
         match_statement = compile_inline_lookup(use_statement, candidate)
         match_statement = match_statement.with_changes(
-            leading_lines=(*statement.leading_lines, *match_statement.leading_lines)
+            leading_lines=(
+                *tuple(assignment_statement.leading_lines),
+                *tuple(match_statement.leading_lines),
+            )
         )
-        statements[assignment_index] = cst.RemovalSentinel.REMOVE
+        removed_indexes.add(assignment_index)
         statements[use_index] = match_statement
     return body.with_changes(
         body=tuple(
             statement
-            for statement in statements
-            if statement is not cst.RemovalSentinel.REMOVE
+            for index, statement in enumerate(statements)
+            if index not in removed_indexes
         )
     ), tuple(required)
 
@@ -219,7 +233,11 @@ def _local_lookup_use(
 
 
 def _unused_capture_name(statement: cst.CSTNode) -> str:
-    names = {node.value for node in m.findall(statement, m.Name())}
+    names = {
+        node.value
+        for node in m.findall(statement, m.Name())
+        if isinstance(node, cst.Name)
+    }
     base = "_matchify_key"
     candidate = base
     suffix = 2
@@ -261,3 +279,9 @@ def build_lookup_key_pattern(key: cst.BaseExpression) -> cst.MatchPattern:
             ),
         )
     return cst.MatchTuple(patterns=tuple(elements))
+
+
+def _subscript_subject(subscription: cst.Subscript) -> cst.BaseExpression:
+    slices: Sequence[cst.SubscriptElement] = subscription.slice
+    assert len(slices) == 1 and isinstance(slices[0].slice, cst.Index)
+    return slices[0].slice.value

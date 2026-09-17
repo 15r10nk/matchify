@@ -1,7 +1,7 @@
 """Normalize if/elif chains and compile them to match statements."""
 
 from collections.abc import Sequence
-from typing import NamedTuple
+from typing import NamedTuple, cast
 
 import libcst as cst
 
@@ -89,8 +89,8 @@ class IfChainCompiler:
                         self.ignore_types_pattern,
                         assumptions=self.assumptions,
                     ),
-                    current.body,
-                    leading_lines,
+                    cast(cst.IndentedBlock, current.body),
+                    tuple(leading_lines),
                 )
             )
 
@@ -98,8 +98,8 @@ class IfChainCompiler:
                 current = current.orelse
                 continue
             if isinstance(current.orelse, cst.Else):
-                else_body = current.orelse.body
-                else_leading_lines = current.orelse.leading_lines
+                else_body = cast(cst.IndentedBlock, current.orelse.body)
+                else_leading_lines = tuple(current.orelse.leading_lines)
             else:
                 else_body = None
                 else_leading_lines = ()
@@ -220,11 +220,10 @@ class IfChainCompiler:
                     if aliases:
                         body = prepend_aliases(body, aliases)
 
-        pattern = (
-            build_wildcard_pattern()
-            if branch.is_wildcard_case
-            else facts.pattern.render()
-        )
+        if facts.pattern is None:
+            pattern: cst.MatchPattern = build_wildcard_pattern()
+        else:
+            pattern = facts.pattern.render()
         guard = parenthesize_multiline_guard(facts.guard)
 
         return cst.MatchCase(

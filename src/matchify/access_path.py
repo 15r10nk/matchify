@@ -245,7 +245,7 @@ class MatchSubjectPlan:
         cls, candidates: tuple[tuple[AccessPath, ...], ...]
     ) -> MatchSubjectPlan | None:
         assert candidates and candidates[0], "Shared candidates must not be empty"
-        subjects = []
+        subjects: list[AccessPath] = []
         for first in candidates[0]:
             if any(subject.root == first.root for subject in subjects):
                 continue
@@ -270,13 +270,13 @@ class MatchSubjectPlan:
         if not candidates:
             return None
 
-        roots = []
+        roots: list[PathRoot] = []
         for paths in candidates:
             for path in paths:
                 if path.root not in roots:
                     roots.append(path.root)
 
-        subjects = []
+        subjects: list[AccessPath] = []
         for root in roots:
             matching_groups = tuple(
                 tuple(path for path in paths if path.root == root)
