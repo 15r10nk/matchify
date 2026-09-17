@@ -54,7 +54,6 @@ def convert_file(
     ignore_types_pattern: str | None = None,
     *,
     assumptions: Assumptions | None = None,
-    assume_pure_subjects: bool = False,
     report_assumption_diagnostics: bool = False,
     check: bool = False,
 ) -> tuple[pathlib.Path, bool, str | None]:
@@ -67,7 +66,6 @@ def convert_file(
         path,
         ignore_types_pattern,
         assumptions=assumptions,
-        assume_pure_subjects=assume_pure_subjects,
         report_assumption_diagnostics=report_assumption_diagnostics,
         check=check,
     )
@@ -79,7 +77,6 @@ def _convert_file(
     ignore_types_pattern: str | None = None,
     *,
     assumptions: Assumptions | None = None,
-    assume_pure_subjects: bool = False,
     report_assumption_diagnostics: bool = False,
     check: bool = False,
     keep_text: bool = False,
@@ -91,7 +88,6 @@ def _convert_file(
             source,
             ignore_types_pattern=ignore_types_pattern,
             assumptions=assumptions,
-            assume_pure_subjects=assume_pure_subjects,
             diagnostics=diagnostics,
         )
 

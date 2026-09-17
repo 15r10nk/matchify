@@ -11,14 +11,12 @@ def check_code(
     ignore_types_pattern: str | None = r".*_TYPES$",
     *,
     assumptions: Assumptions | None = None,
-    assume_pure_subjects: bool = False,
 ) -> None:
     """Verify transformed code and runtime behavior."""
     transformed_code = transform_code(
         source,
         ignore_types_pattern=ignore_types_pattern,
         assumptions=assumptions,
-        assume_pure_subjects=assume_pure_subjects,
     )
 
     assert transformed_code.strip() == expected.strip(), (

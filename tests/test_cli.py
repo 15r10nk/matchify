@@ -212,26 +212,6 @@ class TestConvertFile:
             assert "café" in result
             assert "☕" in result
 
-    def test_convert_file_can_assume_pure_subjects(self, tmp_path):
-        test_file = tmp_path / "test.py"
-        test_file.write_text(
-            dedent(
-                """
-                if a.x == 1 and b.y == 2:
-                    print("first")
-                elif a.x == 3 and b.y == 4:
-                    print("second")
-                """
-            ).strip(),
-            encoding="utf-8",
-        )
-
-        _, changed, error = convert_file(test_file, assume_pure_subjects=True)
-
-        assert changed is True
-        assert error is None
-        assert "match (a.x, b.y):" in test_file.read_text(encoding="utf-8")
-
     def test_convert_file_accepts_assumptions(self, tmp_path):
         test_file = tmp_path / "test.py"
         test_file.write_text(

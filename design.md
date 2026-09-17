@@ -89,7 +89,7 @@ b.y.kind  -> MatchSubjectRoot(), SubscriptPathPart(1), AttributePathPart("kind")
 By default, composite subjects are selected only from conditions that already
 evaluate all components eagerly, such as explicit tuple comparisons. An `and`
 condition continues to use one subject plus residual guards so its
-short-circuit behavior is preserved. When `assume_pure_subjects` is enabled,
+short-circuit behavior is preserved. When the `pure-subjects` assumption is enabled,
 the compiler may also combine the branch-stable subjects of `and` conditions;
 the caller then explicitly accepts their eager evaluation.
 

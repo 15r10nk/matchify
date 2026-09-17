@@ -9,7 +9,6 @@ from libcst.metadata import CodePosition, CodeRange, MetadataWrapper, PositionPr
 from .assumptions import (
     ALL_RISKY_ASSUMPTIONS,
     LOOKUP_EQUALITY,
-    PURE_SUBJECTS,
     AssumptionDiagnostic,
     Assumptions,
 )
@@ -71,14 +70,9 @@ class IfToMatchTransformer(cst.CSTTransformer):
         ignore_types_pattern: str | None = r".*_TYPES$",
         *,
         assumptions: Assumptions | None = None,
-        assume_pure_subjects: bool = False,
     ):
         super().__init__()
         resolved_assumptions = assumptions or Assumptions.from_names()
-        if assume_pure_subjects:
-            resolved_assumptions = Assumptions.from_names(
-                (*resolved_assumptions.names, PURE_SUBJECTS)
-            )
         self.assumptions = resolved_assumptions
         self.ignore_types_pattern = ignore_types_pattern
         self.diagnostics: list[AssumptionDiagnostic] = []
@@ -325,7 +319,6 @@ def transform_code(
     ignore_types_pattern: str | None = None,
     *,
     assumptions: Assumptions | None = None,
-    assume_pure_subjects: bool = False,
     diagnostics: list[AssumptionDiagnostic] | None = None,
 ) -> str:
     """Transform Python source code by converting if/elif/else chains to match statements.
@@ -334,7 +327,6 @@ def transform_code(
         source: Python source code as a string
         ignore_types_pattern: Optional regex pattern for isinstance type variables to ignore
         assumptions: Enabled risky transformation assumptions
-        assume_pure_subjects: Allow eager composite subjects from boolean conditions
         diagnostics: Optional list populated with skipped assumption-only conversions
 
     Returns:
@@ -345,7 +337,6 @@ def transform_code(
     transformer = IfToMatchTransformer(
         ignore_types_pattern=ignore_types_pattern,
         assumptions=assumptions,
-        assume_pure_subjects=assume_pure_subjects,
     )
     transformed = MetadataWrapper(module).visit(transformer)
     if diagnostics is not None:
