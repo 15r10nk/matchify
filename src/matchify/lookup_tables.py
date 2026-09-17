@@ -70,8 +70,7 @@ def lookup_entries(
     for element in table.elements:
         if isinstance(element, cst.StarredDictElement):
             return None
-        if not isinstance(element, cst.DictElement):
-            return None
+        assert isinstance(element, cst.DictElement)
         key = element.key
         value = element.value
         if key is None or not is_lookup_key(key):

@@ -21,8 +21,7 @@ class Assumptions(Flag):
 
     @property
     def assumption_name(self) -> str:
-        if self.name is None:
-            raise ValueError("Composite assumption flags do not have one name")
+        assert self.name is not None
         return self.name.lower().replace("_", "-")
 
     @classmethod
