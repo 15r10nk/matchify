@@ -10,9 +10,9 @@ therefore converts every eligible chain:
 True
 ```
 
-`--all` is an explicit shorthand for `--convert-if True` and has the same
-behavior as the default. Use `--convert-if` to restrict conversions to chains
-that meet a project-specific threshold.
+Use `--convert-if` to restrict conversions to chains that meet a
+project-specific threshold. Use `--convert-if True` if you want the default
+behavior spelled out explicitly.
 
 For example, convert chains that contain at least two `isinstance` checks or at
 least four branches:
@@ -24,6 +24,10 @@ matchify path/to/project/ --convert-if "isinstance_checks >= 2 or branches >= 4"
 Lookup-table conversions are not affected by this option. Matchify first
 applies the selected [`--assume` options](assumptions.md), then
 evaluates the filter for the proposed `if`/`elif` conversion.
+
+`--show` and `--show-all` print the computed metric variables next to each
+previewed `if`/`elif` conversion so you can turn a shown conversion directly
+into a `--convert-if` expression.
 
 ## Expression syntax
 
@@ -44,7 +48,7 @@ matchify path/to/project/ --convert-if "branches >= 3 and not guard_conditions"
 ```
 
 `--convert-if` may be specified only once. Combine multiple criteria in one
-expression with `and` and `or`. It cannot be combined with `--all`.
+expression with `and` and `or`.
 
 Arithmetic uses normal Python precedence and `/` performs true division.
 Expressions are parsed as a restricted syntax tree and are never passed to

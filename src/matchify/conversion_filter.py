@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+from collections.abc import Iterator
 from dataclasses import dataclass, fields, replace
 
 import libcst as cst
@@ -44,8 +45,12 @@ class ConversionMetrics:
     captures: int = 0
 
     @classmethod
+    def ordered_names(cls) -> tuple[str, ...]:
+        return tuple(field.name for field in fields(cls))
+
+    @classmethod
     def names(cls) -> frozenset[str]:
-        return frozenset(field.name for field in fields(cls))
+        return frozenset(cls.ordered_names())
 
 
 @dataclass(frozen=True)
@@ -143,7 +148,7 @@ def with_generated_metrics(
     )
 
 
-def _flatten_condition(condition: BoolExpr):
+def _flatten_condition(condition: BoolExpr) -> Iterator[BoolExpr]:
     if isinstance(condition, (AndExpr, OrExpr)):
         for part in condition.parts:
             yield from _flatten_condition(part)
@@ -151,7 +156,9 @@ def _flatten_condition(condition: BoolExpr):
         yield condition
 
 
-def _flatten_boolean_cst(expression: cst.BaseExpression):
+def _flatten_boolean_cst(
+    expression: cst.BaseExpression,
+) -> Iterator[cst.BaseExpression]:
     if isinstance(expression, cst.BooleanOperation):
         yield from _flatten_boolean_cst(expression.left)
         yield from _flatten_boolean_cst(expression.right)
@@ -167,23 +174,23 @@ def _is_wildcard(pattern: cst.MatchPattern) -> bool:
     )
 
 
-def _walk_patterns(pattern: cst.MatchPattern):
+def _walk_patterns(pattern: cst.MatchPattern) -> Iterator[cst.MatchPattern]:
     yield pattern
     if isinstance(pattern, cst.MatchClass):
-        for item in pattern.patterns:
-            yield from _walk_patterns(item.value)
-        for item in pattern.kwds:
-            yield from _walk_patterns(item.pattern)
+        for positional in pattern.patterns:
+            yield from _walk_patterns(positional.value)
+        for keyword in pattern.kwds:
+            yield from _walk_patterns(keyword.pattern)
     elif isinstance(pattern, cst.MatchSequence):
-        for item in pattern.patterns:
-            if isinstance(item, cst.MatchSequenceElement):
-                yield from _walk_patterns(item.value)
+        for sequence_item in pattern.patterns:
+            if isinstance(sequence_item, cst.MatchSequenceElement):
+                yield from _walk_patterns(sequence_item.value)
     elif isinstance(pattern, cst.MatchMapping):
-        for item in pattern.elements:
-            yield from _walk_patterns(item.pattern)
+        for mapping_item in pattern.elements:
+            yield from _walk_patterns(mapping_item.pattern)
     elif isinstance(pattern, cst.MatchOr):
-        for item in pattern.patterns:
-            yield from _walk_patterns(item.pattern)
+        for alternative in pattern.patterns:
+            yield from _walk_patterns(alternative.pattern)
     elif isinstance(pattern, cst.MatchAs) and pattern.pattern is not None:
         yield from _walk_patterns(pattern.pattern)
 
@@ -192,26 +199,30 @@ def _pattern_depth(pattern: cst.MatchPattern) -> int:
     if _is_wildcard(pattern):
         return 0
     if isinstance(pattern, cst.MatchClass):
-        children = [item.value for item in pattern.patterns]
+        children: list[cst.MatchPattern] = [item.value for item in pattern.patterns]
         children.extend(item.pattern for item in pattern.kwds)
         return 1 + max((_pattern_depth(child) for child in children), default=0)
     if isinstance(pattern, cst.MatchSequence):
-        children = (
+        sequence_depths = (
             (
-                _pattern_depth(item.value)
-                if isinstance(item, cst.MatchSequenceElement)
+                _pattern_depth(sequence_item.value)
+                if isinstance(sequence_item, cst.MatchSequenceElement)
                 else 1
             )
-            for item in pattern.patterns
+            for sequence_item in pattern.patterns
         )
-        return 1 + max(children, default=0)
+        return 1 + max(sequence_depths, default=0)
     if isinstance(pattern, cst.MatchMapping):
-        children = [_pattern_depth(item.pattern) for item in pattern.elements]
+        mapping_depths = [
+            _pattern_depth(mapping_item.pattern) for mapping_item in pattern.elements
+        ]
         if pattern.rest is not None:
-            children.append(1)
-        return 1 + max(children, default=0)
+            mapping_depths.append(1)
+        return 1 + max(mapping_depths, default=0)
     if isinstance(pattern, cst.MatchOr):
-        return 1 + max(_pattern_depth(item.pattern) for item in pattern.patterns)
+        return 1 + max(
+            _pattern_depth(alternative.pattern) for alternative in pattern.patterns
+        )
     if isinstance(pattern, cst.MatchAs) and pattern.pattern is not None:
         return 1 + _pattern_depth(pattern.pattern)
     return 1

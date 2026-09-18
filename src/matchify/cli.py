@@ -15,12 +15,13 @@ from .assumptions import (
     Assumptions,
     parse_assumption_names,
 )
-from .diff import print_location_heading, report_diff
 from .conversion_filter import (
     DEFAULT_CONVERSION_FILTER,
     ConversionFilter,
     ConversionFilterDiagnostic,
+    ConversionMetrics,
 )
+from .diff import print_location_heading, print_preview_metadata, report_diff
 from .transform import ChainPreview, collect_chain_previews, transform_code
 
 
@@ -267,6 +268,22 @@ def _emit_previews(path: pathlib.Path, previews: list[ChainPreview]) -> None:
             print()
         print_location_heading(path, preview.line)
         report_diff(preview.before, preview.after, start_line=preview.line)
+        if preview.metrics is not None:
+            formatted_metrics = _format_conversion_metrics(preview.metrics)
+            if formatted_metrics is not None:
+                print_preview_metadata(formatted_metrics)
+        print()
+
+
+def _format_conversion_metrics(metrics: ConversionMetrics) -> str | None:
+    values = [
+        f"{name}={value}"
+        for name in ConversionMetrics.ordered_names()
+        if (value := getattr(metrics, name)) != 0
+    ]
+    if not values:
+        return None
+    return f"    metrics: {', '.join(values)}"
 
 
 def report_hidden_conversions(count: int) -> None:
@@ -377,8 +394,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=r".*_TYPES$",
         help="Regex pattern for isinstance type variables to ignore (default: .*_TYPES$)",
     )
-    conversion_group = parser.add_mutually_exclusive_group()
-    conversion_group.add_argument(
+    parser.add_argument(
         "--convert-if",
         metavar="EXPRESSION",
         action="append",
@@ -386,11 +402,6 @@ def build_parser() -> argparse.ArgumentParser:
             "Convert eligible if/elif chains only when the metrics expression matches "
             f"(default: {DEFAULT_CONVERSION_FILTER})"
         ),
-    )
-    conversion_group.add_argument(
-        "--all",
-        action="store_true",
-        help="Convert every eligible chain (equivalent to --convert-if True)",
     )
     return parser
 
@@ -530,13 +541,9 @@ def main() -> None:
     try:
         assumptions = resolve_assumptions(args)
         expression = (
-            "True"
-            if args.all
-            else (
-                args.convert_if[0]
-                if args.convert_if is not None
-                else DEFAULT_CONVERSION_FILTER
-            )
+            args.convert_if[0]
+            if args.convert_if is not None
+            else DEFAULT_CONVERSION_FILTER
         )
         conversion_filter = ConversionFilter.parse(expression)
     except ValueError as error:

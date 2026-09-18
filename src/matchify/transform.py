@@ -15,6 +15,7 @@ from .compiler import IfChainCompiler
 from .conversion_filter import (
     ConversionFilter,
     ConversionFilterDiagnostic,
+    ConversionMetrics,
     with_generated_metrics,
 )
 from .lookup_tables import (
@@ -42,6 +43,7 @@ class ChainPreview(NamedTuple):
     before: str
     after: str
     extra_assumptions: frozenset[str]
+    metrics: ConversionMetrics | None
 
 
 def find_required_assumptions(
@@ -266,8 +268,9 @@ class _ChainPreviewVisitor(cst.CSTVisitor):
                 return True
 
         match_stmt = compiler.compile(chain, leading_lines=())
+        metrics = with_generated_metrics(chain.metrics, match_stmt)
         if self._conversion_filter is not None and not self._conversion_filter.matches(
-            with_generated_metrics(chain.metrics, match_stmt)
+            metrics
         ):
             self._record_filter_diagnostic(node)
             return True
@@ -276,6 +279,7 @@ class _ChainPreviewVisitor(cst.CSTVisitor):
             node.with_changes(leading_lines=()),
             match_stmt,
             extra_assumptions,
+            metrics,
         )
         return True
 
@@ -289,6 +293,7 @@ class _ChainPreviewVisitor(cst.CSTVisitor):
             node.with_changes(leading_lines=()),
             match_stmt.with_changes(leading_lines=()),
             self._lookup_extra_assumptions(),
+            None,
         )
         return False
 
@@ -302,6 +307,7 @@ class _ChainPreviewVisitor(cst.CSTVisitor):
                 node.with_changes(leading_lines=()),
                 node.with_changes(body=compiled, leading_lines=()),
                 self._lookup_extra_assumptions(),
+                None,
             )
         return True
 
@@ -332,6 +338,7 @@ class _ChainPreviewVisitor(cst.CSTVisitor):
         before: cst.CSTNode,
         after: cst.CSTNode,
         extra_assumptions: frozenset[str],
+        metrics: ConversionMetrics | None,
     ) -> None:
         position = self.get_metadata(
             PositionProvider,
@@ -349,6 +356,7 @@ class _ChainPreviewVisitor(cst.CSTVisitor):
                 before=_indent_snippet(self._module.code_for_node(before), indent),
                 after=_indent_snippet(self._module.code_for_node(after), indent),
                 extra_assumptions=extra_assumptions,
+                metrics=metrics,
             )
         )
 

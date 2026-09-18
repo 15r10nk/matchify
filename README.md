@@ -200,9 +200,6 @@ matchify --write path/to/file.py
 # Convert all Python files in a directory
 matchify --write path/to/project/
 
-# Convert every eligible chain, including simple two-branch chains
-matchify path/to/project/ --all
-
 # Convert with verbose output
 matchify --write path/to/project/ -v
 
@@ -277,7 +274,8 @@ for the semantic tradeoffs and individual `--assume` names.
 conversions were not shown because they need a missing `--assume` value and
 point you to `--show-all` to preview them. `--show-all` additionally prints the
 required `--assume` value and a separate diff for each group of conversions
-unlocked by that assumption.
+unlocked by that assumption. For `if`/`elif` previews, both commands also print
+the computed `--convert-if` metric variables for that conversion.
 
 ## Selective conversion with `--convert-if`
 
@@ -294,7 +292,8 @@ metrics:
 matchify path/to/project/ --convert-if "branches >= 4 and guard_conditions == 0"
 ```
 
-Use `--all` as an explicit shorthand for the default `--convert-if True`. See the
+Use `--convert-if True` if you want that default spelled out explicitly in
+scripts or examples. See the
 [selective conversion documentation](https://15r10nk.github.io/matchify/latest/selective-conversion/)
 for the expression syntax and complete metric reference.
 
