@@ -7,8 +7,6 @@ from concurrent.futures import ProcessPoolExecutor
 from functools import partial
 from typing import NamedTuple
 
-from libcst import ParserSyntaxError
-
 from .assumptions import (
     ALL_RISKY_ASSUMPTIONS,
     AssumptionDiagnostic,
@@ -188,7 +186,7 @@ def _preview_file(
             ),
             filter_diagnostics,
         )
-    except (OSError, UnicodeError, ParserSyntaxError) as error:
+    except Exception as error:
         return PreviewResult(path, str(error), [], [])
 
 

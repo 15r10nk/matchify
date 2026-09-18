@@ -1031,6 +1031,38 @@ class TestMain:
         output = capsys.readouterr().out
         assert "Error processing" in output
 
+    def test_main_check_reports_filter_evaluation_errors(self, capsys, tmp_path):
+        test_file = tmp_path / "test.py"
+        source = dedent(
+            """
+            if x == 1:
+                print("one")
+            elif x == 2:
+                print("two")
+            """
+        ).strip()
+        test_file.write_text(source, encoding="utf-8")
+
+        original_argv = sys.argv
+        try:
+            sys.argv = [
+                "matchify",
+                "--check",
+                "--convert-if",
+                "branches / guard_conditions > 1",
+                str(test_file),
+            ]
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+        finally:
+            sys.argv = original_argv
+
+        assert exc_info.value.code == 1
+        assert test_file.read_text(encoding="utf-8") == source
+        output = capsys.readouterr().out
+        assert f"Error processing {test_file}: division by zero" in output
+        assert "Summary: 0 would convert, 0 unchanged, 1 errors" in output
+
     def test_main_show_write_with_syntax_error_does_not_write(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
         source = "if x == :\n    print('broken')"
