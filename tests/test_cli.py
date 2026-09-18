@@ -127,7 +127,7 @@ class TestConvertFile:
             Console(file=output, force_terminal=True, color_system="truecolor"),
         )
 
-        print_preview_metadata("    --convert-if metrics: branches=2, patterns=3")
+        print_preview_metadata("    metrics: branches=2, patterns=3")
 
         rendered = output.getvalue()
         assert "branches" in rendered
@@ -383,7 +383,7 @@ class TestMain:
         assert test_file.read_text(encoding="utf-8") == source
         output = capsys.readouterr().out
         assert "+match x:" in output
-        assert "    --convert-if metrics: branches=2" in output
+        assert "    metrics: branches=2" in output
         assert "literal_checks=2" in output
         assert "patterns=2" in output
         assert "isinstance_checks=0" not in output
@@ -415,10 +415,8 @@ class TestMain:
         assert prompts == ["Write these changes? [y/N] "]
         output = capsys.readouterr().out
         assert f"{test_file}:1" in output
-        assert output.index("4      pass") < output.index(
-            "    --convert-if metrics: branches=2"
-        )
-        assert "--convert-if metrics: branches=2" in output
+        assert output.index("4      pass") < output.index("    metrics: branches=2")
+        assert "metrics: branches=2" in output
         assert "1 +match x:" in output
         assert "Would convert:" not in output
         assert "Wrote changes to 1 file(s)" in output
@@ -569,10 +567,10 @@ class TestMain:
         assert test_file.read_text(encoding="utf-8") == source
         output = capsys.readouterr().out
         assert output.index('4      print("two")') < output.index(
-            "    --convert-if metrics: branches=2"
+            "    metrics: branches=2"
         )
         assert f"{test_file}:1" in output
-        assert "--convert-if metrics: branches=2" in output
+        assert "metrics: branches=2" in output
         assert "1 +match x:" in output
         assert "Would convert:" not in output
         assert "1 would convert, 0 unchanged, 0 errors" in output
@@ -617,7 +615,7 @@ class TestMain:
         assert test_file.read_text(encoding="utf-8") == source
         output = capsys.readouterr().out
         assert "+match x:" in output
-        assert "--convert-if metrics: branches=2" in output
+        assert "metrics: branches=2" in output
         assert "1 would convert, 0 unchanged, 0 errors" in output
 
     def test_main_show_does_not_convert_files(self, capsys, tmp_path, monkeypatch):
@@ -697,7 +695,7 @@ class TestMain:
         output = capsys.readouterr().out
         assert f"{test_file}:1" in output
         assert "1 -if x == 1:" in output
-        assert "--convert-if metrics: branches=2" in output
+        assert "metrics: branches=2" in output
         assert "1 +match x:" in output
         assert "Converted:" not in output
         assert "Would convert:" not in output
@@ -729,7 +727,7 @@ class TestMain:
         assert exc_info.value.code == 1
         output = capsys.readouterr().out
         assert "2 -    if x == 1:" in output
-        assert "--convert-if metrics: branches=2" in output
+        assert "metrics: branches=2" in output
         assert "2 +    match x:" in output
         assert "3 +        case 1:" in output
 
@@ -763,7 +761,7 @@ class TestMain:
         assert f"{test_file}:1" in output
         assert f"{test_file}:6" in output
         assert output.index(f"{test_file}:1") < output.index(f"{test_file}:6")
-        assert output.count("--convert-if metrics: branches=2") == 2
+        assert output.count("metrics: branches=2") == 2
         assert "+match x:" in output
         assert "+match y:" in output
 
@@ -792,9 +790,9 @@ class TestMain:
         output = capsys.readouterr().out
         assert "+match x:" in output
         assert output.index('4      print("two")') < output.index(
-            "    --convert-if metrics: branches=2"
+            "    metrics: branches=2"
         )
-        assert "--convert-if metrics: branches=2" in output
+        assert "metrics: branches=2" in output
         assert "Would convert:" not in output
         assert "not shown" not in output
 
@@ -821,7 +819,7 @@ class TestMain:
         output = capsys.readouterr().out
         assert f"{test_file}:1" in output
         assert "Additional conversions require --assume use-object:" in output
-        assert "--convert-if metrics: branches=2" in output
+        assert "metrics: branches=2" in output
         assert "1 +match value:" in output
         assert "+++" not in output
         assert "not shown" not in output
@@ -854,7 +852,7 @@ class TestMain:
         assert f"{test_file}:1" in output
         assert f"{test_file}:6" in output
         assert "Additional conversions require --assume use-object:" in output
-        assert output.count("--convert-if metrics: branches=2") == 2
+        assert output.count("metrics: branches=2") == 2
 
     def test_main_show_all_keeps_eligible_and_gated_conversions_apart(
         self, capsys, tmp_path
@@ -887,7 +885,7 @@ class TestMain:
         output = capsys.readouterr().out
         assert "1 +match x:" in output
         assert "Additional conversions require --assume use-object:" in output
-        assert output.count("--convert-if metrics: branches=2") == 2
+        assert output.count("metrics: branches=2") == 2
         assert "+match value:" in output
 
     def test_main_show_skips_ineligible_chains(self, capsys, tmp_path):
