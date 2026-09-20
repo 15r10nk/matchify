@@ -422,14 +422,12 @@ class TestMain:
         self, capsys, tmp_path, monkeypatch
     ):
         test_file = tmp_path / "test.py"
-        source = dedent(
-            """
+        source = dedent("""
             if value.i == 5:
                 print("i")
             elif value.j == 6:
                 print("j")
-            """
-        ).strip()
+            """).strip()
         test_file.write_text(source, encoding="utf-8")
         monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
 
@@ -615,14 +613,12 @@ class TestMain:
 
     def test_main_show_previews_diff_and_converts(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
-        source = dedent(
-            """
+        source = dedent("""
             if x == 1:
                 print("one")
             elif x == 2:
                 print("two")
-            """
-        ).strip()
+            """).strip()
         test_file.write_text(source, encoding="utf-8")
 
         original_argv = sys.argv
@@ -645,15 +641,13 @@ class TestMain:
 
     def test_main_show_keeps_original_indent(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
-        source = dedent(
-            """
+        source = dedent("""
             def f(x):
                 if x == 1:
                     print("one")
                 elif x == 2:
                     print("two")
-            """
-        ).strip()
+            """).strip()
         test_file.write_text(source, encoding="utf-8")
 
         original_argv = sys.argv
@@ -672,8 +666,7 @@ class TestMain:
 
     def test_main_show_prints_one_diff_per_conversion(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
-        source = dedent(
-            """
+        source = dedent("""
             if x == 1:
                 print("one")
             elif x == 2:
@@ -683,8 +676,7 @@ class TestMain:
                 print("three")
             elif y == 4:
                 print("four")
-            """
-        ).strip()
+            """).strip()
         test_file.write_text(source, encoding="utf-8")
 
         original_argv = sys.argv
@@ -705,14 +697,12 @@ class TestMain:
 
     def test_main_show_with_check_previews_diff_without_writing(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
-        source = dedent(
-            """
+        source = dedent("""
             if x == 1:
                 print("one")
             elif x == 2:
                 print("two")
-            """
-        ).strip()
+            """).strip()
         test_file.write_text(source, encoding="utf-8")
 
         original_argv = sys.argv
@@ -732,14 +722,12 @@ class TestMain:
 
     def test_main_show_all_previews_assumption_gated_conversion(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
-        source = dedent(
-            """
+        source = dedent("""
             if value.i == 5:
                 print("i")
             elif value.j == 6:
                 print("j")
-            """
-        ).strip()
+            """).strip()
         test_file.write_text(source, encoding="utf-8")
 
         original_argv = sys.argv
@@ -759,8 +747,7 @@ class TestMain:
 
     def test_main_show_all_previews_multiple_gated_conversions(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
-        source = dedent(
-            """
+        source = dedent("""
             if first.i == 5:
                 print("i")
             elif first.j == 6:
@@ -770,8 +757,7 @@ class TestMain:
                 print("k")
             elif second.j == 8:
                 print("l")
-            """
-        ).strip()
+            """).strip()
         test_file.write_text(source, encoding="utf-8")
 
         original_argv = sys.argv
@@ -790,8 +776,7 @@ class TestMain:
         self, capsys, tmp_path
     ):
         test_file = tmp_path / "test.py"
-        source = dedent(
-            """
+        source = dedent("""
             if x == 1:
                 print("one")
             elif x == 2:
@@ -801,8 +786,7 @@ class TestMain:
                 print("i")
             elif value.j == 6:
                 print("j")
-            """
-        ).strip()
+            """).strip()
         test_file.write_text(source, encoding="utf-8")
 
         original_argv = sys.argv
@@ -821,14 +805,12 @@ class TestMain:
 
     def test_main_show_skips_ineligible_chains(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
-        source = dedent(
-            """
+        source = dedent("""
             if x > 1:
                 print("big")
             elif x > 2:
                 print("bigger")
-            """
-        ).strip()
+            """).strip()
         test_file.write_text(source, encoding="utf-8")
 
         original_argv = sys.argv
@@ -847,14 +829,12 @@ class TestMain:
         self, capsys, tmp_path
     ):
         test_file = tmp_path / "test.py"
-        source = dedent(
-            """
+        source = dedent("""
             if value.i == 5:
                 print("i")
             elif value.j == 6:
                 print("j")
-            """
-        ).strip()
+            """).strip()
         test_file.write_text(source, encoding="utf-8")
 
         original_argv = sys.argv
@@ -881,8 +861,7 @@ class TestMain:
         self, capsys, tmp_path
     ):
         test_file = tmp_path / "test.py"
-        source = dedent(
-            """
+        source = dedent("""
             if x == 1:
                 print("one")
             elif x == 2:
@@ -897,8 +876,7 @@ class TestMain:
                 print("k")
             elif second.j == 8:
                 print("l")
-            """
-        ).strip()
+            """).strip()
         test_file.write_text(source, encoding="utf-8")
 
         original_argv = sys.argv
@@ -921,14 +899,12 @@ class TestMain:
 
     def test_main_show_all_skips_chains_that_stay_ineligible(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
-        source = dedent(
-            """
+        source = dedent("""
             if x == {1}:
                 print("one")
             elif x == {2}:
                 print("two")
-            """
-        ).strip()
+            """).strip()
         test_file.write_text(source, encoding="utf-8")
 
         original_argv = sys.argv
@@ -1003,15 +979,13 @@ class TestMain:
 
     def test_main_show_write_previews_lookup_conversions(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
-        source = dedent(
-            """
+        source = dedent("""
             result = {"a": 1, "b": 2}[key]
 
             def method(operation):
                 methods = {"create": "POST", "read": "GET"}
                 return methods[operation]
-            """
-        ).strip()
+            """).strip()
         test_file.write_text(source, encoding="utf-8")
 
         original_argv = sys.argv
@@ -1074,14 +1048,12 @@ class TestMain:
         assert visitor._indent_for(too_far) == ""
 
     def test_collect_chain_previews_omits_gated_unless_requested(self):
-        source = dedent(
-            """
+        source = dedent("""
             if value.i == 5:
                 print("i")
             elif value.j == 6:
                 print("j")
-            """
-        ).strip()
+            """).strip()
 
         hidden = collect_chain_previews(
             source,
@@ -1099,8 +1071,7 @@ class TestMain:
         assert shown[0].extra_assumptions == frozenset({"use-object"})
 
     def test_collect_chain_previews_includes_lookups(self):
-        source = dedent(
-            """
+        source = dedent("""
             result = {"a": 1, "b": 2}[key]
 
             def method(operation):
@@ -1111,8 +1082,7 @@ class TestMain:
 
             def other():
                 return 1
-            """
-        ).strip()
+            """).strip()
         lookup = Assumptions.from_names({"lookup-equality"})
 
         hidden = collect_chain_previews(
@@ -1199,14 +1169,12 @@ class TestMain:
     def test_main_with_assume_list(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
         test_file.write_text(
-            dedent(
-                """
+            dedent("""
                 if a.x == 1 and b.y == 2:
                     print("first")
                 elif a.x == 3 and b.y == 4:
                     print("second")
-                """
-            ).strip(),
+                """).strip(),
             encoding="utf-8",
         )
 
@@ -1229,14 +1197,12 @@ class TestMain:
     def test_main_with_list_and_tuple_sequence_assumptions(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
         test_file.write_text(
-            dedent(
-                """
+            dedent("""
                 if isinstance(value, (list, tuple)) and len(value) == 1 and value[0] == 1:
                     print("one")
                 elif value is None:
                     print("none")
-                """
-            ).strip(),
+                """).strip(),
             encoding="utf-8",
         )
 
