@@ -1,6 +1,7 @@
 """Shared pattern construction and condition helpers."""
 
 import re
+from collections.abc import Sequence
 
 import libcst as cst
 from libcst import matchers as m
@@ -70,6 +71,7 @@ def build_value_pattern(value: cst.BaseExpression) -> cst.MatchPattern:
     ):
         value = value.expression
     if is_singleton_name(value):
+        assert isinstance(value, cst.Name)
         return cst.MatchSingleton(value=value)
     return cst.MatchValue(value=value)
 
@@ -78,14 +80,16 @@ def build_wildcard_pattern() -> cst.MatchAs:
     return cst.MatchAs(pattern=None, name=None)
 
 
-def build_or_pattern(patterns: list[cst.MatchPattern]) -> cst.MatchPattern:
+def build_or_pattern(patterns: Sequence[cst.MatchPattern]) -> cst.MatchPattern:
     if len(patterns) == 1:
         return patterns[0]
 
     elements = [
         cst.MatchOrElement(
             pattern=pattern,
-            separator=cst.BitOr() if index < len(patterns) - 1 else None,
+            separator=(
+                cst.BitOr() if index < len(patterns) - 1 else cst.MaybeSentinel.DEFAULT
+            ),
         )
         for index, pattern in enumerate(patterns)
     ]
@@ -147,7 +151,7 @@ def build_class_pattern(
         cst.MatchKeywordElement(key=cst.Name(name), pattern=pattern)
         for name, pattern in (keyword_patterns or [])
     ]
-    patterns = [
+    patterns: list[cst.MatchPattern] = [
         cst.MatchClass(
             cls=class_expr.with_changes(lpar=(), rpar=()),
             patterns=[],

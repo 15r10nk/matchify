@@ -35,12 +35,13 @@ def is_safe_condition(
                     comparator
                 ):
                     if not (
-                        assumptions.identity_equality
+                        Assumptions.IDENTITY_EQUALITY in assumptions
                         and is_value_pattern_expr(comparator)
                     ):
                         return False
             elif is_len_call(component.left):
                 len_call = component.left
+                assert isinstance(len_call, cst.Call)
                 len_path = AccessPath.from_expression(len_call.args[0].value)
                 if any(
                     candidate.parts
@@ -66,6 +67,7 @@ def has_problematic_isinstance(
     ignore_types_pattern: str | None,
 ) -> bool:
     for call in m.findall(condition, m.Call(func=m.Name(value="isinstance"))):
+        assert isinstance(call, cst.Call)
         if len(call.args) < 2:
             return True
         if AccessPath.from_expression(call.args[0].value) not in subject.subjects:

@@ -127,25 +127,32 @@ def parse_predicate(
     assumptions: Assumptions | None = None,
 ) -> BoolExpr:
     assumptions = assumptions or Assumptions.safe()
-    if (parsed := parse_hasattr_predicate(predicate)) is not None:
-        return parsed
+    hasattr_predicate = parse_hasattr_predicate(predicate)
+    if hasattr_predicate is not None:
+        return hasattr_predicate
 
     if is_isinstance_call(predicate):
-        parsed = parse_isinstance_predicate(predicate, ignore_types_pattern)
-        if parsed is not None:
-            return parsed
+        assert isinstance(predicate, cst.Call)
+        isinstance_predicate = parse_isinstance_predicate(
+            predicate, ignore_types_pattern
+        )
+        if isinstance_predicate is not None:
+            return isinstance_predicate
 
     if isinstance(predicate, cst.Comparison) and len(predicate.comparisons) == 1:
-        if (
-            parsed := parse_membership_predicate(predicate, assumptions=assumptions)
-        ) is not None:
-            return parsed
-        if (parsed := parse_len_predicate(predicate)) is not None:
-            return parsed
-        if (
-            parsed := parse_value_predicate(predicate, assumptions=assumptions)
-        ) is not None:
-            return parsed
+        membership_predicate = parse_membership_predicate(
+            predicate, assumptions=assumptions
+        )
+        if membership_predicate is not None:
+            return membership_predicate
+        len_predicate = parse_len_predicate(predicate)
+        if len_predicate is not None:
+            return len_predicate
+        value_predicate_result = parse_value_predicate(
+            predicate, assumptions=assumptions
+        )
+        if value_predicate_result is not None:
+            return value_predicate_result
 
     return RawPredicate(predicate)
 
@@ -211,6 +218,7 @@ def parse_len_predicate(
     if not is_len_call(predicate.left):
         return None
     len_call = predicate.left
+    assert isinstance(len_call, cst.Call)
     target = predicate.comparisons[0]
     if not isinstance(target.comparator, cst.Integer):
         return None
@@ -257,7 +265,10 @@ def extract_literal_membership_values(
 ) -> tuple[cst.BaseExpression, ...] | None:
     if not isinstance(container, cst.Tuple | cst.List | cst.Set):
         return None
-    if isinstance(container, cst.Set) and not assumptions.hashable_subjects:
+    if (
+        isinstance(container, cst.Set)
+        and Assumptions.HASHABLE_SUBJECTS not in assumptions
+    ):
         return None
     values: list[cst.BaseExpression] = []
     literal_set_values: list[object] = []
@@ -297,7 +308,7 @@ def parse_value_predicate(
             AccessPath.from_expression(predicate.left), target.comparator, predicate
         )
     if (
-        assumptions.identity_equality
+        Assumptions.IDENTITY_EQUALITY in assumptions
         and isinstance(target.operator, cst.Is)
         and is_value_pattern_expr(target.comparator)
     ):

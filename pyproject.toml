@@ -9,7 +9,6 @@ authors = [
 classifiers = [
   "Development Status :: 4 - Beta",
   "Programming Language :: Python",
-  "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
@@ -19,12 +18,13 @@ classifiers = [
 ]
 dependencies = [
     "libcst>=1.8.6",
+    "rich>=13.0",
 ]
 description = "converts if-else code to match statements"
 license = "MIT"
 name = "matchify"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 version = "0.2.0"
 
 [dependency-groups]
@@ -49,7 +49,7 @@ Issues = "https://github.com/15r10nk/matchify/issues"
 Source = "https://github.com/15r10nk/matchify"
 
 [tool.black]
-target-version = ["py310"]
+target-version = ["py311"]
 
 [tool.isort]
 profile = "black"
@@ -86,17 +86,13 @@ dependencies = [
 ]
 
 [tool.hatch.envs.hatch-test]
-dependencies = [
-  "coverage[toml]>=6.5",
-  "pytest",
-  "pytest-xdist"
-]
+dependency-groups = ["dev"]
 env-vars.TOP = "{root}"
 default-args = ["tests"]
 scripts.run = "coverage run -m pytest {args}"
 
 [[tool.hatch.envs.hatch-test.matrix]]
-python = ["3.10", "3.11", "3.12", "3.13", "3.14"]
+python = ["3.11", "3.12", "3.13", "3.14"]
 
 
 

@@ -97,7 +97,11 @@ class TestTransformCode:
                     print("second")
             """).strip()
 
-        check_code(source, expected_with_flag, assume_pure_subjects=True)
+        check_code(
+            source,
+            expected_with_flag,
+            assumptions=Assumptions.from_names({"pure-subjects"}),
+        )
 
     def test_assumed_pure_subject_used_by_a_majority_joins_match_subject(self):
         source = dedent("""
@@ -119,7 +123,11 @@ class TestTransformCode:
                     print("subtract subtract")
             """).strip()
 
-        check_code(source, expected, assume_pure_subjects=True)
+        check_code(
+            source,
+            expected,
+            assumptions=Assumptions.from_names({"pure-subjects"}),
+        )
 
     def test_assumed_pure_attribute_subject_uses_object_patterns(self):
         source = dedent("""
@@ -148,7 +156,11 @@ class TestTransformCode:
             """).strip()
 
         check_code(source, source)
-        check_code(source, source, assume_pure_subjects=True)
+        check_code(
+            source,
+            source,
+            assumptions=Assumptions.from_names({"pure-subjects"}),
+        )
         check_code(
             source,
             expected,

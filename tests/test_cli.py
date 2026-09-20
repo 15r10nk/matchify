@@ -3,16 +3,144 @@ import runpy
 import sys
 import tempfile
 from importlib import import_module
+from io import StringIO
 from textwrap import dedent
 
+import libcst as cst
 import pytest
+from libcst.metadata import CodePosition, CodeRange
+from rich.console import Console
 
 from matchify.assumptions import Assumptions
-from matchify.cli import convert_file, main
+from matchify.cli import convert_file, convert_files, main
+from matchify.diff import print_location_heading, report_diff
+from matchify.transform import _ChainPreviewVisitor, collect_chain_previews
 
 
 class TestConvertFile:
     """Test the convert_file function."""
+
+    def test_report_diff_uses_colored_rich_output(self, monkeypatch):
+        output = StringIO()
+        monkeypatch.setattr(
+            "matchify.diff.console",
+            Console(file=output, force_terminal=True, color_system="truecolor"),
+        )
+
+        report_diff("before\n", "after\n", start_line=12)
+
+        rendered = output.getvalue()
+        assert "\x1b[" in rendered
+        assert "48;2;" in rendered
+        assert "12" in rendered
+        assert "---" not in rendered
+        assert "+++" not in rendered
+        assert "@@" not in rendered
+
+    def test_report_diff_ignores_indentation(self, monkeypatch):
+        output = StringIO()
+        monkeypatch.setattr(
+            "matchify.diff.console",
+            Console(file=output, force_terminal=True, color_system="truecolor"),
+        )
+
+        report_diff(
+            "if enabled:\n    handle()\n",
+            "if enabled:\n        handle()\n",
+            start_line=1,
+        )
+
+        assert output.getvalue() == ""
+
+    def test_report_diff_skips_identical_snippets(self, monkeypatch):
+        output = StringIO()
+        monkeypatch.setattr(
+            "matchify.diff.console",
+            Console(file=output, force_terminal=False, color_system=None),
+        )
+
+        report_diff("same\n", "same\n", start_line=1)
+
+        assert output.getvalue() == ""
+
+    def test_report_diff_prints_deleted_and_inserted_lines(self, monkeypatch):
+        output = StringIO()
+        monkeypatch.setattr(
+            "matchify.diff.console",
+            Console(file=output, force_terminal=False, color_system=None),
+        )
+
+        report_diff("keep\nremoved\n", "keep\n", start_line=4)
+        report_diff("keep\n", "keep\ninserted\n", start_line=8)
+
+        rendered = output.getvalue()
+        assert "5 -removed" in rendered
+        assert "9 +inserted" in rendered
+
+    def test_report_diff_prints_unpaired_removed_replace_lines(self, monkeypatch):
+        output = StringIO()
+        monkeypatch.setattr(
+            "matchify.diff.console",
+            Console(file=output, force_terminal=False, color_system=None),
+        )
+
+        report_diff("alpha\nbeta extra\n", "omega\n", start_line=1)
+
+        rendered = output.getvalue()
+        assert "1 -alpha" in rendered
+        assert "2 -beta extra" in rendered
+        assert "1 +omega" in rendered
+
+    def test_location_heading_uses_color(self, monkeypatch):
+        output = StringIO()
+        monkeypatch.setattr(
+            "matchify.diff.console",
+            Console(file=output, force_terminal=True, color_system="truecolor"),
+        )
+
+        print_location_heading(pathlib.Path("demo.py"), 4)
+
+        rendered = output.getvalue()
+        assert "demo.py" in rendered
+        assert "4" in rendered
+        assert "\x1b[" in rendered
+
+    def test_location_heading_does_not_wrap_long_paths(self, monkeypatch):
+        output = StringIO()
+        monkeypatch.setattr(
+            "matchify.diff.console",
+            Console(file=output, force_terminal=False, color_system=None, width=40),
+        )
+        path = pathlib.Path(
+            "/tmp/pytest-of-runner/pytest-0/popen-gw1/test_main_show_prints_one_diff0/test.py"
+        )
+
+        print_location_heading(path, 1)
+
+        rendered = output.getvalue()
+        assert rendered.splitlines()[0] == f"{path}:1"
+
+    def test_report_diff_prints_ellipsis_between_hunks(self, monkeypatch):
+        output = StringIO()
+        monkeypatch.setattr(
+            "matchify.diff.console",
+            Console(file=output, force_terminal=False, color_system=None),
+        )
+
+        unchanged = "".join(f"same{index}\n" for index in range(20))
+        report_diff(
+            f"old-start\n{unchanged}old-end\n",
+            f"new-start\n{unchanged}new-end\n",
+            start_line=10,
+        )
+
+        rendered = output.getvalue()
+        assert "10 -old-start" in rendered
+        assert "10 +new-start" in rendered
+        assert "..." in rendered
+        assert "@@" not in rendered
+        assert "---" not in rendered
+        assert "+++" not in rendered
 
     def test_convert_file_with_changes(self):
         """Test converting a file that needs changes."""
@@ -78,24 +206,6 @@ class TestConvertFile:
             assert "café" in result
             assert "☕" in result
 
-    def test_convert_file_can_assume_pure_subjects(self, tmp_path):
-        test_file = tmp_path / "test.py"
-        test_file.write_text(
-            dedent("""
-                if a.x == 1 and b.y == 2:
-                    print("first")
-                elif a.x == 3 and b.y == 4:
-                    print("second")
-                """).strip(),
-            encoding="utf-8",
-        )
-
-        _, changed, error = convert_file(test_file, assume_pure_subjects=True)
-
-        assert changed is True
-        assert error is None
-        assert "match (a.x, b.y):" in test_file.read_text(encoding="utf-8")
-
     def test_convert_file_accepts_assumptions(self, tmp_path):
         test_file = tmp_path / "test.py"
         test_file.write_text(
@@ -134,6 +244,37 @@ class TestConvertFile:
         assert error is None
         assert test_file.read_text(encoding="utf-8") == source
 
+    def test_convert_files_omits_transformed_text_unless_kept(self, tmp_path, capsys):
+        test_file = tmp_path / "test.py"
+        test_file.write_text(
+            "if x == 1:\n    pass\nelif x == 2:\n    pass\n", encoding="utf-8"
+        )
+        kwargs = dict(
+            ignore_types_pattern=None,
+            assumptions=Assumptions.from_names(),
+            jobs=None,
+            report_assumption_diagnostics=False,
+            check=True,
+            verbose=False,
+            quiet=True,
+        )
+
+        converted, unchanged, errors, changed = convert_files(
+            [test_file], keep_text=False, **kwargs
+        )
+        assert (converted, unchanged, errors) == (1, 0, 0)
+        assert changed == []
+
+        converted, unchanged, errors, kept = convert_files(
+            [test_file], keep_text=True, **kwargs
+        )
+        assert (converted, unchanged, errors) == (1, 0, 0)
+        assert len(kept) == 1
+        assert kept[0].path == test_file
+        assert kept[0].text is not None
+        assert "match x:" in kept[0].text
+        capsys.readouterr()
+
 
 class TestMain:
     """Test the main function."""
@@ -161,6 +302,167 @@ class TestMain:
         finally:
             sys.argv = original_argv
 
+    def test_main_requires_mode_in_non_interactive_shell(
+        self, capsys, tmp_path, monkeypatch
+    ):
+        test_file = tmp_path / "test.py"
+        test_file.write_text("print('x')", encoding="utf-8")
+        monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", str(test_file)]
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+        finally:
+            sys.argv = original_argv
+
+        assert exc_info.value.code == 2
+        assert "--write, --check, or --show is required" in capsys.readouterr().err
+
+    @pytest.mark.parametrize("flag", ["--show", "--show-all"])
+    def test_main_show_without_write_is_preview_only(
+        self, capsys, tmp_path, monkeypatch, flag
+    ):
+        test_file = tmp_path / "test.py"
+        source = "if x == 1:\n    pass\nelif x == 2:\n    pass\n"
+        test_file.write_text(source, encoding="utf-8")
+        monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", flag, str(test_file)]
+            main()
+        finally:
+            sys.argv = original_argv
+
+        assert test_file.read_text(encoding="utf-8") == source
+        output = capsys.readouterr().out
+        assert "+match x:" in output
+        assert "Wrote changes" not in output
+        assert "Would convert:" not in output
+        assert "1 would convert" in output
+
+    def test_main_interactively_previews_and_writes_after_confirmation(
+        self, capsys, tmp_path, monkeypatch
+    ):
+        test_file = tmp_path / "test.py"
+        test_file.write_text(
+            "if x == 1:\n    pass\nelif x == 2:\n    pass\n", encoding="utf-8"
+        )
+        monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+        prompts: list[str] = []
+        monkeypatch.setattr(
+            "builtins.input", lambda prompt: prompts.append(prompt) or "yes"
+        )
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", str(test_file)]
+            main()
+        finally:
+            sys.argv = original_argv
+
+        assert "match x:" in test_file.read_text(encoding="utf-8")
+        assert prompts == ["Write these changes? [y/N] "]
+        output = capsys.readouterr().out
+        assert f"{test_file}:1" in output
+        assert "1 +match x:" in output
+        assert "Would convert:" not in output
+        assert "Wrote changes to 1 file(s)" in output
+
+    def test_main_interactively_declines_writing(self, capsys, tmp_path, monkeypatch):
+        test_file = tmp_path / "test.py"
+        source = "if x == 1:\n    pass\nelif x == 2:\n    pass\n"
+        test_file.write_text(source, encoding="utf-8")
+        monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+        monkeypatch.setattr("builtins.input", lambda prompt: "n")
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", str(test_file)]
+            main()
+        finally:
+            sys.argv = original_argv
+
+        assert test_file.read_text(encoding="utf-8") == source
+        output = capsys.readouterr().out
+        assert "Wrote changes" not in output
+        assert "1 would convert" in output
+
+    def test_main_interactive_write_pass_reports_errors(
+        self, capsys, tmp_path, monkeypatch
+    ):
+        test_file = tmp_path / "test.py"
+        source = "if x == 1:\n    pass\nelif x == 2:\n    pass\n"
+        test_file.write_text(source, encoding="utf-8")
+        monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+        monkeypatch.setattr("builtins.input", lambda prompt: "yes")
+
+        def fail_write(self, *args, **kwargs):
+            raise OSError("permission denied")
+
+        monkeypatch.setattr(pathlib.Path, "write_text", fail_write)
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", str(test_file)]
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+        finally:
+            sys.argv = original_argv
+
+        assert exc_info.value.code == 1
+        output = capsys.readouterr().out
+        assert f"Error processing {test_file}: permission denied" in output
+        assert "Wrote changes" not in output
+        assert test_file.read_text(encoding="utf-8") == source
+
+    def test_main_interactive_reports_required_assumption(
+        self, capsys, tmp_path, monkeypatch
+    ):
+        test_file = tmp_path / "test.py"
+        source = dedent(
+            """
+            if value.i == 5:
+                print("i")
+            elif value.j == 6:
+                print("j")
+            """
+        ).strip()
+        test_file.write_text(source, encoding="utf-8")
+        monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", str(test_file)]
+            main()
+        finally:
+            sys.argv = original_argv
+
+        output = capsys.readouterr().out
+        assert test_file.read_text(encoding="utf-8") == source
+        assert (
+            f"Info: {test_file}:1:1: if/elif chain requires --assume use-object"
+            in output
+        )
+        assert "Wrote changes" not in output
+
+    def test_main_rejects_write_and_check_together(self, capsys, tmp_path):
+        test_file = tmp_path / "test.py"
+        test_file.write_text("print('x')", encoding="utf-8")
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", "--write", "--check", str(test_file)]
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+        finally:
+            sys.argv = original_argv
+
+        assert exc_info.value.code == 2
+        assert "not allowed with argument" in capsys.readouterr().err
+
     def test_main_with_single_file(self, capsys):
         """Test main function with a single Python file."""
 
@@ -176,7 +478,7 @@ class TestMain:
 
             original_argv = sys.argv
             try:
-                sys.argv = ["matchify", str(test_file)]
+                sys.argv = ["matchify", "--write", str(test_file)]
                 main()
 
                 result = test_file.read_text(encoding="utf-8")
@@ -210,7 +512,9 @@ class TestMain:
         assert exc_info.value.code == 1
         assert test_file.read_text(encoding="utf-8") == source
         output = capsys.readouterr().out
-        assert f"Would convert: {test_file}" in output
+        assert f"{test_file}:1" in output
+        assert "1 +match x:" in output
+        assert "Would convert:" not in output
         assert "1 would convert, 0 unchanged, 0 errors" in output
 
     def test_main_check_with_unchanged_file_exits_zero(self, capsys, tmp_path):
@@ -229,6 +533,613 @@ class TestMain:
         output = capsys.readouterr().out
         assert "Would convert:" not in output
         assert "0 would convert, 1 unchanged, 0 errors" in output
+
+    def test_main_check_does_not_convert_files(self, capsys, tmp_path, monkeypatch):
+        test_file = tmp_path / "test.py"
+        source = "if x == 1:\n    pass\nelif x == 2:\n    pass\n"
+        test_file.write_text(source, encoding="utf-8")
+
+        def boom(*args, **kwargs):
+            raise AssertionError("check should not transform whole files")
+
+        monkeypatch.setattr("matchify.cli._convert_file", boom)
+        monkeypatch.setattr("matchify.cli.convert_files", boom)
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", "--check", str(test_file)]
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+        finally:
+            sys.argv = original_argv
+
+        assert exc_info.value.code == 1
+        assert test_file.read_text(encoding="utf-8") == source
+        output = capsys.readouterr().out
+        assert "+match x:" in output
+        assert "1 would convert, 0 unchanged, 0 errors" in output
+
+    def test_main_show_does_not_convert_files(self, capsys, tmp_path, monkeypatch):
+        test_file = tmp_path / "test.py"
+        source = "if x == 1:\n    pass\nelif x == 2:\n    pass\n"
+        test_file.write_text(source, encoding="utf-8")
+
+        def boom(*args, **kwargs):
+            raise AssertionError("show should not transform whole files")
+
+        monkeypatch.setattr("matchify.cli._convert_file", boom)
+        monkeypatch.setattr("matchify.cli.convert_files", boom)
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", "--show", str(test_file)]
+            main()
+        finally:
+            sys.argv = original_argv
+
+        assert test_file.read_text(encoding="utf-8") == source
+        output = capsys.readouterr().out
+        assert "+match x:" in output
+        assert "1 would convert, 0 unchanged, 0 errors" in output
+
+    def test_main_check_multiple_files_does_not_convert_files(
+        self, capsys, tmp_path, monkeypatch
+    ):
+        test_dir = tmp_path / "src"
+        test_dir.mkdir()
+        convertible = test_dir / "a.py"
+        unchanged = test_dir / "b.py"
+        convertible.write_text(
+            "if x == 1:\n    pass\nelif x == 2:\n    pass\n", encoding="utf-8"
+        )
+        unchanged.write_text("print('ok')\n", encoding="utf-8")
+
+        def boom(*args, **kwargs):
+            raise AssertionError("check should not transform whole files")
+
+        monkeypatch.setattr("matchify.cli._convert_file", boom)
+        monkeypatch.setattr("matchify.cli.convert_files", boom)
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", "--check", "--jobs", "2", str(test_dir)]
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+        finally:
+            sys.argv = original_argv
+
+        assert exc_info.value.code == 1
+        output = capsys.readouterr().out
+        assert "+match x:" in output
+        assert "1 would convert, 1 unchanged, 0 errors" in output
+
+    def test_main_show_previews_diff_and_converts(self, capsys, tmp_path):
+        test_file = tmp_path / "test.py"
+        source = dedent(
+            """
+            if x == 1:
+                print("one")
+            elif x == 2:
+                print("two")
+            """
+        ).strip()
+        test_file.write_text(source, encoding="utf-8")
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", "--show", "--write", str(test_file)]
+            main()
+        finally:
+            sys.argv = original_argv
+
+        assert "match x:" in test_file.read_text(encoding="utf-8")
+        output = capsys.readouterr().out
+        assert f"{test_file}:1" in output
+        assert "1 -if x == 1:" in output
+        assert "1 +match x:" in output
+        assert "Converted:" not in output
+        assert "Would convert:" not in output
+        assert "---" not in output
+        assert "+++" not in output
+        assert "@@" not in output
+
+    def test_main_show_keeps_original_indent(self, capsys, tmp_path):
+        test_file = tmp_path / "test.py"
+        source = dedent(
+            """
+            def f(x):
+                if x == 1:
+                    print("one")
+                elif x == 2:
+                    print("two")
+            """
+        ).strip()
+        test_file.write_text(source, encoding="utf-8")
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", "--show", "--check", str(test_file)]
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+        finally:
+            sys.argv = original_argv
+
+        assert exc_info.value.code == 1
+        output = capsys.readouterr().out
+        assert "2 -    if x == 1:" in output
+        assert "2 +    match x:" in output
+        assert "3 +        case 1:" in output
+
+    def test_main_show_prints_one_diff_per_conversion(self, capsys, tmp_path):
+        test_file = tmp_path / "test.py"
+        source = dedent(
+            """
+            if x == 1:
+                print("one")
+            elif x == 2:
+                print("two")
+
+            if y == 3:
+                print("three")
+            elif y == 4:
+                print("four")
+            """
+        ).strip()
+        test_file.write_text(source, encoding="utf-8")
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", "--show", "--check", str(test_file)]
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+        finally:
+            sys.argv = original_argv
+
+        assert exc_info.value.code == 1
+        output = capsys.readouterr().out
+        assert f"{test_file}:1" in output
+        assert f"{test_file}:6" in output
+        assert output.index(f"{test_file}:1") < output.index(f"{test_file}:6")
+        assert "+match x:" in output
+        assert "+match y:" in output
+
+    def test_main_show_with_check_previews_diff_without_writing(self, capsys, tmp_path):
+        test_file = tmp_path / "test.py"
+        source = dedent(
+            """
+            if x == 1:
+                print("one")
+            elif x == 2:
+                print("two")
+            """
+        ).strip()
+        test_file.write_text(source, encoding="utf-8")
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", "--show", "--check", str(test_file)]
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+        finally:
+            sys.argv = original_argv
+
+        assert exc_info.value.code == 1
+        assert test_file.read_text(encoding="utf-8") == source
+        output = capsys.readouterr().out
+        assert "+match x:" in output
+        assert "Would convert:" not in output
+        assert "not shown" not in output
+
+    def test_main_show_all_previews_assumption_gated_conversion(self, capsys, tmp_path):
+        test_file = tmp_path / "test.py"
+        source = dedent(
+            """
+            if value.i == 5:
+                print("i")
+            elif value.j == 6:
+                print("j")
+            """
+        ).strip()
+        test_file.write_text(source, encoding="utf-8")
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", "--show-all", "--check", str(test_file)]
+            main()
+        finally:
+            sys.argv = original_argv
+
+        assert test_file.read_text(encoding="utf-8") == source
+        output = capsys.readouterr().out
+        assert f"{test_file}:1" in output
+        assert "Additional conversions require --assume use-object:" in output
+        assert "1 +match value:" in output
+        assert "+++" not in output
+        assert "not shown" not in output
+
+    def test_main_show_all_previews_multiple_gated_conversions(self, capsys, tmp_path):
+        test_file = tmp_path / "test.py"
+        source = dedent(
+            """
+            if first.i == 5:
+                print("i")
+            elif first.j == 6:
+                print("j")
+
+            if second.i == 7:
+                print("k")
+            elif second.j == 8:
+                print("l")
+            """
+        ).strip()
+        test_file.write_text(source, encoding="utf-8")
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", "--show-all", "--check", str(test_file)]
+            main()
+        finally:
+            sys.argv = original_argv
+
+        output = capsys.readouterr().out
+        assert f"{test_file}:1" in output
+        assert f"{test_file}:6" in output
+        assert "Additional conversions require --assume use-object:" in output
+
+    def test_main_show_all_keeps_eligible_and_gated_conversions_apart(
+        self, capsys, tmp_path
+    ):
+        test_file = tmp_path / "test.py"
+        source = dedent(
+            """
+            if x == 1:
+                print("one")
+            elif x == 2:
+                print("two")
+
+            if value.i == 5:
+                print("i")
+            elif value.j == 6:
+                print("j")
+            """
+        ).strip()
+        test_file.write_text(source, encoding="utf-8")
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", "--show-all", "--check", str(test_file)]
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+        finally:
+            sys.argv = original_argv
+
+        assert exc_info.value.code == 1
+        output = capsys.readouterr().out
+        assert "1 +match x:" in output
+        assert "Additional conversions require --assume use-object:" in output
+        assert "+match value:" in output
+
+    def test_main_show_skips_ineligible_chains(self, capsys, tmp_path):
+        test_file = tmp_path / "test.py"
+        source = dedent(
+            """
+            if x > 1:
+                print("big")
+            elif x > 2:
+                print("bigger")
+            """
+        ).strip()
+        test_file.write_text(source, encoding="utf-8")
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", "--show", "--check", str(test_file)]
+            main()
+        finally:
+            sys.argv = original_argv
+
+        output = capsys.readouterr().out
+        assert "+match" not in output
+        assert "0 would convert" in output
+        assert "not shown" not in output
+
+    def test_main_show_reports_one_hidden_assumption_gated_conversion(
+        self, capsys, tmp_path
+    ):
+        test_file = tmp_path / "test.py"
+        source = dedent(
+            """
+            if value.i == 5:
+                print("i")
+            elif value.j == 6:
+                print("j")
+            """
+        ).strip()
+        test_file.write_text(source, encoding="utf-8")
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", "--show", "--check", str(test_file)]
+            main()
+        finally:
+            sys.argv = original_argv
+
+        output = capsys.readouterr().out
+        assert "+match" not in output
+        assert "Additional conversions require" not in output
+        assert (
+            f"Info: {test_file}:1:1: if/elif chain requires --assume use-object"
+            in output
+        )
+        assert (
+            "1 conversion not shown because of missing --assume. "
+            "View it with --show-all."
+        ) in output
+        assert "0 would convert" in output
+
+    def test_main_show_reports_count_of_hidden_gated_conversions(
+        self, capsys, tmp_path
+    ):
+        test_file = tmp_path / "test.py"
+        source = dedent(
+            """
+            if x == 1:
+                print("one")
+            elif x == 2:
+                print("two")
+
+            if first.i == 5:
+                print("i")
+            elif first.j == 6:
+                print("j")
+
+            if second.i == 7:
+                print("k")
+            elif second.j == 8:
+                print("l")
+            """
+        ).strip()
+        test_file.write_text(source, encoding="utf-8")
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", "--show", "--check", str(test_file)]
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+        finally:
+            sys.argv = original_argv
+
+        assert exc_info.value.code == 1
+        output = capsys.readouterr().out
+        assert "+match x:" in output
+        assert "+match first:" not in output
+        assert "+match second:" not in output
+        assert (
+            "2 conversions not shown because of missing --assume. "
+            "View them with --show-all."
+        ) in output
+
+    def test_main_show_all_skips_chains_that_stay_ineligible(self, capsys, tmp_path):
+        test_file = tmp_path / "test.py"
+        source = dedent(
+            """
+            if x == {1}:
+                print("one")
+            elif x == {2}:
+                print("two")
+            """
+        ).strip()
+        test_file.write_text(source, encoding="utf-8")
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", "--show-all", "--check", str(test_file)]
+            main()
+        finally:
+            sys.argv = original_argv
+
+        output = capsys.readouterr().out
+        assert "Additional conversions" not in output
+        assert "0 would convert" in output
+
+    def test_main_show_with_syntax_error_still_reports_processing(
+        self, capsys, tmp_path
+    ):
+        test_file = tmp_path / "test.py"
+        test_file.write_text("if x == :\n    print('broken')", encoding="utf-8")
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", "--show", "--check", str(test_file)]
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+        finally:
+            sys.argv = original_argv
+
+        assert exc_info.value.code == 1
+        output = capsys.readouterr().out
+        assert "Error processing" in output
+
+    def test_main_show_write_with_syntax_error_does_not_write(self, capsys, tmp_path):
+        test_file = tmp_path / "test.py"
+        source = "if x == :\n    print('broken')"
+        test_file.write_text(source, encoding="utf-8")
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", "--show", "--write", str(test_file)]
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+        finally:
+            sys.argv = original_argv
+
+        assert exc_info.value.code == 1
+        assert test_file.read_text(encoding="utf-8") == source
+        output = capsys.readouterr().out
+        assert "Error processing" in output
+        assert "0 converted, 0 unchanged, 1 errors" in output
+
+    def test_main_show_unexpected_preview_error_does_not_write(
+        self, tmp_path, monkeypatch
+    ):
+        test_file = tmp_path / "test.py"
+        source = "if x == 1:\n    pass\nelif x == 2:\n    pass\n"
+        test_file.write_text(source, encoding="utf-8")
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("preview bug")
+
+        monkeypatch.setattr("matchify.cli._preview_file", boom)
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", "--show", "--write", str(test_file)]
+            with pytest.raises(RuntimeError, match="preview bug"):
+                main()
+        finally:
+            sys.argv = original_argv
+
+        assert test_file.read_text(encoding="utf-8") == source
+
+    def test_main_show_write_previews_lookup_conversions(self, capsys, tmp_path):
+        test_file = tmp_path / "test.py"
+        source = dedent(
+            """
+            result = {"a": 1, "b": 2}[key]
+
+            def method(operation):
+                methods = {"create": "POST", "read": "GET"}
+                return methods[operation]
+            """
+        ).strip()
+        test_file.write_text(source, encoding="utf-8")
+
+        original_argv = sys.argv
+        try:
+            sys.argv = [
+                "matchify",
+                "--show",
+                "--write",
+                "--assume",
+                "lookup-equality",
+                str(test_file),
+            ]
+            main()
+        finally:
+            sys.argv = original_argv
+
+        transformed = test_file.read_text(encoding="utf-8")
+        output = capsys.readouterr().out
+        assert "match key:" in transformed
+        assert "match operation:" in transformed
+        assert "+match key:" in output
+        assert "+    match operation:" in output
+
+    def test_main_show_all_previews_gated_lookup(self, capsys, tmp_path):
+        test_file = tmp_path / "test.py"
+        test_file.write_text('result = {"a": 1, "b": 2}[key]\n', encoding="utf-8")
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", "--show-all", "--check", str(test_file)]
+            main()
+        finally:
+            sys.argv = original_argv
+
+        assert (
+            test_file.read_text(encoding="utf-8") == 'result = {"a": 1, "b": 2}[key]\n'
+        )
+        output = capsys.readouterr().out
+        assert "Additional conversions require --assume lookup-equality:" in output
+        assert "+match key:" in output
+
+    def test_preview_indent_fallback_for_unknown_positions(self):
+        module = cst.parse_module("x = 1\n")
+        visitor = _ChainPreviewVisitor(
+            module,
+            "x = 1\n",
+            ignore_types_pattern=None,
+            assumptions=Assumptions.from_names(),
+        )
+        missing = CodeRange(
+            start=CodePosition(line=0, column=0),
+            end=CodePosition(line=0, column=0),
+        )
+        too_far = CodeRange(
+            start=CodePosition(line=99, column=0),
+            end=CodePosition(line=99, column=0),
+        )
+
+        assert visitor._indent_for(missing) == ""
+        assert visitor._indent_for(too_far) == ""
+
+    def test_collect_chain_previews_omits_gated_unless_requested(self):
+        source = dedent(
+            """
+            if value.i == 5:
+                print("i")
+            elif value.j == 6:
+                print("j")
+            """
+        ).strip()
+
+        hidden = collect_chain_previews(
+            source,
+            assumptions=Assumptions.from_names(),
+            include_gated=False,
+        )
+        shown = collect_chain_previews(
+            source,
+            assumptions=Assumptions.from_names(),
+            include_gated=True,
+        )
+
+        assert hidden == []
+        assert len(shown) == 1
+        assert shown[0].extra_assumptions == frozenset({"use-object"})
+
+    def test_collect_chain_previews_includes_lookups(self):
+        source = dedent(
+            """
+            result = {"a": 1, "b": 2}[key]
+
+            def method(operation):
+                methods = {"create": "POST", "read": "GET"}
+                return methods[operation]
+
+            def compact(): return 1
+
+            def other():
+                return 1
+            """
+        ).strip()
+        lookup = Assumptions.from_names({"lookup-equality"})
+
+        hidden = collect_chain_previews(
+            source,
+            assumptions=Assumptions.from_names(),
+            include_gated=False,
+        )
+        shown = collect_chain_previews(
+            source,
+            assumptions=Assumptions.from_names(),
+            include_gated=True,
+        )
+        enabled = collect_chain_previews(
+            source,
+            assumptions=lookup,
+            include_gated=False,
+        )
+
+        assert hidden == []
+        assert len(shown) == 2
+        assert {preview.extra_assumptions for preview in shown} == {
+            frozenset({"lookup-equality"})
+        }
+        assert len(enabled) == 2
+        assert all(not preview.extra_assumptions for preview in enabled)
+        assert any("match key:" in preview.after for preview in enabled)
+        assert any("match operation:" in preview.after for preview in enabled)
 
     def test_main_check_with_error_exits_one(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
@@ -253,7 +1164,7 @@ class TestMain:
 
         original_argv = sys.argv
         try:
-            sys.argv = ["matchify", str(test_file)]
+            sys.argv = ["matchify", "--write", str(test_file)]
             with pytest.raises(SystemExit) as exc_info:
                 main()
         finally:
@@ -288,12 +1199,14 @@ class TestMain:
     def test_main_with_assume_list(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
         test_file.write_text(
-            dedent("""
+            dedent(
+                """
                 if a.x == 1 and b.y == 2:
                     print("first")
                 elif a.x == 3 and b.y == 4:
                     print("second")
-                """).strip(),
+                """
+            ).strip(),
             encoding="utf-8",
         )
 
@@ -301,6 +1214,7 @@ class TestMain:
         try:
             sys.argv = [
                 "matchify",
+                "--write",
                 "--assume",
                 "pure-subjects",
                 str(test_file),
@@ -315,12 +1229,14 @@ class TestMain:
     def test_main_with_list_and_tuple_sequence_assumptions(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
         test_file.write_text(
-            dedent("""
+            dedent(
+                """
                 if isinstance(value, (list, tuple)) and len(value) == 1 and value[0] == 1:
                     print("one")
                 elif value is None:
                     print("none")
-                """).strip(),
+                """
+            ).strip(),
             encoding="utf-8",
         )
 
@@ -328,6 +1244,7 @@ class TestMain:
         try:
             sys.argv = [
                 "matchify",
+                "--write",
                 "--assume",
                 "list-sequence-pattern,tuple-sequence-pattern",
                 str(test_file),
@@ -353,7 +1270,7 @@ class TestMain:
 
         original_argv = sys.argv
         try:
-            sys.argv = ["matchify", str(test_file)]
+            sys.argv = ["matchify", "--write", str(test_file)]
             main()
         finally:
             sys.argv = original_argv
@@ -378,7 +1295,7 @@ class TestMain:
 
         original_argv = sys.argv
         try:
-            sys.argv = ["matchify", str(test_file)]
+            sys.argv = ["matchify", "--write", str(test_file)]
             main()
         finally:
             sys.argv = original_argv
@@ -403,7 +1320,7 @@ class TestMain:
 
         original_argv = sys.argv
         try:
-            sys.argv = ["matchify", str(test_file)]
+            sys.argv = ["matchify", "--write", str(test_file)]
             main()
         finally:
             sys.argv = original_argv
@@ -430,7 +1347,7 @@ class TestMain:
 
         original_argv = sys.argv
         try:
-            sys.argv = ["matchify", "--assume", "use-object", str(test_file)]
+            sys.argv = ["matchify", "--write", "--assume", "use-object", str(test_file)]
             main()
         finally:
             sys.argv = original_argv
@@ -453,7 +1370,7 @@ class TestMain:
 
         original_argv = sys.argv
         try:
-            sys.argv = ["matchify", "--risky", str(test_file)]
+            sys.argv = ["matchify", "--write", "--risky", str(test_file)]
             main()
         finally:
             sys.argv = original_argv
@@ -475,7 +1392,7 @@ class TestMain:
 
         original_argv = sys.argv
         try:
-            sys.argv = ["matchify", "--safe", str(test_file)]
+            sys.argv = ["matchify", "--write", "--safe", str(test_file)]
             main()
         finally:
             sys.argv = original_argv
@@ -514,7 +1431,7 @@ class TestMain:
 
             original_argv = sys.argv
             try:
-                sys.argv = ["python -m matchify", str(test_file)]
+                sys.argv = ["python -m matchify", "--write", str(test_file)]
                 sys.modules.pop("matchify.__main__", None)
                 runpy.run_module("matchify.__main__", run_name="__main__")
 
@@ -548,7 +1465,7 @@ class TestMain:
 
             original_argv = sys.argv
             try:
-                sys.argv = ["matchify", str(test_dir)]
+                sys.argv = ["matchify", "--write", str(test_dir)]
                 main()
 
                 # Both files should be converted
@@ -583,7 +1500,7 @@ class TestMain:
 
             original_argv = sys.argv
             try:
-                sys.argv = ["matchify", str(test_dir)]
+                sys.argv = ["matchify", "--write", str(test_dir)]
                 main()
 
                 # Both files should be converted
@@ -601,7 +1518,7 @@ class TestMain:
 
             original_argv = sys.argv
             try:
-                sys.argv = ["matchify", str(test_file)]
+                sys.argv = ["matchify", "--write", str(test_file)]
                 main()
 
                 captured = capsys.readouterr()
@@ -630,7 +1547,7 @@ class TestMain:
 
             original_argv = sys.argv
             try:
-                sys.argv = ["matchify", str(file1), str(file2)]
+                sys.argv = ["matchify", "--write", str(file1), str(file2)]
                 main()
 
                 # Both files should be converted
@@ -657,7 +1574,7 @@ class TestCliOptionsAndErrors:
 
             original_argv = sys.argv
             try:
-                sys.argv = ["matchify", str(test_file)]
+                sys.argv = ["matchify", "--write", str(test_file)]
                 main()
 
                 captured = capsys.readouterr()
@@ -680,7 +1597,7 @@ class TestCliOptionsAndErrors:
 
             original_argv = sys.argv
             try:
-                sys.argv = ["matchify", "--verbose", str(test_file)]
+                sys.argv = ["matchify", "--write", "--verbose", str(test_file)]
                 main()
 
                 captured = capsys.readouterr()
@@ -701,7 +1618,14 @@ class TestCliOptionsAndErrors:
 
             original_argv = sys.argv
             try:
-                sys.argv = ["matchify", "--jobs", "2", "--verbose", str(test_dir)]
+                sys.argv = [
+                    "matchify",
+                    "--write",
+                    "--jobs",
+                    "2",
+                    "--verbose",
+                    str(test_dir),
+                ]
                 with pytest.raises(SystemExit) as exc_info:
                     main()
 
@@ -726,7 +1650,7 @@ class TestCliOptionsAndErrors:
 
             original_argv = sys.argv
             try:
-                sys.argv = ["matchify", "--jobs", "2", str(test_dir)]
+                sys.argv = ["matchify", "--write", "--jobs", "2", str(test_dir)]
                 with pytest.raises(SystemExit) as exc_info:
                     main()
 
@@ -749,7 +1673,7 @@ class TestCliOptionsAndErrors:
 
             original_argv = sys.argv
             try:
-                sys.argv = ["matchify", "-v", str(test_dir)]
+                sys.argv = ["matchify", "--write", "-v", str(test_dir)]
                 main()
 
                 captured = capsys.readouterr()
@@ -777,7 +1701,7 @@ class TestCliOptionsAndErrors:
 
             original_argv = sys.argv
             try:
-                sys.argv = ["matchify", "--jobs", "2", str(test_dir)]
+                sys.argv = ["matchify", "--write", "--jobs", "2", str(test_dir)]
                 main()
 
                 captured = capsys.readouterr()
@@ -809,7 +1733,7 @@ class TestCliOptionsAndErrors:
 
             original_argv = sys.argv
             try:
-                sys.argv = ["matchify", str(test_file)]
+                sys.argv = ["matchify", "--write", str(test_file)]
                 with pytest.raises(SystemExit) as exc_info:
                     main()
 
