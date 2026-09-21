@@ -5,6 +5,8 @@ from __future__ import annotations
 import ast
 from collections.abc import Iterator
 from dataclasses import dataclass, fields, replace
+from functools import lru_cache
+from types import CodeType
 
 import libcst as cst
 
@@ -65,20 +67,28 @@ class ConversionFilter:
     """A restricted, prevalidated expression over conversion metrics."""
 
     expression: str
-    tree: ast.Expression
 
     @classmethod
     def parse(cls, expression: str) -> ConversionFilter:
-        try:
-            tree = ast.parse(expression, mode="eval")
-        except SyntaxError as error:
-            raise ValueError(f"Invalid --convert-if expression: {error.msg}") from error
-        _validate_expression(tree)
-        return cls(expression, tree)
+        _compile_expression(expression)
+        return cls(expression)
 
     def matches(self, metrics: ConversionMetrics) -> bool:
         values = {name: getattr(metrics, name) for name in metrics.names()}
-        return bool(_evaluate(self.tree.body, values))
+        return bool(
+            eval(_compile_expression(self.expression), {"__builtins__": {}}, values)
+        )
+
+
+@lru_cache(maxsize=128)
+def _compile_expression(expression: str) -> CodeType:
+    # Keep code objects in a process-local cache so filters remain picklable.
+    try:
+        tree = ast.parse(expression, mode="eval")
+    except SyntaxError as error:
+        raise ValueError(f"Invalid --convert-if expression: {error.msg}") from error
+    _validate_expression(tree)
+    return compile(tree, "<convert-if>", "eval")
 
 
 def source_metrics(conditions: tuple[BoolExpr, ...]) -> ConversionMetrics:
@@ -294,71 +304,3 @@ def _validate_expression(tree: ast.Expression) -> None:
             raise ValueError(
                 f"Unsupported syntax in --convert-if expression: {type(node).__name__}"
             )
-
-
-def _evaluate(node: ast.expr, values: dict[str, int]) -> int | float | bool:
-    if isinstance(node, ast.Name):
-        return values[node.id]
-    if isinstance(node, ast.Constant):
-        assert isinstance(node.value, bool | int)
-        return node.value
-    if isinstance(node, ast.UnaryOp):
-        return not _evaluate(node.operand, values)
-    if isinstance(node, ast.BoolOp):
-        operands = (_evaluate(value, values) for value in node.values)
-        return all(operands) if isinstance(node.op, ast.And) else any(operands)
-    if isinstance(node, ast.BinOp):
-        return _arithmetic(
-            _evaluate(node.left, values), node.op, _evaluate(node.right, values)
-        )
-    if isinstance(node, ast.Compare):
-        left = _evaluate(node.left, values)
-        for operator, comparator_node in zip(node.ops, node.comparators):
-            right = _evaluate(comparator_node, values)
-            if not _compare(left, operator, right):
-                return False
-            left = right
-        return True
-    raise AssertionError(  # pragma: no cover - validation rejects other nodes
-        f"Unexpected validated expression node: {type(node).__name__}"
-    )
-
-
-def _arithmetic(
-    left: int | float | bool,
-    operator: ast.operator,
-    right: int | float | bool,
-) -> int | float:
-    if isinstance(operator, ast.Add):
-        return left + right
-    if isinstance(operator, ast.Sub):
-        return left - right
-    if isinstance(operator, ast.Mult):
-        return left * right
-    if isinstance(operator, ast.Div):
-        return left / right
-    raise AssertionError(  # pragma: no cover - validation rejects other operators
-        f"Unexpected validated arithmetic operator: {type(operator).__name__}"
-    )
-
-
-def _compare(
-    left: int | float | bool,
-    operator: ast.cmpop,
-    right: int | float | bool,
-) -> bool:
-    if isinstance(operator, ast.Lt):
-        return left < right
-    if isinstance(operator, ast.LtE):
-        return left <= right
-    if isinstance(operator, ast.Eq):
-        return left == right
-    if isinstance(operator, ast.NotEq):
-        return left != right
-    if isinstance(operator, ast.GtE):
-        return left >= right
-    if isinstance(operator, ast.Gt):
-        return left > right
-    raise AssertionError(  # pragma: no cover - validation rejects other operators
-        f"Unexpected validated comparison: {type(operator).__name__}"
-    )

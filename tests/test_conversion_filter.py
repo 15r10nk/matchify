@@ -1,3 +1,4 @@
+import pickle
 from textwrap import dedent
 
 import libcst as cst
@@ -24,6 +25,8 @@ from matchify.transform import transform_code
         "branches % 2 == 0",
         "branches**2 > 1",
         "-branches < 0",
+        "False and __import__('os')",
+        "(lambda: True)()",
     ],
 )
 def test_conversion_filter_rejects_unsupported_syntax(expression):
@@ -58,6 +61,47 @@ def test_conversion_filter_supports_agreed_operators_and_truthiness():
 @pytest.mark.parametrize(("expression", "expected"), [("True", True), ("False", False)])
 def test_conversion_filter_supports_boolean_constants(expression, expected):
     assert ConversionFilter.parse(expression).matches(ConversionMetrics()) is expected
+
+
+@pytest.mark.parametrize(
+    ("expression", "expected"),
+    [
+        ("(branches or 1) == 2", True),
+        ("(guard_conditions or branches) == 2", True),
+        ("(branches and 4) == 4", True),
+        ("(branches or 1) == 1", False),
+        ("branches or 1 / 0", True),
+        ("guard_conditions and 1 / 0", False),
+        ("branches < 1 < 1 / 0", False),
+    ],
+)
+def test_filter_preserves_python_boolean_semantics(expression, expected):
+    source = dedent(
+        """
+        if value == 1:
+            pass
+        elif value == 2:
+            pass
+        """
+    )
+
+    transformed = transform_code(source, convert_if=expression)
+
+    if expected:
+        assert "match value:" in transformed
+    else:
+        assert transformed == source
+
+
+def test_conversion_filter_remains_picklable_after_evaluation():
+    conversion_filter = ConversionFilter.parse("(branches or 1) == 3")
+    metrics = ConversionMetrics(branches=3)
+
+    assert conversion_filter.matches(metrics)
+    restored = pickle.loads(pickle.dumps(conversion_filter))
+
+    assert restored.matches(metrics)
+    assert not restored.matches(ConversionMetrics(branches=2))
 
 
 def test_conversion_filter_supports_arithmetic_with_python_precedence():

@@ -51,8 +51,10 @@ matchify path/to/project/ --convert-if "branches >= 3 and not guard_conditions"
 expression with `and` and `or`.
 
 Arithmetic uses normal Python precedence and `/` performs true division.
-Expressions are parsed as a restricted syntax tree and are never passed to
-`eval()`. Function calls, attribute access, subscripts, other arithmetic
+Expressions are validated against a restricted syntax tree before being compiled
+and evaluated with `eval()`, with only metric values and no builtins available.
+Boolean operators preserve Python's operand values and short-circuit behavior.
+Function calls, attribute access, subscripts, other arithmetic
 operators, strings, and unknown variables are rejected before any files are
 processed.
 
