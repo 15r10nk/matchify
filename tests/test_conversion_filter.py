@@ -126,6 +126,23 @@ def test_filter_counts_sequence_checks_guards_and_captures():
     assert "case 1, result if enabled and ready:" in transformed
 
 
+def test_filter_counts_names_once_across_or_pattern_alternatives():
+    source = dedent(
+        """
+        if (len(value) >= 3 and value[1] == 2) or (len(value) >= 3 and value[1] == 3):
+            first = value[0]
+            third = value[2]
+            print(first, third)
+        elif value is None:
+            print("none")
+        """
+    ).strip()
+
+    transformed = transform_code(source, convert_if="captures == 2")
+
+    assert "case [first, 2, third, *_] | [first, 3, third, *_]:" in transformed
+
+
 def test_filter_counts_maximum_generated_pattern_depth():
     source = dedent(
         """
@@ -171,6 +188,7 @@ def test_maximum_pattern_depth_covers_all_pattern_containers():
     assert metrics.sequence_patterns == 2
     assert metrics.or_alternatives == 2
     assert metrics.guarded_cases == 1
+    assert metrics.captures == 4
 
 
 def test_filter_runs_after_assumption_resolution():

@@ -7,7 +7,6 @@ from collections.abc import Iterator
 from dataclasses import dataclass, fields, replace
 
 import libcst as cst
-from libcst import matchers as m
 
 from .access_path import AttributePathPart
 from .conditions import (
@@ -144,7 +143,9 @@ def with_generated_metrics(
             for case in match_statement.cases
             if case.guard is not None
         ),
-        captures=len(m.findall(match_statement, m.MatchAs(name=m.Name()))),
+        captures=sum(
+            len(set(_capture_names(case.pattern))) for case in match_statement.cases
+        ),
     )
 
 
@@ -193,6 +194,33 @@ def _walk_patterns(pattern: cst.MatchPattern) -> Iterator[cst.MatchPattern]:
             yield from _walk_patterns(alternative.pattern)
     elif isinstance(pattern, cst.MatchAs) and pattern.pattern is not None:
         yield from _walk_patterns(pattern.pattern)
+
+
+def _capture_names(pattern: cst.MatchPattern) -> Iterator[str]:
+    if isinstance(pattern, cst.MatchAs):
+        if pattern.name is not None:
+            yield pattern.name.value
+        if pattern.pattern is not None:
+            yield from _capture_names(pattern.pattern)
+    elif isinstance(pattern, cst.MatchClass):
+        for positional in pattern.patterns:
+            yield from _capture_names(positional.value)
+        for keyword in pattern.kwds:
+            yield from _capture_names(keyword.pattern)
+    elif isinstance(pattern, cst.MatchSequence):
+        for sequence_item in pattern.patterns:
+            if isinstance(sequence_item, cst.MatchSequenceElement):
+                yield from _capture_names(sequence_item.value)
+            elif sequence_item.name is not None and sequence_item.name.value != "_":
+                yield sequence_item.name.value
+    elif isinstance(pattern, cst.MatchMapping):
+        for mapping_item in pattern.elements:
+            yield from _capture_names(mapping_item.pattern)
+        if pattern.rest is not None:
+            yield pattern.rest.value
+    elif isinstance(pattern, cst.MatchOr):
+        for alternative in pattern.patterns:
+            yield from _capture_names(alternative.pattern)
 
 
 def _pattern_depth(pattern: cst.MatchPattern) -> int:
