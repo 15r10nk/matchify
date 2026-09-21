@@ -1639,6 +1639,38 @@ class TestMain:
         )
         assert f"No changes: {test_file}" in output
 
+    def test_verbose_show_write_reports_filter_rejection_once(self, capsys, tmp_path):
+        test_file = tmp_path / "test.py"
+        source = dedent(
+            """
+            if x == 1:
+                print("one")
+            elif x == 2:
+                print("two")
+            """
+        ).strip()
+        test_file.write_text(source, encoding="utf-8")
+
+        original_argv = sys.argv
+        try:
+            sys.argv = [
+                "matchify",
+                "--convert-if",
+                "branches >= 3",
+                "--verbose",
+                "--show",
+                "--write",
+                str(test_file),
+            ]
+            main()
+        finally:
+            sys.argv = original_argv
+
+        output = capsys.readouterr().out
+        message = f"Info: {test_file}:1:1: if/elif chain rejected by --convert-if"
+        assert output.count(message) == 1
+        assert test_file.read_text(encoding="utf-8") == source
+
     def test_module_entrypoint_with_single_file(self, capsys):
         """Test running the package module invokes the CLI entry point."""
 

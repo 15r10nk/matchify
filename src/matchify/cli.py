@@ -567,7 +567,7 @@ def main() -> None:
             report_errors=not apply_changes,
             report_assumption_diagnostics=not apply_changes and not mode.show_all,
             convert_if=conversion_filter,
-            report_filter_diagnostics=mode.verbose,
+            report_filter_diagnostics=mode.verbose and not apply_changes,
         )
 
     if apply_changes:
