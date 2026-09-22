@@ -76,15 +76,11 @@ def test_safe_condition_parser_keeps_set_membership_in_a_guard():
 
 
 def test_local_lookup_analysis_without_rewriting():
-    module = cst.parse_module(
-        dedent(
-            """\
+    module = cst.parse_module(dedent("""\
             def choose(key):
                 table = {"a": 1, "b": 2}
                 return table[key]
-            """
-        )
-    )
+            """))
     function = module.body[0]
     assert isinstance(function, cst.FunctionDef)
     assert isinstance(function.body, cst.IndentedBlock)
