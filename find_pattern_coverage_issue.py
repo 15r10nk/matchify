@@ -724,7 +724,7 @@ def check_program(program: Program, style: IfStyle, *, seed: int) -> Issue | Non
             index=-1,
             style=style.value,
             original=original,
-            converted=converted,
+            converted=original,
             match_reference=match_reference,
             expected_trace=expected_trace,
             actual_trace=Trace("", "", None, None),

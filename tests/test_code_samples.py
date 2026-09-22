@@ -17,6 +17,7 @@ from code_sample_format import (
     render_trace,
 )
 from code_sample_runtime import Trace, execute
+from code_sample_writer import save_code_sample
 from matchify import transform_code
 
 SAMPLES_DIR = Path(__file__).parent / "code_samples"
@@ -95,6 +96,29 @@ def test_render_trace_includes_stderr_and_exception_details():
     )
 
 
+@pytest.mark.parametrize(
+    "source",
+    [
+        "pass\n",
+        "raise ValueError('details', 42)\n",
+        "import sys\nprint('warning', file=sys.stderr)\n",
+    ],
+)
+def test_sample_without_stdout_can_be_saved_and_checked(source, tmp_path):
+    trace = execute(source)
+    assert trace.stdout == ""
+    sample_path = save_code_sample(
+        samples_dir=tmp_path,
+        sample_id="silent",
+        before=source,
+        after=source,
+        trace=trace,
+        metadata=(),
+    )
+
+    test_code_sample(sample_path)
+
+
 @pytest.mark.parametrize("sample_path", sample_paths(), ids=lambda path: path.stem)
 def test_code_sample(sample_path: Path):
     sample = parse_sample(sample_path.read_text(encoding="utf-8"))
@@ -111,7 +135,6 @@ def test_code_sample(sample_path: Path):
     after_trace = execute(sample.prefix + after)
 
     assert before_trace == after_trace
-    assert after_trace.stdout
     assert render_sample(sample, after, after_trace) == external_file(
         sample_path, format=".txt"
     )

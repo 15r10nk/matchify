@@ -2086,7 +2086,7 @@ def check_source(source: str) -> Issue | None:
             seed=-1,
             index=-1,
             original=source,
-            converted=converted,
+            converted=source,
             expected_trace=expected_trace,
             actual_trace=Trace("", "", None, None),
             changed=False,

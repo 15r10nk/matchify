@@ -17,9 +17,6 @@ def save_code_sample(
     metadata: tuple[tuple[str, str | int], ...],
 ) -> Path:
     """Write a generated issue in the format consumed by test_code_samples.py."""
-    if not trace.stdout:
-        raise ValueError("code samples require a non-empty stdout trace")
-
     samples_dir.mkdir(parents=True, exist_ok=True)
     sample_path = samples_dir / f"{sample_id}.py"
     header = "".join(f"# {name}: {value}\n" for name, value in metadata)
