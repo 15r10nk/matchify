@@ -127,6 +127,28 @@ def test_sample_without_stdout_can_be_saved_and_checked(source, tmp_path):
     test_code_sample(sample_path)
 
 
+def test_saved_sample_uses_lf_with_windows_default_newlines(monkeypatch, tmp_path):
+    write_text = Path.write_text
+
+    def windows_write_text(path, data, *args, **kwargs):
+        kwargs.setdefault("newline", "\r\n")
+        return write_text(path, data, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", windows_write_text)
+    source = 'print("sample")\n'
+    sample_path = save_code_sample(
+        samples_dir=tmp_path,
+        sample_id="windows",
+        before=source,
+        after=source,
+        trace=execute(source),
+        metadata=(),
+    )
+
+    assert b"\r\n" not in sample_path.read_bytes()
+    test_code_sample(sample_path)
+
+
 @pytest.mark.parametrize("sample_path", sample_paths(), ids=lambda path: path.stem)
 def test_code_sample(sample_path: Path):
     sample = parse_sample(sample_path.read_text(encoding="utf-8"))

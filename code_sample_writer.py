@@ -32,5 +32,6 @@ def save_code_sample(
             trace,
         ),
         encoding="utf-8",
+        newline="\n",
     )
     return sample_path
