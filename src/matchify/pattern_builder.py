@@ -45,6 +45,7 @@ from .patterns import is_class_pattern_expr
 class PatternBuildResult:
     facts: tuple[PathFact, ...]
     residual: BoolExpr | None = None
+    required_assumptions: Assumptions = Assumptions.NONE
 
 
 def normalize_condition(
@@ -80,7 +81,10 @@ def normalize_condition(
         return BranchFacts(pattern=None, guard=expr.original)
 
     guard = residual_condition(result.residual)
-    return BranchFacts(pattern=pattern, guard=guard)
+    required = result.required_assumptions
+    if len(completed_facts) > len(facts):
+        required |= Assumptions.USE_OBJECT
+    return BranchFacts(pattern=pattern, guard=guard, required_assumptions=required)
 
 
 def complete_pattern_parents(
@@ -149,13 +153,21 @@ def build_pattern(expr: BoolExpr, assumptions: Assumptions) -> PatternBuildResul
     fact = fact_from_predicate(expr)
     if fact is None:
         return PatternBuildResult((), expr)
-    return PatternBuildResult((fact,))
+    return PatternBuildResult(
+        (fact,),
+        required_assumptions=(
+            expr.required_assumptions
+            if isinstance(expr, ValuePredicate)
+            else Assumptions.NONE
+        ),
+    )
 
 
 def build_and_pattern(expr: AndExpr, assumptions: Assumptions) -> PatternBuildResult:
     facts: list[PathFact] = []
     residuals: list[BoolExpr] = []
     class_paths: set[AccessPath] = set()
+    required = Assumptions.NONE
 
     for part in expr.parts:
         if isinstance(part, IsInstancePredicate) and has_len_fact(part, expr.parts):
@@ -165,6 +177,7 @@ def build_and_pattern(expr: AndExpr, assumptions: Assumptions) -> PatternBuildRe
             residuals.append(part)
             continue
         result = build_pattern(part, assumptions)
+        required |= result.required_assumptions
         for fact in result.facts:
             if isinstance(fact, ClassFact):
                 class_paths.add(fact.path)
@@ -173,28 +186,34 @@ def build_and_pattern(expr: AndExpr, assumptions: Assumptions) -> PatternBuildRe
             residuals.append(result.residual)
 
     ordered_facts = tuple(sorted(facts, key=fact_sort_key))
-    residuals = drop_redundant_residuals(residuals, ordered_facts, assumptions)
+    remaining = drop_redundant_residuals(residuals, ordered_facts, assumptions)
+    required |= removed_sequence_requirements(residuals, remaining)
+    residuals = remaining
     residual = None
     if len(residuals) == 1:
         residual = residuals[0]
     elif residuals:
         residual = AndExpr(tuple(residuals), expr.original)
 
-    return PatternBuildResult(ordered_facts, residual)
+    return PatternBuildResult(ordered_facts, residual, required)
 
 
 def build_or_pattern(expr: OrExpr, assumptions: Assumptions) -> PatternBuildResult:
     alternatives: list[tuple[PathFact, ...]] = []
     residuals: list[BoolExpr | None] = []
+    required = Assumptions.NONE
 
     for part in expr.parts:
         result = build_pattern(part, assumptions)
         if not result.facts:
             return PatternBuildResult((), expr)
+        required |= result.required_assumptions
         alternatives.append(result.facts)
         residuals.append(result.residual)
 
-    residuals = drop_implied_or_residuals(residuals, alternatives, assumptions)
+    remaining = drop_implied_or_residuals(residuals, alternatives, assumptions)
+    required |= removed_sequence_requirements(residuals, remaining)
+    residuals = remaining
     common = common_residual(residuals)
     if common is _MIXED_RESIDUALS:
         return PatternBuildResult((), expr)
@@ -210,7 +229,24 @@ def build_or_pattern(expr: OrExpr, assumptions: Assumptions) -> PatternBuildResu
     stripped = tuple(
         strip_alternative_prefix(common_path, facts) for facts in alternatives
     )
-    return PatternBuildResult((OrFact(common_path, stripped),), residual)
+    return PatternBuildResult((OrFact(common_path, stripped),), residual, required)
+
+
+def removed_sequence_requirements(
+    before: Sequence[BoolExpr | None], after: Sequence[BoolExpr | None]
+) -> Assumptions:
+    remaining = {id(item) for item in after}
+    required = Assumptions.NONE
+    for item in before:
+        if id(item) in remaining or not isinstance(item, IsInstancePredicate):
+            continue
+        for name in sequence_type_names(item.classes):
+            required |= (
+                Assumptions.LIST_SEQUENCE_PATTERN
+                if name == "list"
+                else Assumptions.TUPLE_SEQUENCE_PATTERN
+            )
+    return required
 
 
 def fact_from_predicate(predicate: PathPredicate) -> PathFact | None:

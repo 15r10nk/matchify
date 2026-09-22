@@ -20,7 +20,12 @@ from .conversion_filter import (
     ConversionMetrics,
 )
 from .diff import print_location_heading, print_preview_metadata, report_diff
-from .transform import ChainPreview, collect_chain_previews, transform_code
+from .transform import (
+    ChainPreview,
+    SelectedConversions,
+    plan_conversions,
+    transform_code,
+)
 
 
 class ConvertResult(NamedTuple):
@@ -161,6 +166,7 @@ class PreviewResult(NamedTuple):
     error: str | None
     previews: list[ChainPreview]
     filter_diagnostics: list[ConversionFilterDiagnostic]
+    selected: SelectedConversions | None = None
 
 
 def _preview_file(
@@ -172,19 +178,18 @@ def _preview_file(
 ) -> PreviewResult:
     try:
         source = path.read_text(encoding="utf-8")
-        filter_diagnostics: list[ConversionFilterDiagnostic] = []
+        selected = plan_conversions(source, ignore_types_pattern).select(
+            assumptions or Assumptions.from_names(),
+            convert_if,
+            include_gated=True,
+            render_previews=True,
+        )
         return PreviewResult(
             path,
             None,
-            collect_chain_previews(
-                source,
-                ignore_types_pattern=ignore_types_pattern,
-                assumptions=assumptions,
-                include_gated=True,
-                convert_if=convert_if,
-                filter_diagnostics=filter_diagnostics,
-            ),
-            filter_diagnostics,
+            selected.previews,
+            selected.filter_diagnostics,
+            selected,
         )
     except Exception as error:
         return PreviewResult(path, str(error), [], [])
@@ -439,16 +444,18 @@ def preview_files(
     report_assumption_diagnostics: bool,
     convert_if: str | ConversionFilter | None = None,
     report_filter_diagnostics: bool = False,
-) -> tuple[int, int, int, int]:
-    """Show conversions without changing files.
+    write: bool = False,
+    keep_text: bool = False,
+) -> tuple[int, int, int, int, list[ConvertResult]]:
+    """Prepare each file once, show previews, and optionally apply its plan.
 
     Each conversion is printed as its own diff under ``<file>:<line>``.
     ``--show-all`` also previews conversions unlocked by the minimal missing
     assumption set.
 
-    Returns hidden, converted, unchanged, and error counts. Hidden counts
-    assumption-gated conversions; those diffs are printed only when
-    ``show_all`` is true.
+    Returns hidden, converted, unchanged, and error counts plus retained changes.
+    Hidden counts assumption-gated conversions; those diffs are printed only
+    when ``show_all`` is true.
     """
     preview = partial(
         _preview_file,
@@ -457,6 +464,7 @@ def preview_files(
         convert_if=convert_if,
     )
     hidden_count = converted_count = unchanged_count = error_count = 0
+    changed: list[ConvertResult] = []
     for result in _map_paths(preview, python_files, jobs):
         hidden, converted, unchanged, errors = _present_preview(
             result,
@@ -466,10 +474,23 @@ def preview_files(
             report_filter_diagnostics=report_filter_diagnostics,
         )
         hidden_count += hidden
+        if converted and result.selected is not None and (write or keep_text):
+            try:
+                text = result.selected.apply()
+                if write:
+                    result.path.write_text(text, encoding="utf-8")
+                if keep_text:
+                    changed.append(ConvertResult(result.path, True, None, text))
+            except Exception as error:
+                report_result(
+                    result.path, False, str(error), verbose=False, check=not write
+                )
+                converted = 0
+                errors += 1
         converted_count += converted
         unchanged_count += unchanged
         error_count += errors
-    return hidden_count, converted_count, unchanged_count, error_count
+    return hidden_count, converted_count, unchanged_count, error_count, changed
 
 
 def convert_files(
@@ -558,19 +579,23 @@ def main() -> None:
     converted_count = unchanged_count = error_count = 0
     changed: list[ConvertResult] = []
     if mode.showing:
-        hidden_count, converted_count, unchanged_count, error_count = preview_files(
-            python_files,
-            ignore_types_pattern=mode.no_types,
-            assumptions=assumptions,
-            show_all=mode.show_all,
-            jobs=mode.jobs,
-            report_errors=not apply_changes,
-            report_assumption_diagnostics=not apply_changes and not mode.show_all,
-            convert_if=conversion_filter,
-            report_filter_diagnostics=mode.verbose and not apply_changes,
+        hidden_count, converted_count, unchanged_count, error_count, changed = (
+            preview_files(
+                python_files,
+                ignore_types_pattern=mode.no_types,
+                assumptions=assumptions,
+                show_all=mode.show_all,
+                jobs=mode.jobs,
+                report_errors=True,
+                report_assumption_diagnostics=not mode.show_all,
+                convert_if=conversion_filter,
+                report_filter_diagnostics=mode.verbose,
+                write=mode.write,
+                keep_text=mode.interactive,
+            )
         )
 
-    if apply_changes:
+    if apply_changes and not mode.showing:
         converted_count, unchanged_count, error_count, changed = convert_files(
             python_files,
             ignore_types_pattern=mode.no_types,

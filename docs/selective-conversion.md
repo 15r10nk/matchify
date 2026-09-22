@@ -21,13 +21,17 @@ least four branches:
 matchify path/to/project/ --convert-if "isinstance_checks >= 2 or branches >= 4"
 ```
 
-Lookup-table conversions are not affected by this option. Matchify first
-applies the selected [`--assume` options](assumptions.md), then
-evaluates the filter for the proposed `if`/`elif` conversion.
+Lookup-table conversions are not affected by this option. Matchify plans one
+candidate per chain, then checks its required [`--assume` options](assumptions.md)
+and evaluates the filter against that candidate's metrics.
 
 `--show` and `--show-all` print the computed metric variables next to each
 previewed `if`/`elif` conversion so you can turn a shown conversion directly
 into a `--convert-if` expression.
+
+Each preview shows only that candidate's rewrite. Nested conversions have their
+own previews; writing applies all selected candidates together. Previewing and
+writing reuse the same plan without parsing or compiling candidates again.
 
 ## Expression syntax
 
@@ -492,7 +496,12 @@ matchify path/to/project/ --verbose --convert-if "branches >= 4"
 
 ## Interaction with assumptions
 
-Matchify resolves `--safe`, `--risky`, and `--assume` before evaluating the
-filter. The metrics therefore describe the conversion permitted by the selected
-assumptions. The filter is a stylistic preference; it does not enable a
-conversion that would otherwise be rejected for safety reasons.
+The candidate and its metrics are independent of `--safe`, `--risky`, and
+`--assume`. These options only determine whether its required assumptions are
+enabled. Missing assumptions leave the chain unchanged; Matchify does not choose
+a different subject or retain extra guards to make it eligible.
+
+The filter is a stylistic preference; it does not enable a conversion whose
+required assumptions are missing. `--show-all` also evaluates the filter for
+hypothetical candidates. Arithmetic errors in those gated candidates do not
+prevent eligible conversions from being previewed or applied.

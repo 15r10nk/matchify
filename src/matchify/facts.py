@@ -11,6 +11,7 @@ from .access_path import (
     AttributePathPart,
     SubscriptPathPart,
 )
+from .assumptions import Assumptions
 from .patterns import (
     build_class_pattern,
     build_or_pattern,
@@ -237,6 +238,7 @@ class BranchFacts:
 
     pattern: PatternTree | None
     guard: cst.BaseExpression | None
+    required_assumptions: Assumptions = Assumptions.NONE
 
 
 def node_from_fact(fact: PathFact) -> PatternNode:
@@ -256,7 +258,8 @@ def node_from_fact(fact: PathFact) -> PatternNode:
 
 def insert_node(root: PatternNode, path: AccessPath, node: PatternNode) -> PatternNode:
     if isinstance(root, OrNode):
-        assert not path.is_subject, "OR alternatives cannot gain another root fact"
+        if path.is_subject:
+            raise ValueError("OR alternatives cannot gain another root fact")
         return OrNode(
             tuple(
                 insert_node(alternative, path, node)

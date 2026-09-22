@@ -22,7 +22,7 @@ def test_list_check_requires_list_sequence_pattern_assumption():
     safe = transform_code(source)
     assumed = transform_with(source, "list-sequence-pattern")
 
-    assert "case 1, if isinstance(value, list):" in safe
+    assert safe == source
     assert "case 1,:" in assumed
     assert "if isinstance(value, list)" not in assumed
 
@@ -40,7 +40,7 @@ def test_tuple_check_requires_tuple_sequence_pattern_assumption():
     safe = transform_code(source)
     assumed = transform_with(source, "tuple-sequence-pattern")
 
-    assert "case 1, if isinstance(value, tuple):" in safe
+    assert safe == source
     assert "case 1,:" in assumed
     assert "if isinstance(value, tuple)" not in assumed
 
@@ -57,7 +57,7 @@ def test_list_assumption_does_not_apply_to_tuple_checks():
 
     transformed = transform_with(source, "list-sequence-pattern")
 
-    assert "case 1, if isinstance(value, tuple):" in transformed
+    assert transformed == source
 
 
 def test_sequence_assumptions_do_not_apply_to_qualified_class_checks():

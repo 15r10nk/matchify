@@ -6,15 +6,13 @@ from importlib import import_module
 from io import StringIO
 from textwrap import dedent
 
-import libcst as cst
 import pytest
-from libcst.metadata import CodePosition, CodeRange
 from rich.console import Console
 
 from matchify.assumptions import Assumptions
 from matchify.cli import convert_file, convert_files, main
 from matchify.diff import print_location_heading, print_preview_metadata, report_diff
-from matchify.transform import _ChainPreviewVisitor, collect_chain_previews
+from matchify.transform import collect_chain_previews
 
 
 class TestConvertFile:
@@ -1154,26 +1152,6 @@ class TestMain:
         assert "Additional conversions require --assume lookup-equality:" in output
         assert "+match key:" in output
 
-    def test_preview_indent_fallback_for_unknown_positions(self):
-        module = cst.parse_module("x = 1\n")
-        visitor = _ChainPreviewVisitor(
-            module,
-            "x = 1\n",
-            ignore_types_pattern=None,
-            assumptions=Assumptions.from_names(),
-        )
-        missing = CodeRange(
-            start=CodePosition(line=0, column=0),
-            end=CodePosition(line=0, column=0),
-        )
-        too_far = CodeRange(
-            start=CodePosition(line=99, column=0),
-            end=CodePosition(line=99, column=0),
-        )
-
-        assert visitor._indent_for(missing) == ""
-        assert visitor._indent_for(too_far) == ""
-
     def test_collect_chain_previews_omits_gated_unless_requested(self):
         source = dedent(
             """
@@ -1513,9 +1491,9 @@ class TestMain:
         finally:
             sys.argv = original_argv
 
-        assert "match a.x:" in test_file.read_text(encoding="utf-8")
+        assert "if a.x == 1 and b.y == 2:" in test_file.read_text(encoding="utf-8")
         assert "match (a.x, b.y):" not in test_file.read_text(encoding="utf-8")
-        assert "Converted:" in capsys.readouterr().out
+        assert "requires --assume pure-subjects" in capsys.readouterr().out
 
     def test_main_rejects_unknown_assumption(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"

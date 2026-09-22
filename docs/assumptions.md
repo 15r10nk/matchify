@@ -17,13 +17,19 @@ When a skipped `if`/`elif` chain would require a risky assumption, the CLI
 prints its location and the required `--assume` value instead of converting the
 chain.
 
+Each chain has one proposed transformation with fixed subjects, patterns, and
+required assumptions. `--assume` controls whether that transformation is allowed;
+it does not select an alternative rewrite. Without all required assumptions,
+the chain stays unchanged and can be converted in a later run that enables them.
+Eligible chains nested inside it can still be converted independently.
+
 ## `--assume=pure-subjects`
 
 Permits transformations such as `a.x == 1 and b.y == 2` into a match on
 `(a.x, b.y)`. This evaluates every subject eagerly, so enable it only when those
 name, attribute, and subscript reads cannot raise exceptions or produce
-observable side effects. Without the option, later `and` operands remain guards
-and preserve short-circuiting.
+observable side effects. Without the option, a chain requiring this assumption
+stays unchanged rather than being converted with a different match subject.
 
 ```python
 # Before

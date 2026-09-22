@@ -46,6 +46,7 @@ class IfChain(NamedTuple):
     else_body: cst.IndentedBlock | None
     else_leading_lines: tuple[cst.EmptyLine, ...]
     metrics: ConversionMetrics
+    required_assumptions: Assumptions
 
 
 class ParsedBranch(NamedTuple):
@@ -69,11 +70,10 @@ class IfChainCompiler:
     def __init__(
         self,
         ignore_types_pattern: str | None = r".*_TYPES$",
-        *,
-        assumptions: Assumptions | None = None,
     ) -> None:
         self.ignore_types_pattern = ignore_types_pattern
-        self.assumptions = assumptions or Assumptions.from_names()
+        # Candidate shape is independent of the assumptions enabled by the caller.
+        self.assumptions = Assumptions.risky()
 
     def extract_chain(self, node: cst.If) -> IfChain | None:
         if not isinstance(node.orelse, cst.If):
@@ -120,6 +120,9 @@ class IfChainCompiler:
         wildcard_case_count = sum(branch.is_wildcard_case for branch in branches)
         if wildcard_case_count + int(else_body is not None) > 1:
             return None
+        required = self._subject_requirements(parsed_branches, subject)
+        for branch in branches:
+            required |= branch.facts.required_assumptions
         return IfChain(
             subject=subject,
             branches=tuple(branches),
@@ -128,29 +131,35 @@ class IfChainCompiler:
             metrics=source_metrics(
                 tuple(branch.condition for branch in parsed_branches)
             ),
+            required_assumptions=required,
         )
 
     def _select_chain_subject(
         self, branches: list[ParsedBranch]
     ) -> MatchSubjectPlan | None:
-        """Build a subject from the common prefix of all branch candidates."""
+        """Choose one subject independently of the enabled assumptions."""
         candidates = tuple(
             select_assumed_pure_subject_paths(branch.condition) for branch in branches
         )
         if any(paths is None for paths in candidates):
             return None
         concrete_candidates = tuple(paths for paths in candidates if paths is not None)
-        if Assumptions.PURE_SUBJECTS in self.assumptions:
-            return MatchSubjectPlan.from_majority_candidates(concrete_candidates)
+        return MatchSubjectPlan.from_majority_candidates(concrete_candidates)
 
-        if Assumptions.USE_OBJECT in self.assumptions:
-            subject = MatchSubjectPlan.from_shared_candidates(concrete_candidates)
-            if subject is not None and not subject.is_composite:
-                return subject
-
-        return MatchSubjectPlan.from_aligned_candidates(
-            tuple((paths[0],) for paths in concrete_candidates)
+    def _subject_requirements(
+        self, branches: Sequence[ParsedBranch], subject: MatchSubjectPlan
+    ) -> Assumptions:
+        candidates = tuple(
+            select_assumed_pure_subject_paths(branch.condition) for branch in branches
         )
+        concrete = tuple(paths for paths in candidates if paths is not None)
+        aligned = MatchSubjectPlan.from_aligned_candidates(
+            tuple((paths[0],) for paths in concrete)
+        )
+        shared = MatchSubjectPlan.from_shared_candidates(concrete)
+        if subject.is_composite or (subject != aligned and subject != shared):
+            return Assumptions.PURE_SUBJECTS
+        return Assumptions.NONE
 
     def _analyze_branches(
         self, branches: Sequence[ParsedBranch], subject: MatchSubjectPlan

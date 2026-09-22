@@ -60,6 +60,7 @@ class ValuePredicate:
     value: cst.BaseExpression
     original: cst.BaseExpression
     allow_nested_pattern: bool = True
+    required_assumptions: Assumptions = Assumptions.NONE
 
 
 @dataclass(frozen=True)
@@ -252,7 +253,15 @@ def parse_membership_predicate(
     if values is None:
         return None
     path = AccessPath.from_expression(predicate.left)
-    alternatives = tuple(value_predicate(path, value, predicate) for value in values)
+    required = (
+        Assumptions.HASHABLE_SUBJECTS
+        if isinstance(target.comparator, cst.Set)
+        else Assumptions.NONE
+    )
+    alternatives = tuple(
+        replace(value_predicate(path, value, predicate), required_assumptions=required)
+        for value in values
+    )
     if len(alternatives) == 1:
         return alternatives[0]
     return OrExpr(alternatives, predicate)
@@ -312,8 +321,11 @@ def parse_value_predicate(
         and isinstance(target.operator, cst.Is)
         and is_value_pattern_expr(target.comparator)
     ):
-        return value_predicate(
-            AccessPath.from_expression(predicate.left), target.comparator, predicate
+        return replace(
+            value_predicate(
+                AccessPath.from_expression(predicate.left), target.comparator, predicate
+            ),
+            required_assumptions=Assumptions.IDENTITY_EQUALITY,
         )
     return None
 
