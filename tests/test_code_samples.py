@@ -64,6 +64,14 @@ def test_execute_records_exception_args():
             "# before:\n# after:\n# assume:\n# ignore-types: A\n" "# ignore-types: B\n",
             "at most one '# ignore-types:'",
         ),
+        (
+            "# before:\n# after:\n# assume:\n# convert-if: True\n# convert-if: False\n",
+            "at most one '# convert-if:'",
+        ),
+        (
+            "# before:\n# after:\n# assume:\n# convert-if:\n",
+            "an expression after '# convert-if:'",
+        ),
     ],
 )
 def test_parse_sample_reports_invalid_structure(source, message):
@@ -128,6 +136,7 @@ def test_code_sample(sample_path: Path):
         before,
         assumptions=sample.assumptions,
         ignore_types_pattern=sample.ignore_types_pattern,
+        convert_if=sample.convert_if,
     )
     assert transformed.startswith(sample.prefix)
     after = transformed.removeprefix(sample.prefix)
@@ -135,6 +144,15 @@ def test_code_sample(sample_path: Path):
     after_trace = execute(sample.prefix + after)
 
     assert before_trace == after_trace
+    assert (
+        transform_code(
+            transformed,
+            assumptions=sample.assumptions,
+            ignore_types_pattern=sample.ignore_types_pattern,
+            convert_if=sample.convert_if,
+        )
+        == transformed
+    )
     assert render_sample(sample, after, after_trace) == external_file(
         sample_path, format=".txt"
     )

@@ -2,7 +2,12 @@ from textwrap import dedent
 
 import libcst as cst
 
-from matchify.access_path import AccessPath, MatchSubjectRoot, NameRoot
+from matchify.access_path import (
+    AccessPath,
+    MatchSubjectPlan,
+    MatchSubjectRoot,
+    NameRoot,
+)
 from matchify.assumptions import Assumptions
 from matchify.conditions import (
     IsInstancePredicate,
@@ -12,7 +17,11 @@ from matchify.conditions import (
 )
 from matchify.facts import WildcardNode
 from matchify.lookup_tables import compile_local_lookups
-from matchify.pattern_builder import assumes_sequence_type_check, is_sequence_type_check
+from matchify.pattern_builder import (
+    assumes_sequence_type_check,
+    is_sequence_type_check,
+    normalize_condition,
+)
 
 
 def test_wildcard_node_renders_a_match_wildcard():
@@ -84,3 +93,19 @@ def test_local_lookup_analysis_without_rewriting():
 
     assert body.deep_equals(function.body)
     assert required == (function.body.body[0],)
+
+
+def test_composite_subject_plan_builds_a_tuple_pattern():
+    condition = parse_condition(cst.parse_expression("a.x == 1 and b.y == 2"))
+    plan = MatchSubjectPlan.from_subjects(
+        (
+            AccessPath.from_expression(cst.parse_expression("a.x")),
+            AccessPath.from_expression(cst.parse_expression("b.y")),
+        )
+    )
+
+    facts = normalize_condition(condition, plan)
+
+    assert facts.pattern is not None
+    assert cst.Module([]).code_for_node(facts.pattern.render()) == "1, 2"
+    assert facts.guard is None
