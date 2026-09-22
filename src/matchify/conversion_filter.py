@@ -21,6 +21,7 @@ from .conditions import (
     PathPredicate,
     ValuePredicate,
 )
+from .patterns import is_qualified_value_expr
 
 DEFAULT_CONVERSION_FILTER = "True"
 
@@ -37,6 +38,8 @@ class ConversionMetrics:
     max_depth: int = 0
     patterns: int = 0
     pattern_nodes: int = 0
+    value_patterns: int = 0
+    self_value_patterns: int = 0
     class_patterns: int = 0
     sequence_patterns: int = 0
     or_alternatives: int = 0
@@ -133,6 +136,14 @@ def with_generated_metrics(
         metrics,
         patterns=sum(not _is_wildcard(case.pattern) for case in match_statement.cases),
         pattern_nodes=len(pattern_nodes),
+        value_patterns=sum(
+            isinstance(pattern, cst.MatchValue)
+            and is_qualified_value_expr(pattern.value)
+            for pattern in pattern_nodes
+        ),
+        self_value_patterns=sum(
+            _is_self_value_pattern(pattern) for pattern in pattern_nodes
+        ),
         class_patterns=sum(
             isinstance(pattern, cst.MatchClass) for pattern in pattern_nodes
         ),
@@ -157,6 +168,17 @@ def with_generated_metrics(
             len(set(_capture_names(case.pattern))) for case in match_statement.cases
         ),
     )
+
+
+def _is_self_value_pattern(pattern: cst.MatchPattern) -> bool:
+    if not isinstance(pattern, cst.MatchValue) or not isinstance(
+        pattern.value, cst.Attribute
+    ):
+        return False
+    root: cst.BaseExpression = pattern.value
+    while isinstance(root, cst.Attribute):
+        root = root.value
+    return isinstance(root, cst.Name) and root.value == "self"
 
 
 def _flatten_condition(condition: BoolExpr) -> Iterator[BoolExpr]:

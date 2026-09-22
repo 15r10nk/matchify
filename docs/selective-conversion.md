@@ -323,6 +323,59 @@ match value:
         handle_other()
 ```
 
+### `value_patterns`
+
+The number of generated qualified value patterns such as `Kind.READY`,
+including those inside OR or nested patterns. Each occurrence
+counts once, regardless of how many dots the name contains. Literals,
+singletons, captures, class names in class patterns, and guard expressions do
+not count. This example has `value_patterns == 1`:
+
+```python
+# Before
+if value == Kind.READY:
+    handle_selected()
+elif value == 0:
+    handle_zero()
+
+# After: matchify --convert-if "value_patterns == 1"
+match value:
+    case Kind.READY:
+        handle_selected()
+    case 0:
+        handle_zero()
+```
+
+Use `--convert-if "value_patterns > 0"` to select chains that produce these
+patterns, or `--convert-if "value_patterns == 0"` to exclude them.
+
+### `self_value_patterns`
+
+The number of qualified value patterns rooted at the name `self`. Both
+`self.val` and `self.settings.val` count; `other.val`, `other.self.val`, and
+`selfish.val` do not. This is a syntactic check of the name, without inferring
+receiver aliases. Class names and guard expressions do not count.
+
+This metric is a subset of `value_patterns`, so
+`value_patterns - self_value_patterns` counts qualified value patterns rooted
+at other names. This example has `self_value_patterns == 1` and
+`value_patterns == 2`:
+
+```python
+# Before
+if value == self.val:
+    handle_self()
+elif value == other.val:
+    handle_other()
+
+# After: matchify --convert-if "self_value_patterns == 1"
+match value:
+    case self.val:
+        handle_self()
+    case other.val:
+        handle_other()
+```
+
 ### `class_patterns`
 
 The number of generated class pattern nodes, including nested ones. This

@@ -172,7 +172,7 @@ uv tool install matchify
 Or run it without installing:
 
 ```bash
-uvx matchify --write path/to/project/
+uvx matchify path/to/project/
 ```
 
 ## Key Features

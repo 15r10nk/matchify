@@ -10,7 +10,7 @@ from matchify.conversion_filter import (
     ConversionMetrics,
     with_generated_metrics,
 )
-from matchify.transform import transform_code
+from matchify.transform import collect_chain_previews, transform_code
 
 
 @pytest.mark.parametrize(
@@ -139,7 +139,8 @@ def test_filter_can_select_using_all_source_and_result_metrics():
     expression = (
         "branches == 2 and isinstance_checks == 2 and literal_checks == 2 "
         "and attribute_checks == 2 and sequence_checks == 0 and max_depth == 1 "
-        "and patterns == 2 and pattern_nodes == 4 and class_patterns == 2 "
+        "and patterns == 2 and pattern_nodes == 4 and value_patterns == 0 "
+        "and self_value_patterns == 0 and class_patterns == 2 "
         "and sequence_patterns == 0 and or_alternatives == 0 "
         "and max_pattern_depth == 2 and guarded_cases == 0 "
         "and guard_conditions == 0 and captures == 0"
@@ -168,6 +169,80 @@ def test_filter_counts_sequence_checks_guards_and_captures():
 
     assert "match data:" in transformed
     assert "case 1, result if enabled and ready:" in transformed
+
+
+@pytest.mark.parametrize(
+    ("condition", "expected"),
+    [
+        ("value == self.val", 1),
+        ("value in (self.val, package.Kind.OTHER)", 2),
+        ("value == 1 and check(self.val)", 0),
+        ("isinstance(value, package.Thing)", 0),
+        ('value == "text"', 0),
+        ("value is None", 0),
+    ],
+)
+def test_filter_counts_qualified_value_patterns(condition, expected):
+    source = dedent(
+        f"""\
+        if {condition}:
+            first()
+        elif value == 0:
+            second()
+        """
+    )
+    expression = f"value_patterns == {expected}"
+
+    assert "match value:" in transform_code(source, convert_if=expression)
+    assert transform_code(source, convert_if=f"not ({expression})") == source
+    preview = collect_chain_previews(source, convert_if=expression)[0]
+    assert preview.metrics.value_patterns == expected
+
+
+def test_filter_counts_qualified_value_patterns_inside_composite_patterns():
+    source = dedent(
+        """\
+        if left == self.val and right == Kind.OTHER:
+            first()
+        elif left == 1 and right == 2:
+            second()
+        """
+    )
+    transformed = transform_code(
+        source,
+        assumptions=Assumptions.PURE_SUBJECTS,
+        convert_if="value_patterns == 2 and self_value_patterns == 1",
+    )
+    assert "case self.val, Kind.OTHER:" in transformed
+
+
+@pytest.mark.parametrize(
+    ("condition", "expected"),
+    [
+        ("value == self.val", 1),
+        ("value == self.settings.val", 1),
+        ("value == other.val", 0),
+        ("value == other.self.val", 0),
+        ("value == selfish.val", 0),
+        ("value in (self.val, other.val, self.other)", 2),
+        ("value == 1 and check(self.val)", 0),
+        ("isinstance(value, self.Kind)", 0),
+    ],
+)
+def test_filter_distinguishes_self_value_patterns(condition, expected):
+    source = dedent(
+        f"""\
+        if {condition}:
+            first()
+        elif value == 0:
+            second()
+        """
+    )
+    expression = f"self_value_patterns == {expected}"
+    assert "match value:" in transform_code(source, convert_if=expression)
+    assert transform_code(source, convert_if=f"not ({expression})") == source
+    preview = collect_chain_previews(source, convert_if=expression)[0]
+    assert preview.metrics.self_value_patterns == expected
 
 
 def test_filter_counts_names_once_across_or_pattern_alternatives():
