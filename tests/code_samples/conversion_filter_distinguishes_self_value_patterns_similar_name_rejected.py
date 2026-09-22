@@ -2,7 +2,6 @@
 from types import SimpleNamespace
 
 selfish = SimpleNamespace(val=2)
-value = 1
 
 def first():
     print("first")
@@ -10,16 +9,18 @@ def first():
 def second():
     print("second")
 
-if value == selfish.val:
-    first()
-elif value == 0:
-    second()
+for value in (2, 0, 1):
+    if value == selfish.val:
+        first()
+    elif value == 0:
+        second()
+    else:
+        print("other")
 
 # after:
 from types import SimpleNamespace
 
 selfish = SimpleNamespace(val=2)
-value = 1
 
 def first():
     print("first")
@@ -27,12 +28,18 @@ def first():
 def second():
     print("second")
 
-if value == selfish.val:
-    first()
-elif value == 0:
-    second()
+for value in (2, 0, 1):
+    if value == selfish.val:
+        first()
+    elif value == 0:
+        second()
+    else:
+        print("other")
 
 # assume:
 # convert-if: not (self_value_patterns == 0)
 
 # trace:
+# first
+# second
+# other
