@@ -105,14 +105,12 @@ def test_conversion_filter_division_by_zero_is_not_silenced():
     ],
 )
 def test_filter_counts_qualified_value_patterns(condition, expected):
-    source = dedent(
-        f"""\
+    source = dedent(f"""\
         if {condition}:
             first()
         elif value == 0:
             second()
-        """
-    )
+        """)
     expression = f"value_patterns == {expected}"
 
     preview = collect_chain_previews(source, convert_if=expression)[0]
@@ -133,23 +131,19 @@ def test_filter_counts_qualified_value_patterns(condition, expected):
     ],
 )
 def test_filter_distinguishes_self_value_patterns(condition, expected):
-    source = dedent(
-        f"""\
+    source = dedent(f"""\
         if {condition}:
             first()
         elif value == 0:
             second()
-        """
-    )
+        """)
     expression = f"self_value_patterns == {expected}"
     preview = collect_chain_previews(source, convert_if=expression)[0]
     assert preview.metrics.self_value_patterns == expected
 
 
 def test_maximum_pattern_depth_covers_all_pattern_containers():
-    module = cst.parse_module(
-        dedent(
-            """
+    module = cst.parse_module(dedent("""
             match value:
                 case Point(position=Position(x=1)) if enabled:
                     pass
@@ -163,9 +157,7 @@ def test_maximum_pattern_depth_covers_all_pattern_containers():
                     pass
                 case _:
                     pass
-            """
-        )
-    )
+            """))
     match_statement = module.body[0]
     assert isinstance(match_statement, cst.Match)
 

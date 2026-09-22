@@ -63,8 +63,7 @@ def test_assumptions_gate_one_fixed_candidate(condition, other, required):
 
 @pytest.mark.parametrize("assumptions", [None, Assumptions.USE_OBJECT])
 def test_shared_short_circuited_subject_requires_pure_subjects(assumptions):
-    source = dedent(
-        """\
+    source = dedent("""\
         a = c = 0
         if a == 1 and b == 2:
             result = "first"
@@ -72,8 +71,7 @@ def test_shared_short_circuited_subject_requires_pure_subjects(assumptions):
             result = "second"
         else:
             result = "other"
-        """
-    )
+        """)
     diagnostics = []
     transformed = transform_code(
         source, assumptions=assumptions, diagnostics=diagnostics
@@ -100,8 +98,7 @@ def test_shared_short_circuited_subject_requires_pure_subjects(assumptions):
 
 
 def test_planned_nested_conversions_keep_captures_aliases_and_independent_previews():
-    source = dedent(
-        """\
+    source = dedent("""\
         if len(data) == 2 and data[0] == 1:
             item = data[1]
             alias = data[1]
@@ -111,8 +108,7 @@ def test_planned_nested_conversions_keep_captures_aliases_and_independent_previe
                 second(alias)
         elif data is None:
             other()
-    """
-    )
+    """)
     plan = plan_conversions(source)
     selected = plan.select(Assumptions.safe(), render_previews=True)
     outer, inner = selected.previews
@@ -130,8 +126,7 @@ def test_planned_nested_conversions_keep_captures_aliases_and_independent_previe
 
 
 def test_lookup_plan_preserves_nested_if_and_inline_lookup_changes():
-    source = dedent(
-        """\
+    source = dedent("""\
         def choose(key, value):
             table = {"a": 1, "b": 2}
             if value == 1:
@@ -139,8 +134,7 @@ def test_lookup_plan_preserves_nested_if_and_inline_lookup_changes():
             elif value == 2:
                 result = 5
             return table[key]
-    """
-    )
+    """)
     plan = plan_conversions(source)
     selected = plan.select(Assumptions.risky(), render_previews=True)
     transformed = selected.apply()
@@ -152,8 +146,7 @@ def test_lookup_plan_preserves_nested_if_and_inline_lookup_changes():
 
 
 def test_hidden_candidate_filter_error_does_not_discard_eligible_preview():
-    source = dedent(
-        """\
+    source = dedent("""\
         if len(data) == 1 and data[0] == 1:
             first()
         elif len(data) == 1 and data[0] == 2:
@@ -162,8 +155,7 @@ def test_hidden_candidate_filter_error_does_not_discard_eligible_preview():
             first()
         elif value.y == 2:
             second()
-    """
-    )
+    """)
     previews = collect_chain_previews(
         source, include_gated=True, convert_if="patterns / sequence_patterns >= 1"
     )
@@ -172,13 +164,11 @@ def test_hidden_candidate_filter_error_does_not_discard_eligible_preview():
 
 
 def test_overlapping_inline_and_local_lookup_plans_prefer_inline():
-    source = dedent(
-        """\
+    source = dedent("""\
         def choose(key):
             table = {"a": 1, "b": 2}
             return table[key] + {"a": 3, "b": 4}[key]
-    """
-    )
+    """)
     plan = plan_conversions(source)
     assert len(plan.candidates) == 1
     selected = plan.select(Assumptions.risky(), render_previews=True)
@@ -250,8 +240,7 @@ def test_public_transformer_adapter_uses_fixed_candidates():
 
 
 def test_preview_filter_diagnostics_only_include_eligible_candidates():
-    source = dedent(
-        """\
+    source = dedent("""\
         if value == 1:
             first()
         elif value == 2:
@@ -260,8 +249,7 @@ def test_preview_filter_diagnostics_only_include_eligible_candidates():
             first()
         elif value.y == 2:
             second()
-        """
-    )
+        """)
     diagnostics = []
 
     previews = collect_chain_previews(

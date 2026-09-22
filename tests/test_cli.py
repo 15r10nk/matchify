@@ -165,14 +165,12 @@ class TestConvertFile:
         """Test converting a file that needs changes."""
         with tempfile.TemporaryDirectory() as tmpdir:
             test_file = pathlib.Path(tmpdir) / "test.py"
-            source = dedent(
-                """
+            source = dedent("""
                 if x == 1:
                     print("one")
                 elif x == 2:
                     print("two")
-            """
-            ).strip()
+            """).strip()
 
             test_file.write_text(source, encoding="utf-8")
 
@@ -190,13 +188,11 @@ class TestConvertFile:
         """Test converting a file that doesn't need changes."""
         with tempfile.TemporaryDirectory() as tmpdir:
             test_file = pathlib.Path(tmpdir) / "test.py"
-            source = dedent(
-                """
+            source = dedent("""
                 # No convertible if/elif chains
                 if x > 5:
                     print("big")
-            """
-            ).strip()
+            """).strip()
 
             test_file.write_text(source, encoding="utf-8")
             original_content = test_file.read_text(encoding="utf-8")
@@ -214,15 +210,13 @@ class TestConvertFile:
         """Test that file encoding is preserved."""
         with tempfile.TemporaryDirectory() as tmpdir:
             test_file = pathlib.Path(tmpdir) / "test.py"
-            source = dedent(
-                """
+            source = dedent("""
                 # Comment with unicode: café
                 if status == "☕":
                     print("coffee")
                 elif status == "🍵":
                     print("tea")
-            """
-            ).strip()
+            """).strip()
 
             test_file.write_text(source, encoding="utf-8")
             convert_file(test_file)
@@ -234,14 +228,12 @@ class TestConvertFile:
     def test_convert_file_accepts_assumptions(self, tmp_path):
         test_file = tmp_path / "test.py"
         test_file.write_text(
-            dedent(
-                """
+            dedent("""
                 if a.x == 1 and b.y == 2:
                     print("first")
                 elif a.x == 3 and b.y == 4:
                     print("second")
-                """
-            ).strip(),
+                """).strip(),
             encoding="utf-8",
         )
 
@@ -256,14 +248,12 @@ class TestConvertFile:
 
     def test_convert_file_check_reports_changes_without_writing(self, tmp_path):
         test_file = tmp_path / "test.py"
-        source = dedent(
-            """
+        source = dedent("""
             if x == 1:
                 print("one")
             elif x == 2:
                 print("two")
-            """
-        ).strip()
+            """).strip()
         test_file.write_text(source, encoding="utf-8")
 
         path, changed, error = convert_file(test_file, check=True)
@@ -308,14 +298,12 @@ class TestConvertFile:
 
     def test_convert_file_accepts_conversion_filter(self, tmp_path):
         test_file = tmp_path / "test.py"
-        source = dedent(
-            """
+        source = dedent("""
             if x == 1:
                 print("one")
             elif x == 2:
                 print("two")
-            """
-        ).strip()
+            """).strip()
         test_file.write_text(source, encoding="utf-8")
 
         _, changed, error = convert_file(test_file, convert_if="branches >= 3")
@@ -478,14 +466,12 @@ class TestMain:
         self, capsys, tmp_path, monkeypatch
     ):
         test_file = tmp_path / "test.py"
-        source = dedent(
-            """
+        source = dedent("""
             if value.i == 5:
                 print("i")
             elif value.j == 6:
                 print("j")
-            """
-        ).strip()
+            """).strip()
         test_file.write_text(source, encoding="utf-8")
         monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
 
@@ -524,14 +510,12 @@ class TestMain:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             test_file = pathlib.Path(tmpdir) / "test.py"
-            source = dedent(
-                """
+            source = dedent("""
                 if x == 1:
                     print("one")
                 elif x == 2:
                     print("two")
-            """
-            ).strip()
+            """).strip()
             test_file.write_text(source, encoding="utf-8")
 
             original_argv = sys.argv
@@ -551,14 +535,12 @@ class TestMain:
         self, capsys, tmp_path
     ):
         test_file = tmp_path / "test.py"
-        source = dedent(
-            """
+        source = dedent("""
             if x == 1:
                 print("one")
             elif x == 2:
                 print("two")
-            """
-        ).strip()
+            """).strip()
         test_file.write_text(source, encoding="utf-8")
 
         original_argv = sys.argv
@@ -680,14 +662,12 @@ class TestMain:
 
     def test_main_show_previews_diff_and_converts(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
-        source = dedent(
-            """
+        source = dedent("""
             if x == 1:
                 print("one")
             elif x == 2:
                 print("two")
-            """
-        ).strip()
+            """).strip()
         test_file.write_text(source, encoding="utf-8")
 
         original_argv = sys.argv
@@ -711,15 +691,13 @@ class TestMain:
 
     def test_main_show_keeps_original_indent(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
-        source = dedent(
-            """
+        source = dedent("""
             def f(x):
                 if x == 1:
                     print("one")
                 elif x == 2:
                     print("two")
-            """
-        ).strip()
+            """).strip()
         test_file.write_text(source, encoding="utf-8")
 
         original_argv = sys.argv
@@ -739,8 +717,7 @@ class TestMain:
 
     def test_main_show_prints_one_diff_per_conversion(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
-        source = dedent(
-            """
+        source = dedent("""
             if x == 1:
                 print("one")
             elif x == 2:
@@ -750,8 +727,7 @@ class TestMain:
                 print("three")
             elif y == 4:
                 print("four")
-            """
-        ).strip()
+            """).strip()
         test_file.write_text(source, encoding="utf-8")
 
         original_argv = sys.argv
@@ -773,14 +749,12 @@ class TestMain:
 
     def test_main_show_with_check_previews_diff_without_writing(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
-        source = dedent(
-            """
+        source = dedent("""
             if x == 1:
                 print("one")
             elif x == 2:
                 print("two")
-            """
-        ).strip()
+            """).strip()
         test_file.write_text(source, encoding="utf-8")
 
         original_argv = sys.argv
@@ -804,14 +778,12 @@ class TestMain:
 
     def test_main_show_all_previews_assumption_gated_conversion(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
-        source = dedent(
-            """
+        source = dedent("""
             if value.i == 5:
                 print("i")
             elif value.j == 6:
                 print("j")
-            """
-        ).strip()
+            """).strip()
         test_file.write_text(source, encoding="utf-8")
 
         original_argv = sys.argv
@@ -832,8 +804,7 @@ class TestMain:
 
     def test_main_show_all_previews_multiple_gated_conversions(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
-        source = dedent(
-            """
+        source = dedent("""
             if first.i == 5:
                 print("i")
             elif first.j == 6:
@@ -843,8 +814,7 @@ class TestMain:
                 print("k")
             elif second.j == 8:
                 print("l")
-            """
-        ).strip()
+            """).strip()
         test_file.write_text(source, encoding="utf-8")
 
         original_argv = sys.argv
@@ -864,8 +834,7 @@ class TestMain:
         self, capsys, tmp_path
     ):
         test_file = tmp_path / "test.py"
-        source = dedent(
-            """
+        source = dedent("""
             if x == 1:
                 print("one")
             elif x == 2:
@@ -875,8 +844,7 @@ class TestMain:
                 print("i")
             elif value.j == 6:
                 print("j")
-            """
-        ).strip()
+            """).strip()
         test_file.write_text(source, encoding="utf-8")
 
         original_argv = sys.argv
@@ -896,14 +864,12 @@ class TestMain:
 
     def test_main_show_skips_ineligible_chains(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
-        source = dedent(
-            """
+        source = dedent("""
             if x > 1:
                 print("big")
             elif x > 2:
                 print("bigger")
-            """
-        ).strip()
+            """).strip()
         test_file.write_text(source, encoding="utf-8")
 
         original_argv = sys.argv
@@ -922,14 +888,12 @@ class TestMain:
         self, capsys, tmp_path
     ):
         test_file = tmp_path / "test.py"
-        source = dedent(
-            """
+        source = dedent("""
             if value.i == 5:
                 print("i")
             elif value.j == 6:
                 print("j")
-            """
-        ).strip()
+            """).strip()
         test_file.write_text(source, encoding="utf-8")
 
         original_argv = sys.argv
@@ -956,8 +920,7 @@ class TestMain:
         self, capsys, tmp_path
     ):
         test_file = tmp_path / "test.py"
-        source = dedent(
-            """
+        source = dedent("""
             if x == 1:
                 print("one")
             elif x == 2:
@@ -972,8 +935,7 @@ class TestMain:
                 print("k")
             elif second.j == 8:
                 print("l")
-            """
-        ).strip()
+            """).strip()
         test_file.write_text(source, encoding="utf-8")
 
         original_argv = sys.argv
@@ -996,14 +958,12 @@ class TestMain:
 
     def test_main_show_all_skips_chains_that_stay_ineligible(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
-        source = dedent(
-            """
+        source = dedent("""
             if x == {1}:
                 print("one")
             elif x == {2}:
                 print("two")
-            """
-        ).strip()
+            """).strip()
         test_file.write_text(source, encoding="utf-8")
 
         original_argv = sys.argv
@@ -1037,14 +997,12 @@ class TestMain:
 
     def test_main_check_reports_filter_evaluation_errors(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
-        source = dedent(
-            """
+        source = dedent("""
             if x == 1:
                 print("one")
             elif x == 2:
                 print("two")
-            """
-        ).strip()
+            """).strip()
         test_file.write_text(source, encoding="utf-8")
 
         original_argv = sys.argv
@@ -1110,15 +1068,13 @@ class TestMain:
 
     def test_main_show_write_previews_lookup_conversions(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
-        source = dedent(
-            """
+        source = dedent("""
             result = {"a": 1, "b": 2}[key]
 
             def method(operation):
                 methods = {"create": "POST", "read": "GET"}
                 return methods[operation]
-            """
-        ).strip()
+            """).strip()
         test_file.write_text(source, encoding="utf-8")
 
         original_argv = sys.argv
@@ -1161,14 +1117,12 @@ class TestMain:
         assert "+match key:" in output
 
     def test_collect_chain_previews_omits_gated_unless_requested(self):
-        source = dedent(
-            """
+        source = dedent("""
             if value.i == 5:
                 print("i")
             elif value.j == 6:
                 print("j")
-            """
-        ).strip()
+            """).strip()
 
         hidden = collect_chain_previews(
             source,
@@ -1188,8 +1142,7 @@ class TestMain:
         assert shown[0].metrics.branches == 2
 
     def test_collect_chain_previews_includes_lookups(self):
-        source = dedent(
-            """
+        source = dedent("""
             result = {"a": 1, "b": 2}[key]
 
             def method(operation):
@@ -1200,8 +1153,7 @@ class TestMain:
 
             def other():
                 return 1
-            """
-        ).strip()
+            """).strip()
         lookup = Assumptions.from_names({"lookup-equality"})
 
         hidden = collect_chain_previews(
@@ -1289,14 +1241,12 @@ class TestMain:
     def test_main_with_assume_list(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
         test_file.write_text(
-            dedent(
-                """
+            dedent("""
                 if a.x == 1 and b.y == 2:
                     print("first")
                 elif a.x == 3 and b.y == 4:
                     print("second")
-                """
-            ).strip(),
+                """).strip(),
             encoding="utf-8",
         )
 
@@ -1319,14 +1269,12 @@ class TestMain:
     def test_main_with_list_and_tuple_sequence_assumptions(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
         test_file.write_text(
-            dedent(
-                """
+            dedent("""
                 if isinstance(value, (list, tuple)) and len(value) == 1 and value[0] == 1:
                     print("one")
                 elif value is None:
                     print("none")
-                """
-            ).strip(),
+                """).strip(),
             encoding="utf-8",
         )
 
@@ -1350,14 +1298,12 @@ class TestMain:
 
     def test_main_reports_required_assumption_for_skipped_chain(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
-        source = dedent(
-            """
+        source = dedent("""
             if value.i == 5:
                 print("i")
             elif value.j == 6:
                 print("j")
-            """
-        ).strip()
+            """).strip()
         test_file.write_text(source, encoding="utf-8")
 
         original_argv = sys.argv
@@ -1377,14 +1323,12 @@ class TestMain:
 
     def test_main_reports_required_identity_equality_assumption(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
-        source = dedent(
-            """
+        source = dedent("""
             if op is Op.ADD:
                 print("add")
             elif op is Op.SUBTRACT:
                 print("subtract")
-            """
-        ).strip()
+            """).strip()
         test_file.write_text(source, encoding="utf-8")
 
         original_argv = sys.argv
@@ -1404,14 +1348,12 @@ class TestMain:
 
     def test_main_reports_required_hashable_subjects_assumption(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
-        source = dedent(
-            """
+        source = dedent("""
             if option in {"-h", "--help"}:
                 print("help")
             elif option in {"-V", "--version"}:
                 print("version")
-            """
-        ).strip()
+            """).strip()
         test_file.write_text(source, encoding="utf-8")
 
         original_argv = sys.argv
@@ -1432,14 +1374,12 @@ class TestMain:
     def test_main_does_not_report_enabled_assumption(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
         test_file.write_text(
-            dedent(
-                """
+            dedent("""
                 if value.i == 5:
                     print("i")
                 elif value.j == 6:
                     print("j")
-                """
-            ).strip(),
+                """).strip(),
             encoding="utf-8",
         )
 
@@ -1457,14 +1397,12 @@ class TestMain:
     def test_main_with_risky_enables_all_assumptions(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
         test_file.write_text(
-            dedent(
-                """
+            dedent("""
                 if a.x == 1 and b.y == 2:
                     print("first")
                 elif a.x == 3 and b.y == 4:
                     print("second")
-                """
-            ).strip(),
+                """).strip(),
             encoding="utf-8",
         )
 
@@ -1481,14 +1419,12 @@ class TestMain:
     def test_main_with_safe_disables_risky_assumptions(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
         test_file.write_text(
-            dedent(
-                """
+            dedent("""
                 if a.x == 1 and b.y == 2:
                     print("first")
                 elif a.x == 3 and b.y == 4:
                     print("second")
-                """
-            ).strip(),
+                """).strip(),
             encoding="utf-8",
         )
 
@@ -1595,14 +1531,12 @@ class TestMain:
 
     def test_verbose_reports_filter_rejection(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
-        source = dedent(
-            """
+        source = dedent("""
             if x == 1:
                 print("one")
             elif x == 2:
                 print("two")
-            """
-        ).strip()
+            """).strip()
         test_file.write_text(source, encoding="utf-8")
 
         original_argv = sys.argv
@@ -1627,14 +1561,12 @@ class TestMain:
 
     def test_verbose_show_write_reports_filter_rejection_once(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
-        source = dedent(
-            """
+        source = dedent("""
             if x == 1:
                 print("one")
             elif x == 2:
                 print("two")
-            """
-        ).strip()
+            """).strip()
         test_file.write_text(source, encoding="utf-8")
 
         original_argv = sys.argv
@@ -1662,14 +1594,12 @@ class TestMain:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             test_file = pathlib.Path(tmpdir) / "test.py"
-            source = dedent(
-                """
+            source = dedent("""
                 if x == 1:
                     print("one")
                 elif x == 2:
                     print("two")
-            """
-            ).strip()
+            """).strip()
             test_file.write_text(source, encoding="utf-8")
 
             original_argv = sys.argv
@@ -1696,14 +1626,12 @@ class TestMain:
             file1 = test_dir / "file1.py"
             file2 = test_dir / "file2.py"
 
-            source = dedent(
-                """
+            source = dedent("""
                 if x == 1:
                     print("one")
                 elif x == 2:
                     print("two")
-            """
-            ).strip()
+            """).strip()
 
             file1.write_text(source, encoding="utf-8")
             file2.write_text(source, encoding="utf-8")
@@ -1733,14 +1661,12 @@ class TestMain:
             file1 = test_dir / "file1.py"
             file2 = nested_dir / "file2.py"
 
-            source = dedent(
-                """
+            source = dedent("""
                 if x == 1:
                     print("one")
                 elif x == 2:
                     print("two")
-            """
-            ).strip()
+            """).strip()
 
             file1.write_text(source, encoding="utf-8")
             file2.write_text(source, encoding="utf-8")
@@ -1782,14 +1708,12 @@ class TestMain:
             file1 = test_dir / "file1.py"
             file2 = test_dir / "file2.py"
 
-            source = dedent(
-                """
+            source = dedent("""
                 if x == 1:
                     print("one")
                 elif x == 2:
                     print("two")
-            """
-            ).strip()
+            """).strip()
 
             file1.write_text(source, encoding="utf-8")
             file2.write_text(source, encoding="utf-8")
@@ -1815,12 +1739,10 @@ class TestCliOptionsAndErrors:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             test_file = pathlib.Path(tmpdir) / "test.py"
-            source = dedent(
-                """
+            source = dedent("""
                 if x > 5:
                     print("big")
-            """
-            ).strip()
+            """).strip()
             test_file.write_text(source, encoding="utf-8")
 
             original_argv = sys.argv
@@ -1839,13 +1761,11 @@ class TestCliOptionsAndErrors:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             test_file = pathlib.Path(tmpdir) / "test.py"
-            source = dedent(
-                """
+            source = dedent("""
                 # No convertible patterns
                 if x > 5:
                     print("big")
-            """
-            ).strip()
+            """).strip()
             test_file.write_text(source, encoding="utf-8")
 
             original_argv = sys.argv
@@ -1943,15 +1863,13 @@ class TestCliOptionsAndErrors:
             # Create multiple files
             for i in range(3):
                 test_file = test_dir / f"test{i}.py"
-                source = dedent(
-                    f"""
+                source = dedent(f"""
                     x = {i}
                     if x == 1:
                         print("one")
                     elif x == 2:
                         print("two")
-                """
-                ).strip()
+                """).strip()
                 test_file.write_text(source, encoding="utf-8")
 
             original_argv = sys.argv
