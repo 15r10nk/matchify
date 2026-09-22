@@ -171,26 +171,6 @@ def test_hidden_candidate_filter_error_does_not_discard_eligible_preview():
     assert "match data:" in previews[0].after
 
 
-def test_missing_parent_assumptions_do_not_block_children_or_later_conversion():
-    source = dedent(
-        """\
-        if a == 1 and b == 2:
-            if value == 1:
-                first()
-            elif value == 2:
-                second()
-        elif a == 3 and b == 4:
-            other()
-    """
-    )
-    safe = transform_code(source)
-    assert "if a == 1 and b == 2:" in safe
-    assert "match value:" in safe
-    assert transform_code(safe, assumptions=Assumptions.risky()) == transform_code(
-        source, assumptions=Assumptions.risky()
-    )
-
-
 def test_overlapping_inline_and_local_lookup_plans_prefer_inline():
     source = dedent(
         """\

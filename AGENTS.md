@@ -55,17 +55,27 @@ Matchify converts eligible `if`/`elif`/`else` chains into Python 3.10+
 4. Run the focused test, then the full suite:
 
    ```bash
-   uv run pytest tests/test_transform.py -k <case>
+   uv run pytest tests/test_code_samples.py -k <case>
    uv run pytest
    ```
 
 The test suite is organized as follows:
 
-- `tests/test_transform.py` and `tests/test_edge_cases.py`: source-to-source
-  behavior and rejection cases.
+- `tests/code_samples/`: source-to-source behavior and rejection cases, including
+  assumption and conversion-filter variants. The generic `tests/test_code_samples.py`
+  test checks expected output, runtime traces, and idempotence.
 - `tests/test_cli.py`: file processing and CLI behavior.
-- `tests/test_generated_roundtrip.py`: generated programs whose runtime traces
-  are compared before and after transformation.
+- The remaining API and internal tests cover diagnostics, previews, planning,
+  data structures, documentation, and the code-sample infrastructure.
+
+Code samples contain `# before:`, `# after:`, `# assume:`, and `# trace:` sections.
+Use optional `# ignore-types:` and `# convert-if:` lines for transformation options.
+Generated samples may also contain a `# reference:` code section between `# after:`
+and `# assume:`. The generic test compares its runtime trace with the original
+program, preserving the independent oracle for generator failures.
+Supply executable setup and print observed results; use separate samples for
+different option combinations. Keep API assertions that cannot be expressed by
+source snapshots and runtime traces in ordinary tests.
 
 Use `textwrap.dedent()` for multiline source fixtures and temporary directories
 for filesystem tests. Test both successful conversions and nearby cases that

@@ -1,0 +1,51 @@
+# before:
+a = 1
+b = 2
+value = 1
+
+def first():
+    print("first")
+
+def second():
+    print("second")
+
+def other():
+    print("other")
+
+if a == 1 and b == 2:
+    match value:
+        case 1:
+            first()
+        case 2:
+            second()
+elif a == 3 and b == 4:
+    other()
+
+# after:
+a = 1
+b = 2
+value = 1
+
+def first():
+    print("first")
+
+def second():
+    print("second")
+
+def other():
+    print("other")
+
+match (a, b):
+    case 1, 2:
+        match value:
+            case 1:
+                first()
+            case 2:
+                second()
+    case 3, 4:
+        other()
+
+# assume: hashable-subjects,identity-equality,list-sequence-pattern,lookup-equality,pure-subjects,tuple-sequence-pattern,use-object
+
+# trace:
+# first
