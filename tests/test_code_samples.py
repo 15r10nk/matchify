@@ -72,6 +72,18 @@ def test_execute_records_exception_args():
             "# before:\n# after:\n# assume:\n# convert-if:\n",
             "an expression after '# convert-if:'",
         ),
+        (
+            "# before:\n# after:\n# reference:\npass\n# reference:\npass\n# assume:\n",
+            "at most one '# reference:'",
+        ),
+        (
+            "# before:\n# after:\n# reference:\n# assume:\n",
+            "code after '# reference:'",
+        ),
+        (
+            "# before:\n# after:\n# assume:\n# reference:\npass\n",
+            "must precede '# assume:'",
+        ),
     ],
 )
 def test_parse_sample_reports_invalid_structure(source, message):
@@ -166,6 +178,9 @@ def test_code_sample(sample_path: Path):
     after_trace = execute(sample.prefix + after)
 
     assert before_trace == after_trace
+    if sample.reference is not None:
+        reference_trace = execute(sample.prefix + sample.reference)
+        assert before_trace == reference_trace, "sample differs from its reference"
     assert (
         transform_code(
             transformed,

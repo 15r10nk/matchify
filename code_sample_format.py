@@ -8,6 +8,7 @@ from matchify.assumptions import parse_assumption_names
 
 BEFORE_MARKER = "# before:\n"
 AFTER_MARKER = "# after:\n"
+REFERENCE_MARKER = "# reference:\n"
 ASSUME_MARKER = "# assume:"
 IGNORE_TYPES_MARKER = "# ignore-types:"
 CONVERT_IF_MARKER = "# convert-if:"
@@ -20,6 +21,7 @@ class Sample:
     assumptions: Assumptions
     ignore_types_pattern: str | None
     convert_if: str | None = None
+    reference: str | None = None
 
 
 class SampleFormatError(ValueError):
@@ -33,6 +35,18 @@ def parse_sample(source: str) -> Sample:
         raise SampleFormatError("sample needs exactly one '# after:' marker")
     prefix, remainder = source.split(BEFORE_MARKER)
     before, generated = remainder.split(AFTER_MARKER)
+    if generated.count(REFERENCE_MARKER) > 1:
+        raise SampleFormatError("sample allows at most one '# reference:' marker")
+    reference = None
+    if REFERENCE_MARKER in generated:
+        after, reference_section = generated.split(REFERENCE_MARKER)
+        reference, assume_marker, metadata = reference_section.partition(ASSUME_MARKER)
+        if not assume_marker or ASSUME_MARKER in after:
+            raise SampleFormatError("'# reference:' must precede '# assume:'")
+        if not reference.strip():
+            raise SampleFormatError("sample needs code after '# reference:'")
+        reference = reference.rstrip("\n") + "\n"
+        generated = after + assume_marker + metadata
     assume_lines = [
         line for line in generated.splitlines() if line.startswith(ASSUME_MARKER)
     ]
@@ -65,6 +79,7 @@ def parse_sample(source: str) -> Sample:
         Assumptions.from_names(names),
         ignore_types_pattern,
         convert_if,
+        reference,
     )
 
 
@@ -91,8 +106,13 @@ def render_sample(sample: Sample, after: str, trace: Trace) -> str:
     if sample.convert_if is not None:
         convert_if_comment = f"\n{CONVERT_IF_MARKER} {sample.convert_if}"
     normalized_after = after.rstrip("\n")
+    reference_section = ""
+    if sample.reference is not None:
+        normalized_reference = sample.reference.rstrip("\n")
+        reference_section = f"{REFERENCE_MARKER}{normalized_reference}\n\n"
     return (
         f"{sample.prefix}{BEFORE_MARKER}{sample.before}{AFTER_MARKER}"
-        f"{normalized_after}\n\n{assume_comment}{ignore_types_comment}{convert_if_comment}"
+        f"{normalized_after}\n\n{reference_section}"
+        f"{assume_comment}{ignore_types_comment}{convert_if_comment}"
         f"\n\n# trace:\n{render_trace(trace)}"
     )

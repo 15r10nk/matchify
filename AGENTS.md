@@ -70,6 +70,9 @@ The test suite is organized as follows:
 
 Code samples contain `# before:`, `# after:`, `# assume:`, and `# trace:` sections.
 Use optional `# ignore-types:` and `# convert-if:` lines for transformation options.
+Generated samples may also contain a `# reference:` code section between `# after:`
+and `# assume:`. The generic test compares its runtime trace with the original
+program, preserving the independent oracle for generator failures.
 Supply executable setup and print observed results; use separate samples for
 different option combinations. Keep API assertions that cannot be expressed by
 source snapshots and runtime traces in ordinary tests.

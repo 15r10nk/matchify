@@ -15,6 +15,7 @@ def save_code_sample(
     after: str,
     trace: Trace,
     metadata: tuple[tuple[str, str | int], ...],
+    reference: str | None = None,
 ) -> Path:
     """Write a generated issue in the format consumed by test_code_samples.py."""
     samples_dir.mkdir(parents=True, exist_ok=True)
@@ -27,6 +28,7 @@ def save_code_sample(
                 before=f"{before.rstrip()}\n\n",
                 assumptions=Assumptions.from_names(),
                 ignore_types_pattern=None,
+                reference=reference,
             ),
             after,
             trace,

@@ -8,6 +8,8 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+import test_code_samples as code_samples  # noqa: E402
+
 import find_pattern_coverage_issue  # noqa: E402
 import find_random_trace_issue  # noqa: E402
 from code_sample_format import parse_sample  # noqa: E402
@@ -118,10 +120,50 @@ def test_pattern_coverage_finder_saves_flat_code_sample(tmp_path):
     assert sample.before == source + "\n"
     assert not sample.assumptions.names
     assert sample.ignore_types_pattern is None
+    assert sample.reference == source
     assert "# generated-kind: not-converted\n" in content
     assert "# style: mixed\n" in content
     assert f"# before:\n{source}\n# after:\n{source}" in content
     assert content.endswith("# trace:\n# branch\n")
+    code_samples.test_code_sample(sample_path)
+
+
+def test_generator_bug_preserves_reference_and_fails_sample_check(
+    monkeypatch, tmp_path
+):
+    finder = find_pattern_coverage_issue
+    program = finder.Program(
+        classes=(),
+        subject="value",
+        cases=(finder.Case(finder.LiteralPattern("1"), "one"),),
+        default_body=None,
+        sample_values=("1",),
+    )
+    render_if_code = finder.Program.render_if_code
+
+    def broken_render_if_code(self, style, seed):
+        return render_if_code(self, style, seed).replace(
+            "print('one')", "print('wrong')"
+        )
+
+    monkeypatch.setattr(finder.Program, "render_if_code", broken_render_if_code)
+    issue = finder.check_program(program, finder.IfStyle.CANONICAL, seed=0)
+
+    assert issue.kind == "generator-bug"
+    sample_path = finder.save_issue(issue, tmp_path)
+    content = sample_path.read_text(encoding="utf-8")
+    assert parse_sample(content).reference == issue.match_reference
+    assert content.endswith("# trace:\n# one\n")
+    with pytest.raises(AssertionError, match="reference"):
+        code_samples.test_code_sample(sample_path)
+
+    # Correcting the faulty renderer output should satisfy the preserved oracle.
+    sample_path.write_text(
+        content.replace("print('wrong')", "print('one')"),
+        encoding="utf-8",
+        newline="\n",
+    )
+    code_samples.test_code_sample(sample_path)
 
 
 def test_issue_finders_default_to_code_samples_directory():
