@@ -6,15 +6,20 @@ from importlib import import_module
 from io import StringIO
 from textwrap import dedent
 
-import libcst as cst
 import pytest
-from libcst.metadata import CodePosition, CodeRange
 from rich.console import Console
 
 from matchify.assumptions import Assumptions
-from matchify.cli import convert_file, convert_files, main
-from matchify.diff import print_location_heading, report_diff
-from matchify.transform import _ChainPreviewVisitor, collect_chain_previews
+from matchify.cli import (
+    _emit_previews,
+    convert_file,
+    convert_files,
+    main,
+    preview_files,
+)
+from matchify.conversion_filter import ConversionMetrics
+from matchify.diff import print_location_heading, print_preview_metadata, report_diff
+from matchify.transform import ChainPreview, collect_chain_previews
 
 
 class TestConvertFile:
@@ -119,6 +124,20 @@ class TestConvertFile:
 
         rendered = output.getvalue()
         assert rendered.splitlines()[0] == f"{path}:1"
+
+    def test_preview_metadata_uses_rich_highlighting_for_numbers(self, monkeypatch):
+        output = StringIO()
+        monkeypatch.setattr(
+            "matchify.diff.console",
+            Console(file=output, force_terminal=True, color_system="truecolor"),
+        )
+
+        print_preview_metadata("    metrics: branches=2, patterns=3")
+
+        rendered = output.getvalue()
+        assert "branches" in rendered
+        assert "patterns" in rendered
+        assert "\x1b[" in rendered
 
     def test_report_diff_prints_ellipsis_between_hunks(self, monkeypatch):
         output = StringIO()
@@ -267,6 +286,8 @@ class TestConvertFile:
             check=True,
             verbose=False,
             quiet=True,
+            convert_if="True",
+            report_filter_diagnostics=False,
         )
 
         converted, unchanged, errors, changed = convert_files(
@@ -284,6 +305,24 @@ class TestConvertFile:
         assert kept[0].text is not None
         assert "match x:" in kept[0].text
         capsys.readouterr()
+
+    def test_convert_file_accepts_conversion_filter(self, tmp_path):
+        test_file = tmp_path / "test.py"
+        source = dedent(
+            """
+            if x == 1:
+                print("one")
+            elif x == 2:
+                print("two")
+            """
+        ).strip()
+        test_file.write_text(source, encoding="utf-8")
+
+        _, changed, error = convert_file(test_file, convert_if="branches >= 3")
+        assert changed is False
+        assert error is None
+        assert test_file.read_text(encoding="utf-8") == source
+        assert test_file.read_text(encoding="utf-8") == source
 
 
 class TestMain:
@@ -349,6 +388,10 @@ class TestMain:
         assert test_file.read_text(encoding="utf-8") == source
         output = capsys.readouterr().out
         assert "+match x:" in output
+        assert "    metrics: branches=2" in output
+        assert "literal_checks=2" in output
+        assert "patterns=2" in output
+        assert "isinstance_checks=0" not in output
         assert "Wrote changes" not in output
         assert "Would convert:" not in output
         assert "1 would convert" in output
@@ -377,6 +420,8 @@ class TestMain:
         assert prompts == ["Write these changes? [y/N] "]
         output = capsys.readouterr().out
         assert f"{test_file}:1" in output
+        assert output.index("4      pass") < output.index("    metrics: branches=2")
+        assert "metrics: branches=2" in output
         assert "1 +match x:" in output
         assert "Would convert:" not in output
         assert "Wrote changes to 1 file(s)" in output
@@ -400,8 +445,9 @@ class TestMain:
         assert "Wrote changes" not in output
         assert "1 would convert" in output
 
-    def test_main_interactive_write_pass_reports_errors(
-        self, capsys, tmp_path, monkeypatch
+    @pytest.mark.parametrize("flags", [[], ["--write"], ["--show", "--write"]])
+    def test_main_write_failure_reports_errors(
+        self, capsys, tmp_path, monkeypatch, flags
     ):
         test_file = tmp_path / "test.py"
         source = "if x == 1:\n    pass\nelif x == 2:\n    pass\n"
@@ -416,7 +462,7 @@ class TestMain:
 
         original_argv = sys.argv
         try:
-            sys.argv = ["matchify", str(test_file)]
+            sys.argv = ["matchify", *flags, str(test_file)]
             with pytest.raises(SystemExit) as exc_info:
                 main()
         finally:
@@ -526,7 +572,11 @@ class TestMain:
         assert exc_info.value.code == 1
         assert test_file.read_text(encoding="utf-8") == source
         output = capsys.readouterr().out
+        assert output.index('4      print("two")') < output.index(
+            "    metrics: branches=2"
+        )
         assert f"{test_file}:1" in output
+        assert "metrics: branches=2" in output
         assert "1 +match x:" in output
         assert "Would convert:" not in output
         assert "1 would convert, 0 unchanged, 0 errors" in output
@@ -571,6 +621,7 @@ class TestMain:
         assert test_file.read_text(encoding="utf-8") == source
         output = capsys.readouterr().out
         assert "+match x:" in output
+        assert "metrics: branches=2" in output
         assert "1 would convert, 0 unchanged, 0 errors" in output
 
     def test_main_show_does_not_convert_files(self, capsys, tmp_path, monkeypatch):
@@ -650,6 +701,7 @@ class TestMain:
         output = capsys.readouterr().out
         assert f"{test_file}:1" in output
         assert "1 -if x == 1:" in output
+        assert "metrics: branches=2" in output
         assert "1 +match x:" in output
         assert "Converted:" not in output
         assert "Would convert:" not in output
@@ -681,6 +733,7 @@ class TestMain:
         assert exc_info.value.code == 1
         output = capsys.readouterr().out
         assert "2 -    if x == 1:" in output
+        assert "metrics: branches=2" in output
         assert "2 +    match x:" in output
         assert "3 +        case 1:" in output
 
@@ -714,6 +767,7 @@ class TestMain:
         assert f"{test_file}:1" in output
         assert f"{test_file}:6" in output
         assert output.index(f"{test_file}:1") < output.index(f"{test_file}:6")
+        assert output.count("metrics: branches=2") == 2
         assert "+match x:" in output
         assert "+match y:" in output
 
@@ -741,6 +795,10 @@ class TestMain:
         assert test_file.read_text(encoding="utf-8") == source
         output = capsys.readouterr().out
         assert "+match x:" in output
+        assert output.index('4      print("two")') < output.index(
+            "    metrics: branches=2"
+        )
+        assert "metrics: branches=2" in output
         assert "Would convert:" not in output
         assert "not shown" not in output
 
@@ -767,6 +825,7 @@ class TestMain:
         output = capsys.readouterr().out
         assert f"{test_file}:1" in output
         assert "Additional conversions require --assume use-object:" in output
+        assert "metrics: branches=2" in output
         assert "1 +match value:" in output
         assert "+++" not in output
         assert "not shown" not in output
@@ -799,6 +858,7 @@ class TestMain:
         assert f"{test_file}:1" in output
         assert f"{test_file}:6" in output
         assert "Additional conversions require --assume use-object:" in output
+        assert output.count("metrics: branches=2") == 2
 
     def test_main_show_all_keeps_eligible_and_gated_conversions_apart(
         self, capsys, tmp_path
@@ -831,6 +891,7 @@ class TestMain:
         output = capsys.readouterr().out
         assert "1 +match x:" in output
         assert "Additional conversions require --assume use-object:" in output
+        assert output.count("metrics: branches=2") == 2
         assert "+match value:" in output
 
     def test_main_show_skips_ineligible_chains(self, capsys, tmp_path):
@@ -974,6 +1035,38 @@ class TestMain:
         output = capsys.readouterr().out
         assert "Error processing" in output
 
+    def test_main_check_reports_filter_evaluation_errors(self, capsys, tmp_path):
+        test_file = tmp_path / "test.py"
+        source = dedent(
+            """
+            if x == 1:
+                print("one")
+            elif x == 2:
+                print("two")
+            """
+        ).strip()
+        test_file.write_text(source, encoding="utf-8")
+
+        original_argv = sys.argv
+        try:
+            sys.argv = [
+                "matchify",
+                "--check",
+                "--convert-if",
+                "branches / guard_conditions > 1",
+                str(test_file),
+            ]
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+        finally:
+            sys.argv = original_argv
+
+        assert exc_info.value.code == 1
+        assert test_file.read_text(encoding="utf-8") == source
+        output = capsys.readouterr().out
+        assert f"Error processing {test_file}: division by zero" in output
+        assert "Summary: 0 would convert, 0 unchanged, 1 errors" in output
+
     def test_main_show_write_with_syntax_error_does_not_write(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
         source = "if x == :\n    print('broken')"
@@ -1067,26 +1160,6 @@ class TestMain:
         assert "Additional conversions require --assume lookup-equality:" in output
         assert "+match key:" in output
 
-    def test_preview_indent_fallback_for_unknown_positions(self):
-        module = cst.parse_module("x = 1\n")
-        visitor = _ChainPreviewVisitor(
-            module,
-            "x = 1\n",
-            ignore_types_pattern=None,
-            assumptions=Assumptions.from_names(),
-        )
-        missing = CodeRange(
-            start=CodePosition(line=0, column=0),
-            end=CodePosition(line=0, column=0),
-        )
-        too_far = CodeRange(
-            start=CodePosition(line=99, column=0),
-            end=CodePosition(line=99, column=0),
-        )
-
-        assert visitor._indent_for(missing) == ""
-        assert visitor._indent_for(too_far) == ""
-
     def test_collect_chain_previews_omits_gated_unless_requested(self):
         source = dedent(
             """
@@ -1111,6 +1184,8 @@ class TestMain:
         assert hidden == []
         assert len(shown) == 1
         assert shown[0].extra_assumptions == frozenset({"use-object"})
+        assert shown[0].metrics is not None
+        assert shown[0].metrics.branches == 2
 
     def test_collect_chain_previews_includes_lookups(self):
         source = dedent(
@@ -1152,6 +1227,7 @@ class TestMain:
         }
         assert len(enabled) == 2
         assert all(not preview.extra_assumptions for preview in enabled)
+        assert all(preview.metrics is None for preview in enabled)
         assert any("match key:" in preview.after for preview in enabled)
         assert any("match operation:" in preview.after for preview in enabled)
 
@@ -1423,9 +1499,9 @@ class TestMain:
         finally:
             sys.argv = original_argv
 
-        assert "match a.x:" in test_file.read_text(encoding="utf-8")
+        assert "if a.x == 1 and b.y == 2:" in test_file.read_text(encoding="utf-8")
         assert "match (a.x, b.y):" not in test_file.read_text(encoding="utf-8")
-        assert "Converted:" in capsys.readouterr().out
+        assert "requires --assume pure-subjects" in capsys.readouterr().out
 
     def test_main_rejects_unknown_assumption(self, capsys, tmp_path):
         test_file = tmp_path / "test.py"
@@ -1441,6 +1517,145 @@ class TestMain:
 
         assert exc_info.value.code == 2
         assert "Unknown risky assumption: unknown" in capsys.readouterr().err
+
+    def test_main_rejects_invalid_conversion_filter_before_processing(
+        self, capsys, tmp_path
+    ):
+        missing = tmp_path / "missing.py"
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", "--convert-if", "unknown > 1", str(missing)]
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+        finally:
+            sys.argv = original_argv
+
+        assert exc_info.value.code == 2
+        output = capsys.readouterr()
+        assert "Unknown --convert-if variable: unknown" in output.err
+        assert "Skipping" not in output.out
+
+    def test_main_rejects_repeated_conversion_filter(self, capsys, tmp_path):
+        test_file = tmp_path / "test.py"
+
+        original_argv = sys.argv
+        try:
+            sys.argv = [
+                "matchify",
+                "--convert-if",
+                "branches > 2",
+                "--convert-if",
+                "patterns > 2",
+                str(test_file),
+            ]
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+        finally:
+            sys.argv = original_argv
+
+        assert exc_info.value.code == 2
+        assert "--convert-if may only be specified once" in capsys.readouterr().err
+
+    def test_main_default_converts_simple_two_branch_chain(self, capsys, tmp_path):
+        test_file = tmp_path / "test.py"
+        test_file.write_text(
+            'if value == 1:\n    print("one")\nelif value == 2:\n    print("two")',
+            encoding="utf-8",
+        )
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["matchify", "--write", str(test_file)]
+            main()
+        finally:
+            sys.argv = original_argv
+
+        assert "match value:" in test_file.read_text(encoding="utf-8")
+        assert "1 converted, 0 unchanged, 0 errors" in capsys.readouterr().out
+
+    def test_main_rejects_duplicate_conversion_filters(self, capsys, tmp_path):
+        original_argv = sys.argv
+        try:
+            sys.argv = [
+                "matchify",
+                "--convert-if",
+                "True",
+                "--convert-if",
+                "branches >= 3",
+                str(tmp_path / "test.py"),
+            ]
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+        finally:
+            sys.argv = original_argv
+
+        assert exc_info.value.code == 2
+        assert "--convert-if may only be specified once" in capsys.readouterr().err
+
+    def test_verbose_reports_filter_rejection(self, capsys, tmp_path):
+        test_file = tmp_path / "test.py"
+        source = dedent(
+            """
+            if x == 1:
+                print("one")
+            elif x == 2:
+                print("two")
+            """
+        ).strip()
+        test_file.write_text(source, encoding="utf-8")
+
+        original_argv = sys.argv
+        try:
+            sys.argv = [
+                "matchify",
+                "--convert-if",
+                "branches >= 3",
+                "--verbose",
+                "--write",
+                str(test_file),
+            ]
+            main()
+        finally:
+            sys.argv = original_argv
+
+        output = capsys.readouterr().out
+        assert (
+            f"Info: {test_file}:1:1: if/elif chain rejected by --convert-if" in output
+        )
+        assert f"No changes: {test_file}" in output
+
+    def test_verbose_show_write_reports_filter_rejection_once(self, capsys, tmp_path):
+        test_file = tmp_path / "test.py"
+        source = dedent(
+            """
+            if x == 1:
+                print("one")
+            elif x == 2:
+                print("two")
+            """
+        ).strip()
+        test_file.write_text(source, encoding="utf-8")
+
+        original_argv = sys.argv
+        try:
+            sys.argv = [
+                "matchify",
+                "--convert-if",
+                "branches >= 3",
+                "--verbose",
+                "--show",
+                "--write",
+                str(test_file),
+            ]
+            main()
+        finally:
+            sys.argv = original_argv
+
+        output = capsys.readouterr().out
+        message = f"Info: {test_file}:1:1: if/elif chain rejected by --convert-if"
+        assert output.count(message) == 1
+        assert test_file.read_text(encoding="utf-8") == source
 
     def test_module_entrypoint_with_single_file(self, capsys):
         """Test running the package module invokes the CLI entry point."""
@@ -1783,3 +1998,41 @@ class TestCliOptionsAndErrors:
                 assert "1 errors" in captured.out or "error" in captured.out.lower()
             finally:
                 sys.argv = original_argv
+
+
+def test_preview_files_can_suppress_parse_errors(tmp_path, capsys):
+    path = tmp_path / "broken.py"
+    source = "if x == :\n    pass\n"
+    path.write_text(source, encoding="utf-8")
+
+    result = preview_files(
+        [path],
+        ignore_types_pattern=None,
+        assumptions=Assumptions.safe(),
+        show_all=False,
+        jobs=1,
+        report_errors=False,
+        report_assumption_diagnostics=False,
+    )
+
+    assert result == (0, 0, 0, 0, [])
+    assert capsys.readouterr().out == ""
+    assert path.read_text(encoding="utf-8") == source
+
+
+def test_preview_omits_empty_metrics(tmp_path, capsys):
+    preview = ChainPreview(
+        line=1,
+        column=0,
+        before="before\n",
+        after="after\n",
+        extra_assumptions=frozenset(),
+        metrics=ConversionMetrics(),
+    )
+
+    _emit_previews(tmp_path / "example.py", [preview])
+
+    output = capsys.readouterr().out
+    assert "before" in output
+    assert "after" in output
+    assert "metrics:" not in output

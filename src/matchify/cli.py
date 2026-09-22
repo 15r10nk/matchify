@@ -7,16 +7,25 @@ from concurrent.futures import ProcessPoolExecutor
 from functools import partial
 from typing import NamedTuple
 
-from libcst import ParserSyntaxError
-
 from .assumptions import (
     ALL_RISKY_ASSUMPTIONS,
     AssumptionDiagnostic,
     Assumptions,
     parse_assumption_names,
 )
-from .diff import print_location_heading, report_diff
-from .transform import ChainPreview, collect_chain_previews, transform_code
+from .conversion_filter import (
+    DEFAULT_CONVERSION_FILTER,
+    ConversionFilter,
+    ConversionFilterDiagnostic,
+    ConversionMetrics,
+)
+from .diff import print_location_heading, print_preview_metadata, report_diff
+from .transform import (
+    ChainPreview,
+    SelectedConversions,
+    plan_conversions,
+    transform_code,
+)
 
 
 class ConvertResult(NamedTuple):
@@ -56,6 +65,8 @@ def convert_file(
     assumptions: Assumptions | None = None,
     report_assumption_diagnostics: bool = False,
     check: bool = False,
+    convert_if: str | ConversionFilter | None = None,
+    report_filter_diagnostics: bool = False,
 ) -> tuple[pathlib.Path, bool, str | None]:
     """Convert a single file.
 
@@ -68,6 +79,8 @@ def convert_file(
         assumptions=assumptions,
         report_assumption_diagnostics=report_assumption_diagnostics,
         check=check,
+        convert_if=convert_if,
+        report_filter_diagnostics=report_filter_diagnostics,
     )
     return result.path, result.changed, result.error
 
@@ -80,19 +93,26 @@ def _convert_file(
     report_assumption_diagnostics: bool = False,
     check: bool = False,
     keep_text: bool = False,
+    convert_if: str | ConversionFilter | None = None,
+    report_filter_diagnostics: bool = False,
 ) -> ConvertResult:
     try:
         source = path.read_text(encoding="utf-8")
         diagnostics: list[AssumptionDiagnostic] = []
+        filter_diagnostics: list[ConversionFilterDiagnostic] = []
         transformed_code = transform_code(
             source,
             ignore_types_pattern=ignore_types_pattern,
             assumptions=assumptions,
             diagnostics=diagnostics,
+            convert_if=convert_if,
+            filter_diagnostics=filter_diagnostics,
         )
 
         if report_assumption_diagnostics:
             report_assumption_requirements(path, diagnostics)
+        if report_filter_diagnostics:
+            report_filter_rejections(path, filter_diagnostics)
         if transformed_code != source:
             if not check:
                 path.write_text(transformed_code, encoding="utf-8")
@@ -145,6 +165,8 @@ class PreviewResult(NamedTuple):
     path: pathlib.Path
     error: str | None
     previews: list[ChainPreview]
+    filter_diagnostics: list[ConversionFilterDiagnostic]
+    selected: SelectedConversions | None = None
 
 
 def _preview_file(
@@ -152,21 +174,25 @@ def _preview_file(
     ignore_types_pattern: str | None = None,
     *,
     assumptions: Assumptions | None = None,
+    convert_if: str | ConversionFilter | None = None,
 ) -> PreviewResult:
     try:
         source = path.read_text(encoding="utf-8")
+        selected = plan_conversions(source, ignore_types_pattern).select(
+            assumptions or Assumptions.from_names(),
+            convert_if,
+            include_gated=True,
+            render_previews=True,
+        )
         return PreviewResult(
             path,
             None,
-            collect_chain_previews(
-                source,
-                ignore_types_pattern=ignore_types_pattern,
-                assumptions=assumptions,
-                include_gated=True,
-            ),
+            selected.previews,
+            selected.filter_diagnostics,
+            selected,
         )
-    except (OSError, UnicodeError, ParserSyntaxError) as error:
-        return PreviewResult(path, str(error), [])
+    except Exception as error:
+        return PreviewResult(path, str(error), [], [])
 
 
 def _present_preview(
@@ -175,6 +201,7 @@ def _present_preview(
     show_all: bool,
     report_errors: bool,
     report_assumption_diagnostics: bool,
+    report_filter_diagnostics: bool,
 ) -> tuple[int, int, int, int]:
     """Print one file's previews and return hidden, converted, unchanged, errors."""
     if result.error is not None:
@@ -213,8 +240,21 @@ def _present_preview(
                 for preview in gated_previews
             ],
         )
+    if report_filter_diagnostics:
+        report_filter_rejections(result.path, result.filter_diagnostics)
     converted = int(bool(eligible))
     return (len(gated_previews), converted, 1 - converted, 0)
+
+
+def report_filter_rejections(
+    path: pathlib.Path, diagnostics: list[ConversionFilterDiagnostic]
+) -> None:
+    """Print convertible chains rejected by the stylistic filter."""
+    for diagnostic in diagnostics:
+        print(
+            f"Info: {path}:{diagnostic.line}:{diagnostic.column + 1}: "
+            "if/elif chain rejected by --convert-if"
+        )
 
 
 def _map_paths(func, python_files: list[pathlib.Path], jobs: int | None):
@@ -231,6 +271,22 @@ def _emit_previews(path: pathlib.Path, previews: list[ChainPreview]) -> None:
             print()
         print_location_heading(path, preview.line)
         report_diff(preview.before, preview.after, start_line=preview.line)
+        if preview.metrics is not None:
+            formatted_metrics = _format_conversion_metrics(preview.metrics)
+            if formatted_metrics is not None:
+                print_preview_metadata(formatted_metrics)
+        print()
+
+
+def _format_conversion_metrics(metrics: ConversionMetrics) -> str | None:
+    values = [
+        f"{name}={value}"
+        for name in ConversionMetrics.ordered_names()
+        if (value := getattr(metrics, name)) != 0
+    ]
+    if not values:
+        return None
+    return f"    metrics: {', '.join(values)}"
 
 
 def report_hidden_conversions(count: int) -> None:
@@ -341,6 +397,15 @@ def build_parser() -> argparse.ArgumentParser:
         default=r".*_TYPES$",
         help="Regex pattern for isinstance type variables to ignore (default: .*_TYPES$)",
     )
+    parser.add_argument(
+        "--convert-if",
+        metavar="EXPRESSION",
+        action="append",
+        help=(
+            "Convert eligible if/elif chains only when the metrics expression matches "
+            f"(default: {DEFAULT_CONVERSION_FILTER})"
+        ),
+    )
     return parser
 
 
@@ -377,35 +442,55 @@ def preview_files(
     jobs: int | None,
     report_errors: bool,
     report_assumption_diagnostics: bool,
-) -> tuple[int, int, int, int]:
-    """Show conversions without changing files.
+    convert_if: str | ConversionFilter | None = None,
+    report_filter_diagnostics: bool = False,
+    write: bool = False,
+    keep_text: bool = False,
+) -> tuple[int, int, int, int, list[ConvertResult]]:
+    """Prepare each file once, show previews, and optionally apply its plan.
 
     Each conversion is printed as its own diff under ``<file>:<line>``.
     ``--show-all`` also previews conversions unlocked by the minimal missing
     assumption set.
 
-    Returns hidden, converted, unchanged, and error counts. Hidden counts
-    assumption-gated conversions; those diffs are printed only when
-    ``show_all`` is true.
+    Returns hidden, converted, unchanged, and error counts plus retained changes.
+    Hidden counts assumption-gated conversions; those diffs are printed only
+    when ``show_all`` is true.
     """
     preview = partial(
         _preview_file,
         ignore_types_pattern=ignore_types_pattern,
         assumptions=assumptions,
+        convert_if=convert_if,
     )
     hidden_count = converted_count = unchanged_count = error_count = 0
+    changed: list[ConvertResult] = []
     for result in _map_paths(preview, python_files, jobs):
         hidden, converted, unchanged, errors = _present_preview(
             result,
             show_all=show_all,
             report_errors=report_errors,
             report_assumption_diagnostics=report_assumption_diagnostics,
+            report_filter_diagnostics=report_filter_diagnostics,
         )
         hidden_count += hidden
+        if converted and result.selected is not None and (write or keep_text):
+            try:
+                text = result.selected.apply()
+                if write:
+                    result.path.write_text(text, encoding="utf-8")
+                if keep_text:
+                    changed.append(ConvertResult(result.path, True, None, text))
+            except Exception as error:
+                report_result(
+                    result.path, False, str(error), verbose=False, check=not write
+                )
+                converted = 0
+                errors += 1
         converted_count += converted
         unchanged_count += unchanged
         error_count += errors
-    return hidden_count, converted_count, unchanged_count, error_count
+    return hidden_count, converted_count, unchanged_count, error_count, changed
 
 
 def convert_files(
@@ -419,6 +504,8 @@ def convert_files(
     verbose: bool,
     quiet: bool,
     keep_text: bool = False,
+    convert_if: str | ConversionFilter | None = None,
+    report_filter_diagnostics: bool = False,
 ) -> tuple[int, int, int, list[ConvertResult]]:
     convert = partial(
         _convert_file,
@@ -427,6 +514,8 @@ def convert_files(
         report_assumption_diagnostics=report_assumption_diagnostics,
         check=check,
         keep_text=keep_text,
+        convert_if=convert_if,
+        report_filter_diagnostics=report_filter_diagnostics,
     )
     converted_count = unchanged_count = error_count = 0
     changed: list[ConvertResult] = []
@@ -466,8 +555,16 @@ def confirm_write(changed: list[ConvertResult]) -> None:
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
+    if args.convert_if is not None and len(args.convert_if) > 1:
+        parser.error("--convert-if may only be specified once")
     try:
         assumptions = resolve_assumptions(args)
+        expression = (
+            args.convert_if[0]
+            if args.convert_if is not None
+            else DEFAULT_CONVERSION_FILTER
+        )
+        conversion_filter = ConversionFilter.parse(expression)
     except ValueError as error:
         parser.error(str(error))
     mode = resolve_cli_mode(args, parser)
@@ -482,17 +579,23 @@ def main() -> None:
     converted_count = unchanged_count = error_count = 0
     changed: list[ConvertResult] = []
     if mode.showing:
-        hidden_count, converted_count, unchanged_count, error_count = preview_files(
-            python_files,
-            ignore_types_pattern=mode.no_types,
-            assumptions=assumptions,
-            show_all=mode.show_all,
-            jobs=mode.jobs,
-            report_errors=not apply_changes,
-            report_assumption_diagnostics=not apply_changes and not mode.show_all,
+        hidden_count, converted_count, unchanged_count, error_count, changed = (
+            preview_files(
+                python_files,
+                ignore_types_pattern=mode.no_types,
+                assumptions=assumptions,
+                show_all=mode.show_all,
+                jobs=mode.jobs,
+                report_errors=True,
+                report_assumption_diagnostics=not mode.show_all,
+                convert_if=conversion_filter,
+                report_filter_diagnostics=mode.verbose,
+                write=mode.write,
+                keep_text=mode.interactive,
+            )
         )
 
-    if apply_changes:
+    if apply_changes and not mode.showing:
         converted_count, unchanged_count, error_count, changed = convert_files(
             python_files,
             ignore_types_pattern=mode.no_types,
@@ -503,6 +606,8 @@ def main() -> None:
             verbose=mode.verbose,
             quiet=mode.showing,
             keep_text=mode.interactive,
+            convert_if=conversion_filter,
+            report_filter_diagnostics=mode.verbose,
         )
 
     changed_label = "would convert" if mode.dry_run else "converted"

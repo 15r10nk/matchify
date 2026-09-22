@@ -357,3 +357,29 @@ def test_duplicate_capture_with_multiple_remaining_statements():
     assert "duplicate = first" in transformed
     assert "result = first" in transformed
     assert "print(result)" in transformed
+
+
+def test_nested_subscription_without_sequence_anchor_stays_in_guard():
+    source = dedent(
+        """\
+        if value[0][0] == 1:
+            result = "one"
+        elif value is None:
+            result = "none"
+        """
+    )
+
+    transformed = transform_code(source)
+
+    assert "case _ if value[0][0] == 1:" in transformed
+    for value in ([[1]], [[2]], None, [], [[]]):
+        outcomes = []
+        for code in (source, transformed):
+            namespace = {"value": value}
+            try:
+                exec(code, namespace)
+            except (IndexError, TypeError) as error:
+                outcomes.append(type(error))
+            else:
+                outcomes.append(namespace.get("result"))
+        assert outcomes[0] == outcomes[1]

@@ -83,6 +83,10 @@ def print_location_heading(path: pathlib.Path, line: int) -> None:
     console.print(text, soft_wrap=True)
 
 
+def print_preview_metadata(line: str) -> None:
+    console.print(line, highlight=True, soft_wrap=True)
+
+
 def _print_diff_control_line(line: str, style: str | None = "bold cyan") -> None:
     console.print(
         line,

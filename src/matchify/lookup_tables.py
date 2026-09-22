@@ -162,6 +162,9 @@ def compile_local_lookups(
         use_index, use_statement, subscription = use
         if use_index <= assignment_index:
             continue
+        # An inline lookup owns this statement's rewrite; the two plans overlap.
+        if find_inline_lookup(use_statement) is not None:
+            continue
         required.append(assignment_statement)
         if not enabled:
             continue

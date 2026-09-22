@@ -1,17 +1,19 @@
-"""Top-level LibCST transformer orchestration."""
+"""Plan independent conversions, then apply the selected replacements."""
 
-from itertools import combinations
-from typing import NamedTuple
+from dataclasses import dataclass
+from typing import NamedTuple, cast
 
 import libcst as cst
-from libcst.metadata import CodePosition, CodeRange, MetadataWrapper, PositionProvider
+from libcst.metadata import CodeRange, MetadataWrapper, PositionProvider
 
-from .assumptions import (
-    ALL_RISKY_ASSUMPTIONS,
-    AssumptionDiagnostic,
-    Assumptions,
-)
+from .assumptions import AssumptionDiagnostic, Assumptions
 from .compiler import IfChainCompiler
+from .conversion_filter import (
+    ConversionFilter,
+    ConversionFilterDiagnostic,
+    ConversionMetrics,
+    with_generated_metrics,
+)
 from .lookup_tables import (
     compile_inline_lookup,
     compile_local_lookups,
@@ -20,7 +22,6 @@ from .lookup_tables import (
 
 
 def _indent_snippet(code: str, indent: str) -> str:
-    """Re-apply the original leading indent stripped by LibCST rendering."""
     if not indent:
         return code
     return "".join(
@@ -30,272 +31,246 @@ def _indent_snippet(code: str, indent: str) -> str:
 
 
 class ChainPreview(NamedTuple):
-    """One conversion that can be shown as a standalone diff."""
-
     line: int
     column: int
     before: str
     after: str
     extra_assumptions: frozenset[str]
+    metrics: ConversionMetrics | None
 
 
-def find_required_assumptions(
-    node: cst.If,
-    *,
-    ignore_types_pattern: str | None,
-    assumptions: Assumptions,
-) -> frozenset[str]:
-    """Return the smallest extra assumption set that makes *node* convertible."""
-    missing = sorted(ALL_RISKY_ASSUMPTIONS - assumptions.names)
-    for size in range(1, len(missing) + 1):
-        for candidate in combinations(missing, size):
-            extra = Assumptions.from_names((*assumptions.names, *candidate))
-            compiler = IfChainCompiler(
-                ignore_types_pattern=ignore_types_pattern,
-                assumptions=extra,
+@dataclass(frozen=True)
+class ConversionCandidate:
+    original: cst.BaseStatement
+    replacement: cst.BaseStatement
+    required_assumptions: Assumptions
+    metrics: ConversionMetrics | None
+    position: CodeRange
+
+
+@dataclass
+class ConversionPlan:
+    """Candidates retain original node references for applying nested changes."""
+
+    module: cst.Module
+    source: str
+    candidates: list[ConversionCandidate]
+
+    def select(
+        self,
+        assumptions: Assumptions,
+        convert_if: str | ConversionFilter | None = None,
+        *,
+        include_gated: bool = False,
+        render_previews: bool = False,
+    ) -> "SelectedConversions":
+        conversion_filter = (
+            ConversionFilter.parse(convert_if)
+            if isinstance(convert_if, str)
+            else convert_if
+        )
+        replacements: dict[cst.CSTNode, cst.CSTNode] = {}
+        previews: list[ChainPreview] = []
+        diagnostics: list[AssumptionDiagnostic] = []
+        filter_diagnostics: list[ConversionFilterDiagnostic] = []
+        source_lines = self.source.splitlines(keepends=True) if render_previews else []
+        for candidate in self.candidates:
+            missing = candidate.required_assumptions.names - assumptions.names
+            position = candidate.position.start
+            if missing:
+                diagnostics.append(
+                    AssumptionDiagnostic(position.line, position.column, missing)
+                )
+                if not include_gated:
+                    continue
+            if conversion_filter is not None and candidate.metrics is not None:
+                try:
+                    matches = conversion_filter.matches(candidate.metrics)
+                except ArithmeticError:
+                    if missing:
+                        continue
+                    raise
+                if not matches:
+                    if not missing:
+                        filter_diagnostics.append(
+                            ConversionFilterDiagnostic(position.line, position.column)
+                        )
+                    continue
+            if not missing:
+                replacements[candidate.original] = candidate.replacement
+            if render_previews:
+                previews.append(self._preview(candidate, missing, source_lines))
+        return SelectedConversions(
+            self.module, replacements, previews, diagnostics, filter_diagnostics
+        )
+
+    def _preview(
+        self,
+        candidate: ConversionCandidate,
+        missing: frozenset[str],
+        source_lines: list[str],
+    ) -> ChainPreview:
+        position = candidate.position.start
+        indent = source_lines[position.line - 1][: position.column]
+        return ChainPreview(
+            position.line,
+            position.column,
+            _indent_snippet(
+                self.module.code_for_node(
+                    candidate.original.with_changes(leading_lines=())
+                ),
+                indent,
+            ),
+            _indent_snippet(
+                self.module.code_for_node(
+                    candidate.replacement.with_changes(leading_lines=())
+                ),
+                indent,
+            ),
+            missing,
+            candidate.metrics,
+        )
+
+
+@dataclass
+class SelectedConversions:
+    module: cst.Module
+    replacements: dict[cst.CSTNode, cst.CSTNode]
+    previews: list[ChainPreview]
+    diagnostics: list[AssumptionDiagnostic]
+    filter_diagnostics: list[ConversionFilterDiagnostic]
+
+    def apply(self) -> str:
+        return self.module.visit(_ApplyConversions(self.replacements)).code
+
+
+class _UpdatedChildren(cst.CSTTransformer):
+    def __init__(self, updated: dict[cst.CSTNode, cst.CSTNode]) -> None:
+        self.updated = updated
+
+    def on_visit(self, node: cst.CSTNode) -> bool:
+        return node not in self.updated
+
+    def on_leave(
+        self, original_node: cst.CSTNodeT, updated_node: cst.CSTNodeT
+    ) -> cst.CSTNodeT:
+        return cast(cst.CSTNodeT, self.updated.get(original_node, updated_node))
+
+
+class _ApplyConversions(cst.CSTTransformer):
+    def __init__(self, replacements: dict[cst.CSTNode, cst.CSTNode]) -> None:
+        self.replacements = replacements
+        self.updated: dict[cst.CSTNode, cst.CSTNode] = {}
+
+    def on_leave(
+        self, original_node: cst.CSTNodeT, updated_node: cst.CSTNodeT
+    ) -> cst.CSTNodeT:
+        replacement = self.replacements.get(original_node)
+        if replacement is not None:
+            # Reuse transformed descendants inside the independently compiled plan.
+            updated_node = cast(
+                cst.CSTNodeT, replacement.visit(_UpdatedChildren(self.updated))
             )
-            if compiler.extract_chain(node) is not None:
-                return frozenset(candidate)
-    return frozenset()
+        self.updated[original_node] = updated_node
+        return updated_node
+
+
+class _PlanVisitor(cst.CSTVisitor):
+    METADATA_DEPENDENCIES = (PositionProvider,)
+
+    def __init__(self, ignore_types_pattern: str | None) -> None:
+        self.compiler = IfChainCompiler(ignore_types_pattern=ignore_types_pattern)
+        self.elif_nodes: set[cst.If] = set()
+        self.candidates: list[ConversionCandidate] = []
+
+    def _append(
+        self,
+        node: cst.BaseStatement,
+        replacement: cst.BaseStatement,
+        required: Assumptions,
+        metrics: ConversionMetrics | None = None,
+    ) -> None:
+        position = self.get_metadata(PositionProvider, node)
+        self.candidates.append(
+            ConversionCandidate(node, replacement, required, metrics, position)
+        )
+
+    def visit_If(self, node: cst.If) -> bool:
+        if isinstance(node.orelse, cst.If):
+            self.elif_nodes.add(node.orelse)
+        if node in self.elif_nodes:
+            return True
+        chain = self.compiler.extract_chain(node)
+        if chain is not None:
+            replacement = self.compiler.compile(chain, tuple(node.leading_lines))
+            self._append(
+                node,
+                replacement,
+                chain.required_assumptions,
+                with_generated_metrics(chain.metrics, replacement),
+            )
+        return True
+
+    def visit_SimpleStatementLine(self, node: cst.SimpleStatementLine) -> bool:
+        candidate = find_inline_lookup(node)
+        if candidate is not None:
+            self._append(
+                node,
+                compile_inline_lookup(node, candidate),
+                Assumptions.LOOKUP_EQUALITY,
+            )
+        return False
+
+    def visit_FunctionDef(self, node: cst.FunctionDef) -> bool:
+        if isinstance(node.body, cst.IndentedBlock):
+            body, required = compile_local_lookups(node.body, enabled=True)
+            if required:
+                self._append(
+                    node, node.with_changes(body=body), Assumptions.LOOKUP_EQUALITY
+                )
+        return True
+
+
+def plan_conversions(
+    source: str, ignore_types_pattern: str | None = None
+) -> ConversionPlan:
+    wrapper = MetadataWrapper(cst.parse_module(source))
+    visitor = _PlanVisitor(ignore_types_pattern)
+    wrapper.visit(visitor)
+    return ConversionPlan(wrapper.module, source, visitor.candidates)
 
 
 class IfToMatchTransformer(cst.CSTTransformer):
-    """Generic guard-first if-chain transformer."""
-
-    METADATA_DEPENDENCIES = (PositionProvider,)
+    """Compatibility adapter for callers visiting a parsed module directly."""
 
     def __init__(
         self,
         ignore_types_pattern: str | None = r".*_TYPES$",
         *,
         assumptions: Assumptions | None = None,
-    ):
-        super().__init__()
-        resolved_assumptions = assumptions or Assumptions.from_names()
-        self.assumptions = resolved_assumptions
+        convert_if: str | ConversionFilter | None = None,
+    ) -> None:
         self.ignore_types_pattern = ignore_types_pattern
+        self.assumptions = assumptions or Assumptions.from_names()
+        self.convert_if = convert_if
         self.diagnostics: list[AssumptionDiagnostic] = []
-        self._elif_nodes: set[int] = set()
-        self.compiler = IfChainCompiler(
-            ignore_types_pattern=ignore_types_pattern,
-            assumptions=resolved_assumptions,
-        )
+        self.filter_diagnostics: list[ConversionFilterDiagnostic] = []
 
-    def visit_If(self, node: cst.If) -> bool:
-        """Track elif nodes so only the chain root performs replacement."""
-        if isinstance(node.orelse, cst.If):
-            self._elif_nodes.add(id(node.orelse))
-        return True
-
-    def leave_If(
-        self, original_node: cst.If, updated_node: cst.If
-    ) -> (
-        cst.BaseStatement | cst.FlattenSentinel[cst.BaseStatement] | cst.RemovalSentinel
-    ):
-        if id(original_node) in self._elif_nodes:
-            return updated_node
-
-        chain = self.compiler.extract_chain(updated_node)
-        if chain is None:
-            self._record_missing_assumption_diagnostic(original_node, updated_node)
-            return updated_node
-
-        match_stmt = self.compiler.compile(
-            chain, leading_lines=tuple(updated_node.leading_lines)
-        )
-        return match_stmt
-
-    def leave_SimpleStatementLine(
-        self,
-        original_node: cst.SimpleStatementLine,
-        updated_node: cst.SimpleStatementLine,
-    ) -> cst.BaseStatement:
-        candidate = find_inline_lookup(updated_node)
-        if candidate is None:
-            return updated_node
-        if Assumptions.LOOKUP_EQUALITY not in self.assumptions:
-            self._record_diagnostic(
-                original_node,
-                frozenset({Assumptions.LOOKUP_EQUALITY.assumption_name}),
-            )
-            return updated_node
-        return compile_inline_lookup(updated_node, candidate)
-
-    def leave_FunctionDef(
-        self, original_node: cst.FunctionDef, updated_node: cst.FunctionDef
-    ) -> cst.FunctionDef:
-        if not isinstance(updated_node.body, cst.IndentedBlock):
-            return updated_node
-        body, required = compile_local_lookups(
-            updated_node.body,
-            enabled=Assumptions.LOOKUP_EQUALITY in self.assumptions,
-        )
-        if required and Assumptions.LOOKUP_EQUALITY not in self.assumptions:
-            self._record_diagnostic(
-                original_node,
-                frozenset({Assumptions.LOOKUP_EQUALITY.assumption_name}),
-            )
-        return updated_node.with_changes(body=body)
-
-    def _record_missing_assumption_diagnostic(
-        self, original_node: cst.If, updated_node: cst.If
-    ) -> None:
-        required_assumptions = self._find_required_assumptions(updated_node)
-        if not required_assumptions:
-            return
-
-        self._record_diagnostic(original_node, required_assumptions)
-
-    def _record_diagnostic(
-        self, node: cst.CSTNode, assumptions: frozenset[str]
-    ) -> None:
-        position = self.get_metadata(
-            PositionProvider,
-            node,
-            CodeRange(
-                start=CodePosition(line=0, column=0),
-                end=CodePosition(line=0, column=0),
-            ),
-        )
-        self.diagnostics.append(
-            AssumptionDiagnostic(
-                line=position.start.line,
-                column=position.start.column,
-                assumptions=assumptions,
-            )
-        )
-
-    def _find_required_assumptions(self, node: cst.If) -> frozenset[str]:
-        return find_required_assumptions(
-            node,
-            ignore_types_pattern=self.ignore_types_pattern,
-            assumptions=self.assumptions,
-        )
-
-
-class _ChainPreviewVisitor(cst.CSTVisitor):
-    """Collect standalone before/after snippets for convertible if-chains and lookups."""
-
-    METADATA_DEPENDENCIES = (PositionProvider,)
-
-    def __init__(
-        self,
-        module: cst.Module,
-        source: str,
-        *,
-        ignore_types_pattern: str | None,
-        assumptions: Assumptions,
-    ) -> None:
-        super().__init__()
-        self._module = module
-        self._source_lines = source.splitlines(keepends=True)
-        self._ignore_types_pattern = ignore_types_pattern
-        self._assumptions = assumptions
-        self._elif_nodes: set[int] = set()
-        self._compiler = IfChainCompiler(
-            ignore_types_pattern=ignore_types_pattern,
-            assumptions=assumptions,
-        )
-        self.previews: list[ChainPreview] = []
-
-    def visit_If(self, node: cst.If) -> bool:
-        if isinstance(node.orelse, cst.If):
-            self._elif_nodes.add(id(node.orelse))
-        if id(node) in self._elif_nodes:
-            return True
-
-        compiler = self._compiler
-        extra_assumptions: frozenset[str] = frozenset()
-        chain = compiler.extract_chain(node)
-        if chain is None:
-            extra_assumptions = find_required_assumptions(
-                node,
-                ignore_types_pattern=self._ignore_types_pattern,
-                assumptions=self._assumptions,
-            )
-            if not extra_assumptions:
-                return True
-            compiler = IfChainCompiler(
-                ignore_types_pattern=self._ignore_types_pattern,
-                assumptions=Assumptions.from_names(
-                    (*self._assumptions.names, *extra_assumptions)
-                ),
-            )
-            chain = compiler.extract_chain(node)
-            if chain is None:  # pragma: no cover
-                return True
-
-        match_stmt = compiler.compile(chain, leading_lines=())
-        self._append_preview(
-            node,
-            node.with_changes(leading_lines=()),
-            match_stmt,
-            extra_assumptions,
-        )
-        return True
-
-    def visit_SimpleStatementLine(self, node: cst.SimpleStatementLine) -> bool:
-        candidate = find_inline_lookup(node)
-        if candidate is None:
-            return False
-        match_stmt = compile_inline_lookup(node, candidate)
-        self._append_preview(
-            node,
-            node.with_changes(leading_lines=()),
-            match_stmt.with_changes(leading_lines=()),
-            self._lookup_extra_assumptions(),
-        )
+    def visit_Module(self, node: cst.Module) -> bool:
         return False
 
-    def visit_FunctionDef(self, node: cst.FunctionDef) -> bool:
-        if not isinstance(node.body, cst.IndentedBlock):
-            return True
-        compiled, required = compile_local_lookups(node.body, enabled=True)
-        if required:
-            self._append_preview(
-                node,
-                node.with_changes(leading_lines=()),
-                node.with_changes(body=compiled, leading_lines=()),
-                self._lookup_extra_assumptions(),
-            )
-        return True
-
-    def _lookup_extra_assumptions(self) -> frozenset[str]:
-        if Assumptions.LOOKUP_EQUALITY in self._assumptions:
-            return frozenset()
-        return frozenset({Assumptions.LOOKUP_EQUALITY.assumption_name})
-
-    def _append_preview(
-        self,
-        node: cst.CSTNode,
-        before: cst.CSTNode,
-        after: cst.CSTNode,
-        extra_assumptions: frozenset[str],
-    ) -> None:
-        position = self.get_metadata(
-            PositionProvider,
-            node,
-            CodeRange(
-                start=CodePosition(line=0, column=0),
-                end=CodePosition(line=0, column=0),
-            ),
-        )
-        indent = self._indent_for(position)
-        self.previews.append(
-            ChainPreview(
-                line=position.start.line,
-                column=position.start.column,
-                before=_indent_snippet(self._module.code_for_node(before), indent),
-                after=_indent_snippet(self._module.code_for_node(after), indent),
-                extra_assumptions=extra_assumptions,
-            )
-        )
-
-    def _indent_for(self, position: CodeRange) -> str:
-        if position.start.line <= 0 or position.start.line > len(self._source_lines):
-            return ""
-        line = self._source_lines[position.start.line - 1]
-        return line[: position.start.column]
+    def leave_Module(
+        self, original_node: cst.Module, updated_node: cst.Module
+    ) -> cst.Module:
+        wrapper = MetadataWrapper(original_node)
+        visitor = _PlanVisitor(self.ignore_types_pattern)
+        wrapper.visit(visitor)
+        selected = ConversionPlan(
+            wrapper.module, original_node.code, visitor.candidates
+        ).select(self.assumptions, self.convert_if)
+        self.diagnostics = selected.diagnostics
+        self.filter_diagnostics = selected.filter_diagnostics
+        return selected.module.visit(_ApplyConversions(selected.replacements))
 
 
 def collect_chain_previews(
@@ -304,19 +279,18 @@ def collect_chain_previews(
     ignore_types_pattern: str | None = None,
     assumptions: Assumptions | None = None,
     include_gated: bool = False,
+    convert_if: str | ConversionFilter | None = None,
+    filter_diagnostics: list[ConversionFilterDiagnostic] | None = None,
 ) -> list[ChainPreview]:
-    """Return per-conversion snippets for preview diffs."""
-    module = cst.parse_module(source)
-    visitor = _ChainPreviewVisitor(
-        module,
-        source,
-        ignore_types_pattern=ignore_types_pattern,
-        assumptions=assumptions or Assumptions.from_names(),
+    selected = plan_conversions(source, ignore_types_pattern).select(
+        assumptions or Assumptions.from_names(),
+        convert_if,
+        include_gated=include_gated,
+        render_previews=True,
     )
-    MetadataWrapper(module).visit(visitor)
-    if include_gated:
-        return visitor.previews
-    return [preview for preview in visitor.previews if not preview.extra_assumptions]
+    if filter_diagnostics is not None:
+        filter_diagnostics.extend(selected.filter_diagnostics)
+    return selected.previews
 
 
 def transform_code(
@@ -325,26 +299,15 @@ def transform_code(
     *,
     assumptions: Assumptions | None = None,
     diagnostics: list[AssumptionDiagnostic] | None = None,
+    convert_if: str | ConversionFilter | None = None,
+    filter_diagnostics: list[ConversionFilterDiagnostic] | None = None,
 ) -> str:
-    """Transform Python source code by converting if/elif/else chains to match statements.
-
-    Args:
-        source: Python source code as a string
-        ignore_types_pattern: Optional regex pattern for isinstance type variables to ignore
-        assumptions: Enabled risky transformation assumptions
-        diagnostics: Optional list populated with skipped assumption-only conversions
-
-    Returns:
-        Transformed source code as a string
-    """
-    module = cst.parse_module(source)
-
-    transformer = IfToMatchTransformer(
-        ignore_types_pattern=ignore_types_pattern,
-        assumptions=assumptions,
+    """Apply the fixed candidates authorized by assumptions and the filter."""
+    selected = plan_conversions(source, ignore_types_pattern).select(
+        assumptions or Assumptions.from_names(), convert_if
     )
-    transformed = MetadataWrapper(module).visit(transformer)
     if diagnostics is not None:
-        diagnostics.extend(transformer.diagnostics)
-
-    return transformed.code
+        diagnostics.extend(selected.diagnostics)
+    if filter_diagnostics is not None:
+        filter_diagnostics.extend(selected.filter_diagnostics)
+    return selected.apply()

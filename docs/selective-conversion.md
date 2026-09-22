@@ -1,0 +1,560 @@
+# Selective conversion
+
+Some projects prefer `match` statements only when a conversion is sufficiently
+complex or removes enough repetition. `--convert-if` filters otherwise eligible
+`if`/`elif` conversions using metrics from the source chain and the proposed
+generated result. Without an explicit option, Matchify uses this filter and
+therefore converts every eligible chain:
+
+```text
+True
+```
+
+Use `--convert-if` to restrict conversions to chains that meet a
+project-specific threshold. Use `--convert-if True` if you want the default
+behavior spelled out explicitly.
+
+For example, convert chains that contain at least two `isinstance` checks or at
+least four branches:
+
+```bash
+matchify path/to/project/ --convert-if "isinstance_checks >= 2 or branches >= 4"
+```
+
+Lookup-table conversions are not affected by this option. Matchify plans one
+candidate per chain, then checks its required [`--assume` options](assumptions.md)
+and evaluates the filter against that candidate's metrics.
+
+`--show` and `--show-all` print the computed metric variables next to each
+previewed `if`/`elif` conversion so you can turn a shown conversion directly
+into a `--convert-if` expression.
+
+Each preview shows only that candidate's rewrite. Nested conversions have their
+own previews; writing applies all selected candidates together. Previewing and
+writing reuse the same plan without parsing or compiling candidates again.
+
+## Expression syntax
+
+Expressions support:
+
+- integer constants and the boolean constants `True` and `False`;
+- parentheses;
+- arithmetic with `+`, `-`, `*`, and `/`;
+- `and`, `or`, and `not`;
+- `<`, `<=`, `==`, `!=`, `>=`, and `>`.
+
+Metric values use normal integer truthiness: zero is false and a nonzero value
+is true. For example, this converts chains with at least three branches only
+when no conditions remain in guards:
+
+```bash
+matchify path/to/project/ --convert-if "branches >= 3 and not guard_conditions"
+```
+
+`--convert-if` may be specified only once. Combine multiple criteria in one
+expression with `and` and `or`.
+
+Arithmetic uses normal Python precedence and `/` performs true division.
+Expressions are validated against a restricted syntax tree before being compiled
+and evaluated with `eval()`, with only metric values and no builtins available.
+Boolean operators preserve Python's operand values and short-circuit behavior.
+Function calls, attribute access, subscripts, other arithmetic
+operators, strings, and unknown variables are rejected before any files are
+processed.
+
+## Useful filters to try
+
+There is no universally best filter: the useful threshold depends on how often
+your project wants to use `match`. These expressions are practical starting
+points.
+
+Convert only chains with at least three branches:
+
+```bash
+matchify path/to/project/ --convert-if "branches >= 3"
+```
+
+Prefer conversions that produce repeated class or sequence structure:
+
+```bash
+matchify path/to/project/ \
+  --convert-if "class_patterns >= 2 or sequence_patterns >= 2"
+```
+
+Require the generated patterns to remove more structure than remains in
+guards:
+
+```bash
+matchify path/to/project/ \
+  --convert-if "pattern_nodes - guard_conditions >= 4"
+```
+
+Avoid conversions that retain any guards:
+
+```bash
+matchify path/to/project/ --convert-if "guarded_cases == 0"
+```
+
+Prefer conversions that combine several alternatives into OR patterns:
+
+```bash
+matchify path/to/project/ --convert-if "or_alternatives >= 3"
+```
+
+Limit generated nesting while still requiring multiple meaningful cases:
+
+```bash
+matchify path/to/project/ \
+  --convert-if "patterns >= 2 and max_pattern_depth <= 3"
+```
+
+Focus on conversions that bind values directly through capture patterns:
+
+```bash
+matchify path/to/project/ --convert-if "captures > 0"
+```
+
+Rules can be combined to express a project-specific style. For example, this
+accepts larger flat chains as well as compact class-pattern conversions, but
+rejects cases with guards:
+
+```bash
+matchify path/to/project/ \
+  --convert-if "guarded_cases == 0 and (branches >= 4 or class_patterns >= 2)"
+```
+
+## Source metrics
+
+These values describe the original `if`/`elif` chain:
+
+### `branches`
+
+The number of `if`/`elif` branches, excluding `else`. This example has
+`branches == 3`:
+
+``` python
+# Before
+if status == 200:
+    handle_success()
+elif status == 404:
+    handle_missing()
+elif status == 500:
+    handle_error()
+else:
+    handle_other()
+
+# After: matchify --convert-if "branches == 3"
+match status:
+    case 200:
+        handle_success()
+    case 404:
+        handle_missing()
+    case 500:
+        handle_error()
+    case _:
+        handle_other()
+```
+
+### `isinstance_checks`
+
+The number of recognized `isinstance(...)` checks. Each call counts once,
+even when its class information contains multiple types. This example has
+`isinstance_checks == 2`:
+
+```python
+# Before
+if isinstance(value, str):
+    handle_text()
+elif isinstance(value, (int, float)):
+    handle_number()
+
+# After: matchify --convert-if "isinstance_checks == 2"
+match value:
+    case str():
+        handle_text()
+    case int() | float():
+        handle_number()
+```
+
+### `literal_checks`
+
+The number of recognized literal or singleton alternatives. Every value in a
+recognized membership test counts separately. This example has
+`literal_checks == 3`:
+
+```python
+# Before
+if command in ("start", "run"):
+    launch()
+elif command == "stop":
+    stop()
+
+# After: matchify --convert-if "literal_checks == 3"
+match command:
+    case "start" | "run":
+        launch()
+    case "stop":
+        stop()
+```
+
+### `attribute_checks`
+
+The number of recognized conditions whose subject path inspects at least one
+attribute. It counts conditions, not individual dots in a path. This example
+has `attribute_checks == 2`:
+
+```python
+# Before
+if isinstance(node, Point) and node.x == 1:
+    handle_one()
+elif isinstance(node, Point) and node.x == 2:
+    handle_two()
+
+# After: matchify --convert-if "attribute_checks == 2"
+match node:
+    case Point(x=1):
+        handle_one()
+    case Point(x=2):
+        handle_two()
+```
+
+### `sequence_checks`
+
+The number of recognized sequence length checks. This example has
+`sequence_checks == 2` because each branch contains one `len(data) == 2`
+condition:
+
+```python
+# Before
+if len(data) == 2 and data[0] == "x":
+    handle_x()
+elif len(data) == 2 and data[0] == "y":
+    handle_y()
+
+# After: matchify --convert-if "sequence_checks == 2"
+match data:
+    case "x", _:
+        handle_x()
+    case "y", _:
+        handle_y()
+```
+
+### `max_depth`
+
+The greatest attribute/subscript depth of any recognized check. A direct name
+has depth 0; each attribute or subscript adds one. This example has
+`max_depth == 2` because `node.position.x` is two levels below `node`:
+
+```python
+# Before
+if (
+    isinstance(node, Point)
+    and isinstance(node.position, Position)
+    and node.position.x == 1
+):
+    handle_one()
+elif (
+    isinstance(node, Point)
+    and isinstance(node.position, Position)
+    and node.position.x == 2
+):
+    handle_two()
+
+# After: matchify --convert-if "max_depth == 2"
+match node:
+    case Point(position=Position(x=1)):
+        handle_one()
+    case Point(position=Position(x=2)):
+        handle_two()
+```
+
+## Generated-result metrics
+
+These values describe the proposed `match` statement after Matchify has
+compiled it:
+
+### `patterns`
+
+The number of generated cases with a structural pattern. A wildcard `case _`
+does not count. This example has `patterns == 2`:
+
+```python
+# Before
+if value == 1:
+    handle_one()
+elif value == 2:
+    handle_two()
+else:
+    handle_other()
+
+# After: matchify --convert-if "patterns == 2"
+match value:
+    case 1:
+        handle_one()
+    case 2:
+        handle_two()
+    case _:
+        handle_other()
+```
+
+### `pattern_nodes`
+
+The total number of generated pattern nodes, including nested patterns,
+captures, and wildcards. Starred sequence elements and mapping-rest bindings do
+not count because they are not pattern nodes. This example has
+`pattern_nodes == 3`:
+
+```python
+# Before
+if value == 1:
+    handle_one()
+elif value == 2:
+    handle_two()
+else:
+    handle_other()
+
+# After: matchify --convert-if "pattern_nodes == 3"
+match value:
+    case 1:
+        handle_one()
+    case 2:
+        handle_two()
+    case _:
+        handle_other()
+```
+
+### `value_patterns`
+
+The number of generated qualified value patterns such as `Kind.READY`,
+including those inside OR or nested patterns. Each occurrence
+counts once, regardless of how many dots the name contains. Literals,
+singletons, captures, class names in class patterns, and guard expressions do
+not count. This example has `value_patterns == 1`:
+
+```python
+# Before
+if value == Kind.READY:
+    handle_selected()
+elif value == 0:
+    handle_zero()
+
+# After: matchify --convert-if "value_patterns == 1"
+match value:
+    case Kind.READY:
+        handle_selected()
+    case 0:
+        handle_zero()
+```
+
+Use `--convert-if "value_patterns > 0"` to select chains that produce these
+patterns, or `--convert-if "value_patterns == 0"` to exclude them.
+
+### `self_value_patterns`
+
+The number of qualified value patterns rooted at the name `self`. Both
+`self.val` and `self.settings.val` count; `other.val`, `other.self.val`, and
+`selfish.val` do not. This is a syntactic check of the name, without inferring
+receiver aliases. Class names and guard expressions do not count.
+
+This metric is a subset of `value_patterns`, so
+`value_patterns - self_value_patterns` counts qualified value patterns rooted
+at other names. This example has `self_value_patterns == 1` and
+`value_patterns == 2`:
+
+```python
+# Before
+if value == self.val:
+    handle_self()
+elif value == other.val:
+    handle_other()
+
+# After: matchify --convert-if "self_value_patterns == 1"
+match value:
+    case self.val:
+        handle_self()
+    case other.val:
+        handle_other()
+```
+
+### `class_patterns`
+
+The number of generated class pattern nodes, including nested ones. This
+example has `class_patterns == 2`:
+
+```python
+# Before
+if isinstance(value, str):
+    handle_text()
+elif isinstance(value, int):
+    handle_number()
+
+# After: matchify --convert-if "class_patterns == 2"
+match value:
+    case str():
+        handle_text()
+    case int():
+        handle_number()
+```
+
+### `sequence_patterns`
+
+The number of generated list, tuple, or open sequence pattern nodes, including
+nested sequences. This example has `sequence_patterns == 2`:
+
+```python
+# Before
+if len(data) == 2 and data[0] == "x":
+    handle_x()
+elif len(data) == 2 and data[0] == "y":
+    handle_y()
+
+# After: matchify --convert-if "sequence_patterns == 2"
+match data:
+    case "x", _:
+        handle_x()
+    case "y", _:
+        handle_y()
+```
+
+### `or_alternatives`
+
+The total number of direct alternatives across all generated OR patterns.
+Nested OR patterns contribute their alternatives separately. This example has
+`or_alternatives == 3`:
+
+```python
+# Before
+if value in (1, 2, 3):
+    handle_small()
+elif value == 4:
+    handle_four()
+
+# After: matchify --convert-if "or_alternatives == 3"
+match value:
+    case 1 | 2 | 3:
+        handle_small()
+    case 4:
+        handle_four()
+```
+
+### `max_pattern_depth`
+
+The greatest structural nesting depth in any generated case pattern. A simple
+value, singleton, capture, or class pattern has depth 1. Each enclosing class,
+sequence, mapping, OR, or `as` pattern adds one level. A wildcard `case _` has
+depth 0. This example has `max_pattern_depth == 3`:
+
+```python
+# Before
+if (
+    isinstance(node, Point)
+    and isinstance(node.position, Position)
+    and node.position.x == 1
+):
+    handle_one()
+elif (
+    isinstance(node, Point)
+    and isinstance(node.position, Position)
+    and node.position.x == 2
+):
+    handle_two()
+
+# After: matchify --convert-if "max_pattern_depth == 3"
+match node:
+    case Point(position=Position(x=1)):
+        handle_one()
+    case Point(position=Position(x=2)):
+        handle_two()
+```
+
+### `guarded_cases`
+
+The number of generated cases that have a guard, regardless of how many
+conditions each guard contains. This example has `guarded_cases == 2`:
+
+```python
+# Before
+if value == 1 and enabled and ready:
+    handle_one()
+elif value == 2 and enabled and ready:
+    handle_two()
+
+# After: matchify --convert-if "guarded_cases == 2"
+match value:
+    case 1 if enabled and ready:
+        handle_one()
+    case 2 if enabled and ready:
+        handle_two()
+```
+
+### `guard_conditions`
+
+The number of individual conditions retained in generated guards. Conditions
+joined with `and` count separately. This example has `guard_conditions == 4`:
+
+```python
+# Before
+if value == 1 and enabled and ready:
+    handle_one()
+elif value == 2 and enabled and ready:
+    handle_two()
+
+# After: matchify --convert-if "guard_conditions == 4"
+match value:
+    case 1 if enabled and ready:
+        handle_one()
+    case 2 if enabled and ready:
+        handle_two()
+```
+
+### `captures`
+
+The number of names bound by generated capture patterns. This example has
+`captures == 2`, one generated capture in each case:
+
+```python
+# Before
+if len(data) == 2 and data[0] == "x":
+    result = data[1]
+    print(result)
+elif len(data) == 2 and data[0] == "y":
+    result = data[1]
+    print(result)
+
+# After: matchify --convert-if "captures == 2"
+match data:
+    case "x", result:
+        print(result)
+    case "y", result:
+        print(result)
+```
+
+This distinction makes it possible to filter using both the shape of the input
+and the readability of the result:
+
+```bash
+matchify path/to/project/ \
+  --convert-if "branches >= 3 and patterns >= 2 and guard_conditions <= 1"
+```
+
+## Rejected conversions
+
+When an otherwise valid conversion does not match the expression, Matchify
+leaves that chain unchanged. Rejections are silent by default. Use `--verbose`
+to report their source locations:
+
+```bash
+matchify path/to/project/ --verbose --convert-if "branches >= 4"
+```
+
+## Interaction with assumptions
+
+The candidate and its metrics are independent of `--safe`, `--risky`, and
+`--assume`. These options only determine whether its required assumptions are
+enabled. Missing assumptions leave the chain unchanged; Matchify does not choose
+a different subject or retain extra guards to make it eligible.
+
+The filter is a stylistic preference; it does not enable a conversion whose
+required assumptions are missing. `--show-all` also evaluates the filter for
+hypothetical candidates. Arithmetic errors in those gated candidates do not
+prevent eligible conversions from being previewed or applied.

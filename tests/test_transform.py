@@ -64,27 +64,10 @@ class TestTransformCode:
             """
         ).strip()
 
-        expected_without_flag = dedent(
-            """
-            class Box:
-                def __init__(self, x=None, y=None):
-                    self.x = x
-                    self.y = y
-
-            a = Box(x=1)
-            b = Box(y=2)
-            match a.x:
-                case 1 if b.y == 2:
-                    print("first")
-                case 3 if b.y == 4:
-                    print("second")
-            """
-        ).strip()
-
-        check_code(source, expected_without_flag)
+        check_code(source, source)
         check_code(
             source,
-            expected_without_flag,
+            source,
             assumptions=Assumptions.from_names({"use-object"}),
         )
 
@@ -880,15 +863,15 @@ class TestTransformCode:
         """
         ).strip()
 
-        check_code(source, expected_safe)
+        check_code(source, source)
         check_code(
             source,
-            expected_safe,
+            source,
             assumptions=Assumptions.from_names({"list-sequence-pattern"}),
         )
         check_code(
             source,
-            expected_safe,
+            source,
             assumptions=Assumptions.from_names({"tuple-sequence-pattern"}),
         )
         check_code(
@@ -3457,7 +3440,7 @@ class TestTransformCode:
         """
         ).strip()
 
-        check_code(source, expected_safe)
+        check_code(source, source)
         check_code(
             source,
             expected_safe.replace(
@@ -3533,7 +3516,7 @@ class TestTransformCode:
         """
         ).strip()
 
-        check_code(source, expected_safe)
+        check_code(source, source)
         check_code(
             source,
             expected_safe.replace(

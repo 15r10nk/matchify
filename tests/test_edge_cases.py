@@ -103,7 +103,7 @@ class TestEdgeCases:
 
         check_code(source, source)
 
-    def test_multiple_subjects_preserve_short_circuiting_in_guards(self):
+    def test_multiple_subjects_wait_for_pure_subjects_assumption(self):
         source = dedent(
             """
             if a.x == 1 and b.y == 2:
@@ -113,17 +113,7 @@ class TestEdgeCases:
             """
         ).strip()
 
-        expected = dedent(
-            """
-            match a.x:
-                case 1 if b.y == 2:
-                    print("first")
-                case 3 if b.y == 4:
-                    print("second")
-            """
-        ).strip()
-
-        check_code(source, expected)
+        check_code(source, source)
 
     def test_inconsistent_tuple_subject_order_is_not_converted(self):
         source = dedent(
