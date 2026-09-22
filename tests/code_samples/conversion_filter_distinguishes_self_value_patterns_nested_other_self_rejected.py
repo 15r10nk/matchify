@@ -1,7 +1,8 @@
 # before:
 from types import SimpleNamespace
 
-other = SimpleNamespace(val=2, self=SimpleNamespace(val=2))
+other = SimpleNamespace(val=2)
+other.self = SimpleNamespace(val=2)
 
 def first():
     print("first")
@@ -20,7 +21,8 @@ for value in (2, 0, 1):
 # after:
 from types import SimpleNamespace
 
-other = SimpleNamespace(val=2, self=SimpleNamespace(val=2))
+other = SimpleNamespace(val=2)
+other.self = SimpleNamespace(val=2)
 
 def first():
     print("first")

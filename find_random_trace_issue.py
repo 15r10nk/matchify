@@ -451,11 +451,11 @@ def collect_capture_assignments(
         return lines
     if isinstance(pattern, GappedSequencePattern):
         lines = []
-        for index, element in enumerate(pattern.elements):
-            if element is not None:
+        for index, optional_element in enumerate(pattern.elements):
+            if optional_element is not None:
                 lines.extend(
                     collect_capture_assignments(
-                        element, f"{subject}[{index}]", case_index, names
+                        optional_element, f"{subject}[{index}]", case_index, names
                     )
                 )
         return lines
@@ -470,11 +470,11 @@ def collect_capture_assignments(
         return lines
     if isinstance(pattern, GappedStarSequencePattern):
         lines = []
-        for index, element in enumerate(pattern.elements):
-            if element is not None:
+        for index, optional_element in enumerate(pattern.elements):
+            if optional_element is not None:
                 lines.extend(
                     collect_capture_assignments(
-                        element, f"{subject}[{index}]", case_index, names
+                        optional_element, f"{subject}[{index}]", case_index, names
                     )
                 )
         return lines
@@ -492,7 +492,7 @@ def capture_signature(pattern: GeneratedPattern) -> CaptureSignature:
     if isinstance(pattern, GuardedPattern):
         return capture_signature(pattern.pattern)
     if isinstance(pattern, (ClassPattern, ClassUnionPattern)):
-        signatures = []
+        signatures: list[tuple[tuple[str, ...], tuple[int, ...]]] = []
         for attr, attr_pattern in sorted(pattern.attrs, key=class_attr_sort_key):
             signatures.extend(
                 ((attr, *path), indices)
@@ -702,7 +702,7 @@ def class_value_codes_from_expansion(
             for values in product(*(values for _, values in attr_options))
         ]
 
-    attr_values = []
+    attr_values: list[str] = []
     for index, (attr, pattern) in enumerate(sorted(attrs, key=class_attr_sort_key)):
         values = expand_pattern(pattern)
         if values and (expand_single_value or len(values) > 1):
@@ -1788,7 +1788,7 @@ def generate_sequence_element_class_union_pattern(
     rng: random.Random, classes: tuple[str, ...]
 ) -> ClassUnionPattern:
     class_names = tuple(rng.sample(classes, rng.randint(2, len(classes))))
-    attrs = ()
+    attrs: tuple[tuple[str, GeneratedPattern], ...] = ()
     if rng.choice([True, False]):
         attrs = ((rng.choice(["x", "y", "kind"]), generate_literal_or_singleton(rng)),)
     return ClassUnionPattern(class_names, attrs)

@@ -54,6 +54,10 @@ target-version = ["py311"]
 [tool.isort]
 profile = "black"
 
+[tool.mypy]
+# These fixtures contain separate before/after programs, not importable modules.
+exclude = ['^tests/code_samples/']
+
 [tool.commitizen]
 major_version_zero = true
 tag_format = "v$major.$minor.$patch$prerelease"

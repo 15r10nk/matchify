@@ -5,7 +5,8 @@ class Thing:
     pass
 
 self = SimpleNamespace(val=1, settings=SimpleNamespace(val=1), other=2, Kind=Thing)
-other = SimpleNamespace(val=2, self=SimpleNamespace(val=2))
+other = SimpleNamespace(val=2)
+other.self = SimpleNamespace(val=2)
 value = 1
 
 def first():
@@ -26,7 +27,8 @@ class Thing:
     pass
 
 self = SimpleNamespace(val=1, settings=SimpleNamespace(val=1), other=2, Kind=Thing)
-other = SimpleNamespace(val=2, self=SimpleNamespace(val=2))
+other = SimpleNamespace(val=2)
+other.self = SimpleNamespace(val=2)
 value = 1
 
 def first():
