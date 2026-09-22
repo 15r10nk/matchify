@@ -267,3 +267,29 @@ def test_public_transformer_adapter_uses_fixed_candidates():
         "match (a, b):"
         in module.visit(IfToMatchTransformer(assumptions=Assumptions.risky())).code
     )
+
+
+def test_preview_filter_diagnostics_only_include_eligible_candidates():
+    source = dedent(
+        """\
+        if value == 1:
+            first()
+        elif value == 2:
+            second()
+        if value.x == 1:
+            first()
+        elif value.y == 2:
+            second()
+        """
+    )
+    diagnostics = []
+
+    previews = collect_chain_previews(
+        source,
+        include_gated=True,
+        convert_if="False",
+        filter_diagnostics=diagnostics,
+    )
+
+    assert previews == []
+    assert [(item.line, item.column) for item in diagnostics] == [(1, 0)]

@@ -10,9 +10,16 @@ import pytest
 from rich.console import Console
 
 from matchify.assumptions import Assumptions
-from matchify.cli import convert_file, convert_files, main
+from matchify.cli import (
+    _emit_previews,
+    convert_file,
+    convert_files,
+    main,
+    preview_files,
+)
+from matchify.conversion_filter import ConversionMetrics
 from matchify.diff import print_location_heading, print_preview_metadata, report_diff
-from matchify.transform import collect_chain_previews
+from matchify.transform import ChainPreview, collect_chain_previews
 
 
 class TestConvertFile:
@@ -438,8 +445,9 @@ class TestMain:
         assert "Wrote changes" not in output
         assert "1 would convert" in output
 
-    def test_main_interactive_write_pass_reports_errors(
-        self, capsys, tmp_path, monkeypatch
+    @pytest.mark.parametrize("flags", [[], ["--write"], ["--show", "--write"]])
+    def test_main_write_failure_reports_errors(
+        self, capsys, tmp_path, monkeypatch, flags
     ):
         test_file = tmp_path / "test.py"
         source = "if x == 1:\n    pass\nelif x == 2:\n    pass\n"
@@ -454,7 +462,7 @@ class TestMain:
 
         original_argv = sys.argv
         try:
-            sys.argv = ["matchify", "--write", str(test_file)]
+            sys.argv = ["matchify", *flags, str(test_file)]
             with pytest.raises(SystemExit) as exc_info:
                 main()
         finally:
@@ -1990,3 +1998,41 @@ class TestCliOptionsAndErrors:
                 assert "1 errors" in captured.out or "error" in captured.out.lower()
             finally:
                 sys.argv = original_argv
+
+
+def test_preview_files_can_suppress_parse_errors(tmp_path, capsys):
+    path = tmp_path / "broken.py"
+    source = "if x == :\n    pass\n"
+    path.write_text(source, encoding="utf-8")
+
+    result = preview_files(
+        [path],
+        ignore_types_pattern=None,
+        assumptions=Assumptions.safe(),
+        show_all=False,
+        jobs=1,
+        report_errors=False,
+        report_assumption_diagnostics=False,
+    )
+
+    assert result == (0, 0, 0, 0, [])
+    assert capsys.readouterr().out == ""
+    assert path.read_text(encoding="utf-8") == source
+
+
+def test_preview_omits_empty_metrics(tmp_path, capsys):
+    preview = ChainPreview(
+        line=1,
+        column=0,
+        before="before\n",
+        after="after\n",
+        extra_assumptions=frozenset(),
+        metrics=ConversionMetrics(),
+    )
+
+    _emit_previews(tmp_path / "example.py", [preview])
+
+    output = capsys.readouterr().out
+    assert "before" in output
+    assert "after" in output
+    assert "metrics:" not in output
