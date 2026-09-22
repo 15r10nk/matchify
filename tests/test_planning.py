@@ -61,6 +61,44 @@ def test_assumptions_gate_one_fixed_candidate(condition, other, required):
     )
 
 
+@pytest.mark.parametrize("assumptions", [None, Assumptions.USE_OBJECT])
+def test_shared_short_circuited_subject_requires_pure_subjects(assumptions):
+    source = dedent(
+        """\
+        a = c = 0
+        if a == 1 and b == 2:
+            result = "first"
+        elif c == 3 and b == 4:
+            result = "second"
+        else:
+            result = "other"
+        """
+    )
+    diagnostics = []
+    transformed = transform_code(
+        source, assumptions=assumptions, diagnostics=diagnostics
+    )
+    original_namespace = {}
+    transformed_namespace = {}
+    exec(source, original_namespace)
+    exec(transformed, transformed_namespace)
+
+    assert transformed_namespace["result"] == original_namespace["result"] == "other"
+    assert transformed == source
+    assert diagnostics[0].assumptions == frozenset({"pure-subjects"})
+
+    plan = plan_conversions(source)
+    preview = plan.select(
+        Assumptions.safe(), include_gated=True, render_previews=True
+    ).previews[0]
+    enabled = plan.select(Assumptions.PURE_SUBJECTS, render_previews=True)
+    assert enabled.previews[0].after == preview.after
+    assert "match b:" in enabled.apply()
+    namespace = {"b": 2}
+    exec(enabled.apply(), namespace)
+    assert namespace["result"] == "other"
+
+
 def test_planned_nested_conversions_keep_captures_aliases_and_independent_previews():
     source = dedent(
         """\

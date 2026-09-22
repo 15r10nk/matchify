@@ -156,8 +156,13 @@ class IfChainCompiler:
         aligned = MatchSubjectPlan.from_aligned_candidates(
             tuple((paths[0],) for paths in concrete)
         )
-        shared = MatchSubjectPlan.from_shared_candidates(concrete)
-        if subject.is_composite or (subject != aligned and subject != shared):
+        # Structural parent patterns may use the existing subject's prefix, but
+        # selecting an independent subject requires permission for eager reads.
+        if (
+            subject.is_composite
+            or aligned is None
+            or not aligned.subjects[0].starts_with(subject.subjects[0])
+        ):
             return Assumptions.PURE_SUBJECTS
         return Assumptions.NONE
 
