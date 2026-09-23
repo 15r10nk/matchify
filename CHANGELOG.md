@@ -2,6 +2,33 @@
 
 <!-- scriv-insert-here -->
 
+<a id='changelog-0.3.0'></a>
+# 0.3.0 — 2026-09-23
+
+## Added
+
+- Added `--show` and `--show-all` to print one diff per conversion, including
+  dictionary lookup rewrites. `--show-all` also previews conversions that need a
+  missing `--assume` value.
+
+- Added `--convert-if EXPRESSION` to select eligible `if`/`elif` conversions
+  using source and generated-pattern metrics, for example
+  `--convert-if "branches >= 4 and guard_conditions == 0"`. The default is
+  `True`, which selects every eligible chain. Dictionary lookup conversions
+  are unaffected by this filter.
+- Conversion previews now display metrics for use in `--convert-if`
+  expressions, including branch, pattern, guard, capture, and qualified-value
+  counts.
+
+## Changed
+
+- **Breaking:** `--write` is now required to modify files. `--check` is a dry
+  run that implies `--show` and exits with 1 if any file would change. Explicit
+  `--show` / `--show-all` without `--write` are preview-only and still exit 0
+  when conversions are available. In a TTY, omitting `--write`, `--check`, and
+  the show flags still previews diffs and asks before writing. In a
+  non-interactive shell, pass `--write`, `--check`, or `--show` explicitly.
+
 <a id='changelog-0.2.0'></a>
 # 0.2.0 — 2026-08-08
 
