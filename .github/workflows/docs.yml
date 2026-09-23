@@ -19,7 +19,7 @@ jobs:
         branch: docs-mutex
 
     - run: pip install hatch
-    - run: hatch version | sed -rne "s:([0-9]*)\.([0-9]*)\..*:PROJECT_VERSION=\1.\2:p" >> ${GITHUB_ENV}
+    - run: hatch version | sed -rne "s:([0-9]*)\.([0-9]*)\..*:PROJECT_VERSION=\1.\2:p" >> "${GITHUB_ENV}"
     - name: publish docs
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -27,4 +27,4 @@ jobs:
         git config user.name "Frank Hoffmann"
         git config user.email "15r10nk@users.noreply.github.com"
         git fetch origin gh-pages --depth=1
-        hatch run docs:deploy deploy -u --push ${PROJECT_VERSION} latest
+        hatch run docs:deploy deploy -u --push "${PROJECT_VERSION}" latest
