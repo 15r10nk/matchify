@@ -239,6 +239,26 @@ def test_public_transformer_adapter_uses_fixed_candidates():
     )
 
 
+def test_public_transformer_handles_shared_nodes_at_distinct_positions():
+    statement = cst.parse_statement(
+        "if value.x == 1:\n    pass\nelif value.y == 2:\n    pass\n"
+    )
+    module = cst.Module(body=(statement, statement))
+    transformer = IfToMatchTransformer(assumptions=Assumptions.safe())
+
+    assert module.visit(transformer).code == module.code
+    assert [diagnostic.line for diagnostic in transformer.diagnostics] == [1, 5]
+
+
+def test_planning_without_candidates_skips_position_metadata():
+    with patch(
+        "matchify.transform.MetadataWrapper.resolve",
+        side_effect=AssertionError("No candidates need positions"),
+    ):
+        plan = plan_conversions("def f(value):\n    return value + 1\n")
+    assert plan.candidates == []
+
+
 def test_preview_filter_diagnostics_only_include_eligible_candidates():
     source = dedent("""\
         if value == 1:

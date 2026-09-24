@@ -176,9 +176,10 @@ class _ApplyConversions(cst.CSTTransformer):
 
 
 class _PlanVisitor(cst.CSTVisitor):
-    METADATA_DEPENDENCIES = (PositionProvider,)
-
-    def __init__(self, ignore_types_pattern: str | None) -> None:
+    def __init__(
+        self, wrapper: MetadataWrapper, ignore_types_pattern: str | None
+    ) -> None:
+        self.wrapper = wrapper
         self.compiler = IfChainCompiler(ignore_types_pattern=ignore_types_pattern)
         self.elif_nodes: set[cst.If] = set()
         self.candidates: list[ConversionCandidate] = []
@@ -190,7 +191,8 @@ class _PlanVisitor(cst.CSTVisitor):
         required: Assumptions,
         metrics: ConversionMetrics | None = None,
     ) -> None:
-        position = self.get_metadata(PositionProvider, node)
+        # Resolve once, only when the module actually contains a candidate.
+        position = self.wrapper.resolve(PositionProvider)[node]
         self.candidates.append(
             ConversionCandidate(node, replacement, required, metrics, position)
         )
@@ -234,8 +236,9 @@ class _PlanVisitor(cst.CSTVisitor):
 def plan_conversions(
     source: str, ignore_types_pattern: str | None = None
 ) -> ConversionPlan:
-    wrapper = MetadataWrapper(cst.parse_module(source))
-    visitor = _PlanVisitor(ignore_types_pattern)
+    # Parser-created trees have unique node identities and need no deep copy.
+    wrapper = MetadataWrapper(cst.parse_module(source), unsafe_skip_copy=True)
+    visitor = _PlanVisitor(wrapper, ignore_types_pattern)
     wrapper.visit(visitor)
     return ConversionPlan(wrapper.module, source, visitor.candidates)
 
@@ -263,7 +266,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
         self, original_node: cst.Module, updated_node: cst.Module
     ) -> cst.Module:
         wrapper = MetadataWrapper(original_node)
-        visitor = _PlanVisitor(self.ignore_types_pattern)
+        visitor = _PlanVisitor(wrapper, self.ignore_types_pattern)
         wrapper.visit(visitor)
         selected = ConversionPlan(
             wrapper.module, original_node.code, visitor.candidates
