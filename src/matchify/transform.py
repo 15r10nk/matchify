@@ -149,7 +149,9 @@ class _UpdatedChildren(cst.CSTTransformer):
         self.updated = updated
 
     def on_visit(self, node: cst.CSTNode) -> bool:
-        return node not in self.updated
+        return node not in self.updated and not isinstance(
+            node, (cst.BaseExpression, cst.BaseSmallStatement)
+        )
 
     def on_leave(
         self, original_node: cst.CSTNodeT, updated_node: cst.CSTNodeT
@@ -161,6 +163,10 @@ class _ApplyConversions(cst.CSTTransformer):
     def __init__(self, replacements: dict[cst.CSTNode, cst.CSTNode]) -> None:
         self.replacements = replacements
         self.updated: dict[cst.CSTNode, cst.CSTNode] = {}
+
+    def on_visit(self, node: cst.CSTNode) -> bool:
+        # Plans replace statements; expressions cannot contain nested candidates.
+        return not isinstance(node, (cst.BaseExpression, cst.BaseSmallStatement))
 
     def on_leave(
         self, original_node: cst.CSTNodeT, updated_node: cst.CSTNodeT
@@ -183,6 +189,12 @@ class _PlanVisitor(cst.CSTVisitor):
         self.compiler = IfChainCompiler(ignore_types_pattern=ignore_types_pattern)
         self.elif_nodes: set[cst.If] = set()
         self.candidates: list[ConversionCandidate] = []
+
+    def on_visit(self, node: cst.CSTNode) -> bool:
+        # Statement handlers inspect their own expressions when compiling plans.
+        return not isinstance(
+            node, (cst.BaseExpression, cst.BaseSmallStatement)
+        ) and super().on_visit(node)
 
     def _append(
         self,
