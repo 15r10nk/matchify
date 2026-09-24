@@ -310,4 +310,4 @@ def transform_code(
         diagnostics.extend(selected.diagnostics)
     if filter_diagnostics is not None:
         filter_diagnostics.extend(selected.filter_diagnostics)
-    return selected.apply()
+    return selected.apply() if selected.replacements else source

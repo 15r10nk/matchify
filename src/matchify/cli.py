@@ -2,10 +2,13 @@
 
 import argparse
 import pathlib
+import signal
 import sys
-from concurrent.futures import ProcessPoolExecutor
+from contextlib import closing
 from functools import partial
-from typing import NamedTuple
+from multiprocessing import get_context
+from multiprocessing.connection import Connection, wait
+from typing import NamedTuple, cast
 
 from .assumptions import (
     ALL_RISKY_ASSUMPTIONS,
@@ -22,7 +25,6 @@ from .conversion_filter import (
 from .diff import print_location_heading, print_preview_metadata, report_diff
 from .transform import (
     ChainPreview,
-    SelectedConversions,
     plan_conversions,
     transform_code,
 )
@@ -166,7 +168,7 @@ class PreviewResult(NamedTuple):
     error: str | None
     previews: list[ChainPreview]
     filter_diagnostics: list[ConversionFilterDiagnostic]
-    selected: SelectedConversions | None = None
+    text: str | None = None
 
 
 def _preview_file(
@@ -175,6 +177,7 @@ def _preview_file(
     *,
     assumptions: Assumptions | None = None,
     convert_if: str | ConversionFilter | None = None,
+    render_text: bool = False,
 ) -> PreviewResult:
     try:
         source = path.read_text(encoding="utf-8")
@@ -189,7 +192,7 @@ def _preview_file(
             None,
             selected.previews,
             selected.filter_diagnostics,
-            selected,
+            selected.apply() if render_text and selected.replacements else None,
         )
     except Exception as error:
         return PreviewResult(path, str(error), [], [])
@@ -257,12 +260,76 @@ def report_filter_rejections(
         )
 
 
+def _path_worker(connection, func, parent_connections) -> None:
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    # Forked workers must not keep other workers' parent pipe ends open.
+    for parent in parent_connections:
+        parent.close()
+    with connection:
+        while (path := connection.recv()) is not None:
+            try:
+                connection.send((True, func(path)))
+            except Exception as error:
+                connection.send((False, error))
+
+
+def _stop_workers(workers, *, terminate: bool) -> None:
+    if terminate:
+        for worker in workers:
+            if worker.is_alive():
+                worker.kill()
+    for worker in workers:
+        worker.join()
+        worker.close()
+
+
 def _map_paths(func, python_files: list[pathlib.Path], jobs: int | None):
+    """Yield completed files and immediately give free workers their next file."""
     if len(python_files) == 1:
         yield func(python_files[0])
         return
-    with ProcessPoolExecutor(max_workers=jobs or None) as executor:
-        yield from executor.map(func, python_files)
+    context = get_context()
+    count = min(jobs or context.cpu_count(), len(python_files))
+    paths = iter(python_files)
+    workers = []
+    connections = []
+    pending = []
+    completed = False
+    try:
+        for _ in range(count):
+            parent, child = context.Pipe()
+            connections.append(parent)
+            worker = context.Process(
+                target=_path_worker, args=(child, func, connections), daemon=True
+            )
+            try:
+                worker.start()
+                workers.append(worker)
+            finally:
+                child.close()
+            parent.send(next(paths))
+            pending.append(parent)
+        while pending:
+            for connection in cast(list[Connection], wait(pending)):
+                success, result = connection.recv()
+                if not success:
+                    raise result
+                path = next(paths, None)
+                connection.send(path)
+                if path is None:
+                    pending.remove(connection)
+                yield result
+        completed = True
+    finally:
+        # There are no shared result queues or background feeder threads to
+        # drain: workers can be killed even halfway through sending a result.
+        previous = signal.signal(signal.SIGINT, signal.SIG_IGN)
+        try:
+            _stop_workers(workers, terminate=not completed)
+            for connection in connections:
+                connection.close()
+        finally:
+            signal.signal(signal.SIGINT, previous)
 
 
 def _emit_previews(path: pathlib.Path, previews: list[ChainPreview]) -> None:
@@ -447,7 +514,7 @@ def preview_files(
     write: bool = False,
     keep_text: bool = False,
 ) -> tuple[int, int, int, int, list[ConvertResult]]:
-    """Prepare each file once, show previews, and optionally apply its plan.
+    """Prepare each file once, show previews, and optionally write its text.
 
     Each conversion is printed as its own diff under ``<file>:<line>``.
     ``--show-all`` also previews conversions unlocked by the minimal missing
@@ -462,34 +529,38 @@ def preview_files(
         ignore_types_pattern=ignore_types_pattern,
         assumptions=assumptions,
         convert_if=convert_if,
+        # Return rendered text rather than serializing the syntax tree.
+        render_text=write or keep_text,
     )
     hidden_count = converted_count = unchanged_count = error_count = 0
     changed: list[ConvertResult] = []
-    for result in _map_paths(preview, python_files, jobs):
-        hidden, converted, unchanged, errors = _present_preview(
-            result,
-            show_all=show_all,
-            report_errors=report_errors,
-            report_assumption_diagnostics=report_assumption_diagnostics,
-            report_filter_diagnostics=report_filter_diagnostics,
-        )
-        hidden_count += hidden
-        if converted and result.selected is not None and (write or keep_text):
-            try:
-                text = result.selected.apply()
-                if write:
-                    result.path.write_text(text, encoding="utf-8")
-                if keep_text:
-                    changed.append(ConvertResult(result.path, True, None, text))
-            except Exception as error:
-                report_result(
-                    result.path, False, str(error), verbose=False, check=not write
-                )
-                converted = 0
-                errors += 1
-        converted_count += converted
-        unchanged_count += unchanged
-        error_count += errors
+    with closing(_map_paths(preview, python_files, jobs)) as results:
+        for result in results:
+            hidden, converted, unchanged, errors = _present_preview(
+                result,
+                show_all=show_all,
+                report_errors=report_errors,
+                report_assumption_diagnostics=report_assumption_diagnostics,
+                report_filter_diagnostics=report_filter_diagnostics,
+            )
+            hidden_count += hidden
+            if converted and result.text is not None and (write or keep_text):
+                try:
+                    if write:
+                        result.path.write_text(result.text, encoding="utf-8")
+                    if keep_text:
+                        changed.append(
+                            ConvertResult(result.path, True, None, result.text)
+                        )
+                except Exception as error:
+                    report_result(
+                        result.path, False, str(error), verbose=False, check=not write
+                    )
+                    converted = 0
+                    errors += 1
+            converted_count += converted
+            unchanged_count += unchanged
+            error_count += errors
     return hidden_count, converted_count, unchanged_count, error_count, changed
 
 
@@ -519,20 +590,21 @@ def convert_files(
     )
     converted_count = unchanged_count = error_count = 0
     changed: list[ConvertResult] = []
-    for result in _map_paths(convert, python_files, jobs):
-        converted, unchanged, errors = report_result(
-            result.path,
-            result.changed,
-            result.error,
-            verbose=verbose,
-            check=check,
-            quiet=quiet,
-        )
-        converted_count += converted
-        unchanged_count += unchanged
-        error_count += errors
-        if keep_text and result.changed and result.error is None:
-            changed.append(result)
+    with closing(_map_paths(convert, python_files, jobs)) as results:
+        for result in results:
+            converted, unchanged, errors = report_result(
+                result.path,
+                result.changed,
+                result.error,
+                verbose=verbose,
+                check=check,
+                quiet=quiet,
+            )
+            converted_count += converted
+            unchanged_count += unchanged
+            error_count += errors
+            if keep_text and result.changed and result.error is None:
+                changed.append(result)
     return converted_count, unchanged_count, error_count, changed
 
 
@@ -553,6 +625,14 @@ def confirm_write(changed: list[ConvertResult]) -> None:
 
 
 def main() -> None:
+    try:
+        _main()
+    except KeyboardInterrupt:
+        print("Interrupted.", file=sys.stderr)
+        raise SystemExit(130) from None
+
+
+def _main() -> None:
     parser = build_parser()
     args = parser.parse_args()
     if args.convert_if is not None and len(args.convert_if) > 1:

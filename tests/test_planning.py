@@ -261,3 +261,30 @@ def test_preview_filter_diagnostics_only_include_eligible_candidates():
 
     assert previews == []
     assert [(item.line, item.column) for item in diagnostics] == [(1, 0)]
+
+
+@pytest.mark.parametrize(
+    ("source", "convert_if"),
+    [
+        ("value = 1\r\n", None),
+        ("\ufeff# coding: utf-8\nvalue = 1\n", None),
+        ("if value.x == 1:\n    first()\nelif value.y == 2:\n    second()\n", None),
+        (
+            "if value == 1:\n    first()\nelif value == 2:\n    second()\n",
+            "branches > 10",
+        ),
+    ],
+)
+def test_transform_skips_rendering_when_nothing_is_selected(
+    source, convert_if, monkeypatch
+):
+    def unexpected_apply(self):
+        pytest.fail("Unchanged source should not be rebuilt")
+
+    monkeypatch.setattr(
+        "matchify.transform.SelectedConversions.apply", unexpected_apply
+    )
+    assert (
+        transform_code(source, assumptions=Assumptions.safe(), convert_if=convert_if)
+        == source
+    )
