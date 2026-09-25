@@ -3,8 +3,8 @@
 import argparse
 import os
 import pathlib
+import shutil
 import signal
-import stat
 import sys
 import tempfile
 from contextlib import closing
@@ -97,7 +97,6 @@ def _write_source(path: pathlib.Path, text: str) -> None:
     # a directory entry alone would bypass a read-only source file.
     with target.open("r+b"):
         pass
-    mode = stat.S_IMODE(target.stat().st_mode)
     fd, name = tempfile.mkstemp(
         prefix=f".{target.name}.", suffix=".tmp", dir=target.parent
     )
@@ -105,7 +104,10 @@ def _write_source(path: pathlib.Path, text: str) -> None:
     try:
         os.close(fd)
         temporary.write_text(text, encoding="utf-8")
-        temporary.chmod(mode)
+        written = temporary.stat()
+        shutil.copystat(target, temporary)
+        # Preserve supported metadata, but let changed contents advance mtime.
+        os.utime(temporary, ns=(written.st_atime_ns, written.st_mtime_ns))
         temporary.replace(target)
     finally:
         temporary.unlink(missing_ok=True)

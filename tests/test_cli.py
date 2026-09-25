@@ -2427,3 +2427,28 @@ def test_atomic_write_rejects_read_only_source(tmp_path):
         assert list(tmp_path.iterdir()) == [path]
     finally:
         path.chmod(0o600)
+
+
+@pytest.mark.skipif(not hasattr(os, "setxattr"), reason="Requires extended attributes")
+def test_atomic_write_preserves_extended_attributes(tmp_path):
+    path = tmp_path / "source.py"
+    path.write_text("if value == 1:\n    first()\nelif value == 2:\n    second()\n")
+    try:
+        os.setxattr(path, "user.matchify-test", b"preserve this metadata")
+    except OSError as unsupported:
+        pytest.skip(f"Filesystem does not support user attributes: {unsupported}")
+    _, changed, error = convert_file(path)
+    assert error is None
+    assert changed is True
+    assert os.getxattr(path, "user.matchify-test") == b"preserve this metadata"
+
+
+def test_atomic_write_updates_modification_time(tmp_path):
+    path = tmp_path / "source.py"
+    path.write_text("if value == 1:\n    first()\nelif value == 2:\n    second()\n")
+    os.utime(path, (1_000_000_000, 1_000_000_000))
+    original_mtime = path.stat().st_mtime_ns
+    _, changed, error = convert_file(path)
+    assert error is None
+    assert changed is True
+    assert path.stat().st_mtime_ns > original_mtime
