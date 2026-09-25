@@ -2300,3 +2300,72 @@ def test_path_worker_protocol_and_connection_cleanup():
         child.close()
         inherited.close()
         unused.close()
+
+
+@pytest.mark.parametrize("error_type", [OSError, KeyboardInterrupt])
+def test_atomic_write_failure_preserves_source(tmp_path, monkeypatch, error_type):
+    from matchify.cli import _write_source
+
+    path = tmp_path / "source.py"
+    path.write_text("original\n")
+    original_write = pathlib.Path.write_text
+
+    def partial_write(self, text, **kwargs):
+        original_write(self, text[:2], **kwargs)
+        raise error_type("interrupted write")
+
+    monkeypatch.setattr(pathlib.Path, "write_text", partial_write)
+    with pytest.raises(error_type):
+        _write_source(path, "replacement\n")
+    assert path.read_text() == "original\n"
+    assert list(tmp_path.iterdir()) == [path]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes and symlinks")
+def test_atomic_write_preserves_mode_and_symlink(tmp_path):
+    from matchify.cli import _write_source
+
+    target = tmp_path / "source.py"
+    target.write_text("original\n")
+    target.chmod(0o751)
+    link = tmp_path / "link.py"
+    link.symlink_to(target)
+    _write_source(link, "replacement\n")
+    assert link.is_symlink()
+    assert target.read_text() == "replacement\n"
+    assert target.stat().st_mode & 0o777 == 0o751
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="Requires POSIX process-group signals"
+)
+def test_ctrl_c_during_write_preserves_source(tmp_path):
+    source = "if value == 1:\n    first()\nelif value == 2:\n    second()\n"
+    inputs = tmp_path / "inputs"
+    inputs.mkdir()
+    for index in range(2):
+        (inputs / f"{index}.py").write_text(source)
+    ready = tmp_path / "ready"
+    script = tmp_path / "interrupt_write.py"
+    script.write_text(dedent("""\
+        import pathlib
+        import sys
+        import time
+        import matchify.cli as cli
+
+        def slow_write(self, text, **kwargs):
+            with self.open("w", **kwargs) as stream:
+                stream.write(text[:2])
+                stream.flush()
+                (pathlib.Path(sys.argv[-1]).parent / "ready").touch()
+                time.sleep(60)
+                return stream.write(text[2:])
+
+        pathlib.Path.write_text = slow_write
+        if __name__ == "__main__":
+            cli.main()
+        """))
+    _interrupt_cli_process(
+        [str(script), "--write", "--jobs", "1", str(inputs)], ready.exists
+    )
+    assert all(path.read_text() == source for path in inputs.glob("*.py"))

@@ -1,9 +1,12 @@
 """Command-line and file processing helpers."""
 
 import argparse
+import os
 import pathlib
 import signal
+import stat
 import sys
+import tempfile
 from contextlib import closing
 from functools import partial
 from multiprocessing import get_context
@@ -87,6 +90,23 @@ def convert_file(
     return result.path, result.changed, result.error
 
 
+def _write_source(path: pathlib.Path, text: str) -> None:
+    """Replace source only after its complete new contents have been written."""
+    target = path.resolve(strict=True)
+    mode = stat.S_IMODE(target.stat().st_mode)
+    fd, name = tempfile.mkstemp(
+        prefix=f".{target.name}.", suffix=".tmp", dir=target.parent
+    )
+    temporary = pathlib.Path(name)
+    try:
+        os.close(fd)
+        temporary.write_text(text, encoding="utf-8")
+        temporary.chmod(mode)
+        temporary.replace(target)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def _convert_file(
     path: pathlib.Path,
     ignore_types_pattern: str | None = None,
@@ -117,7 +137,7 @@ def _convert_file(
             report_filter_rejections(path, filter_diagnostics)
         if transformed_code != source:
             if not check:
-                path.write_text(transformed_code, encoding="utf-8")
+                _write_source(path, transformed_code)
             text = transformed_code if keep_text else None
             return ConvertResult(path, True, None, text)
         return ConvertResult(path, False, None)
@@ -551,7 +571,7 @@ def preview_files(
             if converted and result.text is not None and (write or keep_text):
                 try:
                     if write:
-                        result.path.write_text(result.text, encoding="utf-8")
+                        _write_source(result.path, result.text)
                     if keep_text:
                         changed.append(
                             ConvertResult(result.path, True, None, result.text)
@@ -619,7 +639,7 @@ def confirm_write(changed: list[ConvertResult]) -> None:
     write_errors = 0
     for result in changed:
         try:
-            result.path.write_text(result.text or "", encoding="utf-8")
+            _write_source(result.path, result.text or "")
         except OSError as error:
             print(f"Error processing {result.path}: {error}")
             write_errors += 1
