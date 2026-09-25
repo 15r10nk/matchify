@@ -38,10 +38,11 @@ class _InlineLookups(cst.CSTVisitor):
         self.chained: set[cst.Subscript] = set()
 
     def visit_Subscript(self, node: cst.Subscript) -> None:
-        if isinstance(node.value, cst.Dict):
-            self.subscriptions.append(node)
-        elif isinstance(node.value, cst.Subscript):
-            self.chained.add(node.value)
+        match node.value:
+            case cst.Dict():
+                self.subscriptions.append(node)
+            case cst.Subscript():
+                self.chained.add(node.value)
 
 
 def find_inline_lookup(statement: cst.SimpleStatementLine) -> LookupCandidate | None:

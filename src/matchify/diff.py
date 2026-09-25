@@ -42,37 +42,38 @@ def report_diff(before: str, after: str, *, start_line: int = 1) -> None:
         if group_index:
             _print_diff_control_line("...\n", style="dim")
         for tag, old_start, old_end, new_start, new_end in group:
-            if tag == "equal":
-                for offset, line in enumerate(before_lines[old_start:old_end]):
-                    _print_equal_line(start_line + old_start + offset, width, line)
-            elif tag == "delete":
-                for offset, line in enumerate(before_lines[old_start:old_end]):
-                    _print_word_line(
-                        "-",
-                        line,
-                        REMOVED_LINE_STYLE,
-                        REMOVED_WORD_STYLE,
-                        line_no=start_line + old_start + offset,
+            match tag:
+                case "equal":
+                    for offset, line in enumerate(before_lines[old_start:old_end]):
+                        _print_equal_line(start_line + old_start + offset, width, line)
+                case "delete":
+                    for offset, line in enumerate(before_lines[old_start:old_end]):
+                        _print_word_line(
+                            "-",
+                            line,
+                            REMOVED_LINE_STYLE,
+                            REMOVED_WORD_STYLE,
+                            line_no=start_line + old_start + offset,
+                            width=width,
+                        )
+                case "insert":
+                    for offset, line in enumerate(after_lines[new_start:new_end]):
+                        _print_word_line(
+                            "+",
+                            line,
+                            ADDED_LINE_STYLE,
+                            ADDED_WORD_STYLE,
+                            line_no=start_line + new_start + offset,
+                            width=width,
+                        )
+                case _:
+                    _print_replaced_lines(
+                        before_lines[old_start:old_end],
+                        after_lines[new_start:new_end],
+                        old_start_line=start_line + old_start,
+                        new_start_line=start_line + new_start,
                         width=width,
                     )
-            elif tag == "insert":
-                for offset, line in enumerate(after_lines[new_start:new_end]):
-                    _print_word_line(
-                        "+",
-                        line,
-                        ADDED_LINE_STYLE,
-                        ADDED_WORD_STYLE,
-                        line_no=start_line + new_start + offset,
-                        width=width,
-                    )
-            else:
-                _print_replaced_lines(
-                    before_lines[old_start:old_end],
-                    after_lines[new_start:new_end],
-                    old_start_line=start_line + old_start,
-                    new_start_line=start_line + new_start,
-                    width=width,
-                )
 
 
 def print_location_heading(path: pathlib.Path, line: int) -> None:

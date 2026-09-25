@@ -2218,14 +2218,15 @@ def test_interactive_render_failure_does_not_prompt_or_write(
 
 def _work_waiting_for_later_file(path):
     marker = path.parent / "later-file-started"
-    if path.name == "0.py":
-        deadline = time.monotonic() + 5
-        while not marker.exists():
-            if time.monotonic() > deadline:
-                raise RuntimeError("Idle worker did not pick up the next file")
-            time.sleep(0.01)
-    elif path.name == "2.py":
-        marker.touch()
+    match path.name:
+        case "0.py":
+            deadline = time.monotonic() + 5
+            while not marker.exists():
+                if time.monotonic() > deadline:
+                    raise RuntimeError("Idle worker did not pick up the next file")
+                time.sleep(0.01)
+        case "2.py":
+            marker.touch()
     return path.name
 
 
