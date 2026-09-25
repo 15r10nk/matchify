@@ -93,6 +93,10 @@ def convert_file(
 def _write_source(path: pathlib.Path, text: str) -> None:
     """Replace source only after its complete new contents have been written."""
     target = path.resolve(strict=True)
+    # Check the file's actual permissions/ACL without truncating it. Replacing
+    # a directory entry alone would bypass a read-only source file.
+    with target.open("r+b"):
+        pass
     mode = stat.S_IMODE(target.stat().st_mode)
     fd, name = tempfile.mkstemp(
         prefix=f".{target.name}.", suffix=".tmp", dir=target.parent

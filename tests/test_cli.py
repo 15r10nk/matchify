@@ -2410,3 +2410,20 @@ def test_zero_jobs_still_processes_files(tmp_path, monkeypatch, capsys):
         main()
     assert error.value.code == 1
     assert "2 would convert" in capsys.readouterr().out
+
+
+def test_atomic_write_rejects_read_only_source(tmp_path):
+    source = "if value == 1:\n    first()\nelif value == 2:\n    second()\n"
+    path = tmp_path / "source.py"
+    path.write_text(source)
+    path.chmod(0o444)
+    try:
+        if os.access(path, os.W_OK):
+            pytest.skip("Current user can write read-only files")
+        _, changed, error = convert_file(path)
+        assert changed is False
+        assert error is not None
+        assert path.read_text() == source
+        assert list(tmp_path.iterdir()) == [path]
+    finally:
+        path.chmod(0o600)
