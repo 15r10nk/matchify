@@ -2369,3 +2369,44 @@ def test_ctrl_c_during_write_preserves_source(tmp_path):
         [str(script), "--write", "--jobs", "1", str(inputs)], ready.exists
     )
     assert all(path.read_text() == source for path in inputs.glob("*.py"))
+
+
+@pytest.mark.parametrize("file_count", [0, 1, 2])
+@pytest.mark.parametrize("option", ["--check", "--write"])
+def test_negative_jobs_rejected_before_processing(
+    tmp_path, monkeypatch, capsys, file_count, option
+):
+    source = "if value == 1:\n    first()\nelif value == 2:\n    second()\n"
+    for index in range(file_count):
+        (tmp_path / f"{index}.py").write_text(source)
+    monkeypatch.setattr(
+        sys, "argv", ["matchify", option, "--jobs", "-1", str(tmp_path)]
+    )
+    with pytest.raises(SystemExit) as error:
+        main()
+    assert error.value.code == 2
+    output = capsys.readouterr()
+    assert "--jobs must be non-negative" in output.err
+    assert "Summary:" not in output.out
+    assert all(path.read_text() == source for path in tmp_path.glob("*.py"))
+
+
+@pytest.mark.parametrize("file_count", [0, 1, 2])
+def test_map_paths_rejects_negative_jobs(file_count):
+    from matchify.cli import _map_paths
+
+    with pytest.raises(ValueError, match="jobs must be non-negative"):
+        list(_map_paths(str, [pathlib.Path("unused.py")] * file_count, jobs=-1))
+
+
+def test_zero_jobs_still_processes_files(tmp_path, monkeypatch, capsys):
+    source = "if value == 1:\n    first()\nelif value == 2:\n    second()\n"
+    for index in range(2):
+        (tmp_path / f"{index}.py").write_text(source)
+    monkeypatch.setattr(
+        sys, "argv", ["matchify", "--check", "--jobs", "0", str(tmp_path)]
+    )
+    with pytest.raises(SystemExit) as error:
+        main()
+    assert error.value.code == 1
+    assert "2 would convert" in capsys.readouterr().out

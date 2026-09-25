@@ -305,6 +305,8 @@ def _stop_workers(workers, *, terminate: bool) -> None:
 
 def _map_paths(func, python_files: list[pathlib.Path], jobs: int | None):
     """Yield completed files and immediately give free workers their next file."""
+    if jobs is not None and jobs < 0:
+        raise ValueError("jobs must be non-negative")
     if len(python_files) == 1:
         yield func(python_files[0])
         return
@@ -503,6 +505,8 @@ def build_parser() -> argparse.ArgumentParser:
 def resolve_cli_mode(
     args: argparse.Namespace, parser: argparse.ArgumentParser
 ) -> CliMode:
+    if args.jobs is not None and args.jobs < 0:
+        parser.error("--jobs must be non-negative (0 selects the CPU count)")
     show_all = args.show_all
     show = args.show or (args.check and not show_all)
     interactive = not args.write and not args.check and not show and not show_all
