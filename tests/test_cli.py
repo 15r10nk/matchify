@@ -2300,3 +2300,167 @@ def test_path_worker_protocol_and_connection_cleanup():
         child.close()
         inherited.close()
         unused.close()
+
+
+@pytest.mark.parametrize("error_type", [OSError, KeyboardInterrupt])
+def test_atomic_write_failure_preserves_source(tmp_path, monkeypatch, error_type):
+    from matchify.cli import _write_source
+
+    path = tmp_path / "source.py"
+    path.write_text("original\n")
+    original_write = pathlib.Path.write_text
+
+    def partial_write(self, text, **kwargs):
+        original_write(self, text[:2], **kwargs)
+        raise error_type("interrupted write")
+
+    monkeypatch.setattr(pathlib.Path, "write_text", partial_write)
+    with pytest.raises(error_type):
+        _write_source(path, "replacement\n")
+    assert path.read_text() == "original\n"
+    assert list(tmp_path.iterdir()) == [path]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes and symlinks")
+def test_atomic_write_preserves_mode_and_symlink(tmp_path):
+    from matchify.cli import _write_source
+
+    target = tmp_path / "source.py"
+    target.write_text("original\n")
+    target.chmod(0o751)
+    link = tmp_path / "link.py"
+    link.symlink_to(target)
+    _write_source(link, "replacement\n")
+    assert link.is_symlink()
+    assert target.read_text() == "replacement\n"
+    assert target.stat().st_mode & 0o777 == 0o751
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="Requires POSIX process-group signals"
+)
+def test_ctrl_c_during_write_preserves_source(tmp_path):
+    source = "if value == 1:\n    first()\nelif value == 2:\n    second()\n"
+    inputs = tmp_path / "inputs"
+    inputs.mkdir()
+    for index in range(2):
+        (inputs / f"{index}.py").write_text(source)
+    ready = tmp_path / "ready"
+    script = tmp_path / "interrupt_write.py"
+    script.write_text(dedent("""\
+        import pathlib
+        import sys
+        import time
+        import matchify.cli as cli
+
+        def slow_write(self, text, **kwargs):
+            with self.open("w", **kwargs) as stream:
+                stream.write(text[:2])
+                stream.flush()
+                (pathlib.Path(sys.argv[-1]).parent / "ready").touch()
+                time.sleep(60)
+                return stream.write(text[2:])
+
+        pathlib.Path.write_text = slow_write
+        if __name__ == "__main__":
+            cli.main()
+        """))
+    _interrupt_cli_process(
+        [str(script), "--write", "--jobs", "1", str(inputs)], ready.exists
+    )
+    assert all(path.read_text() == source for path in inputs.glob("*.py"))
+
+
+@pytest.mark.parametrize("file_count", [0, 1, 2])
+@pytest.mark.parametrize("option", ["--check", "--write"])
+def test_negative_jobs_rejected_before_processing(
+    tmp_path, monkeypatch, capsys, file_count, option
+):
+    source = "if value == 1:\n    first()\nelif value == 2:\n    second()\n"
+    for index in range(file_count):
+        (tmp_path / f"{index}.py").write_text(source)
+    monkeypatch.setattr(
+        sys, "argv", ["matchify", option, "--jobs", "-1", str(tmp_path)]
+    )
+    with pytest.raises(SystemExit) as error:
+        main()
+    assert error.value.code == 2
+    output = capsys.readouterr()
+    assert "--jobs must be non-negative" in output.err
+    assert "Summary:" not in output.out
+    assert all(path.read_text() == source for path in tmp_path.glob("*.py"))
+
+
+@pytest.mark.parametrize("file_count", [0, 1, 2])
+def test_map_paths_rejects_negative_jobs(file_count):
+    from matchify.cli import _map_paths
+
+    with pytest.raises(ValueError, match="jobs must be non-negative"):
+        list(_map_paths(str, [pathlib.Path("unused.py")] * file_count, jobs=-1))
+
+
+def test_zero_jobs_still_processes_files(tmp_path, monkeypatch, capsys):
+    source = "if value == 1:\n    first()\nelif value == 2:\n    second()\n"
+    for index in range(2):
+        (tmp_path / f"{index}.py").write_text(source)
+    monkeypatch.setattr(
+        sys, "argv", ["matchify", "--check", "--jobs", "0", str(tmp_path)]
+    )
+    with pytest.raises(SystemExit) as error:
+        main()
+    assert error.value.code == 1
+    assert "2 would convert" in capsys.readouterr().out
+
+
+def test_atomic_write_rejects_read_only_source(tmp_path):
+    source = "if value == 1:\n    first()\nelif value == 2:\n    second()\n"
+    path = tmp_path / "source.py"
+    path.write_text(source)
+    path.chmod(0o444)
+    try:
+        if os.access(path, os.W_OK):
+            pytest.skip("Current user can write read-only files")
+        _, changed, error = convert_file(path)
+        assert changed is False
+        assert error is not None
+        assert path.read_text() == source
+        assert list(tmp_path.iterdir()) == [path]
+    finally:
+        path.chmod(0o600)
+
+
+@pytest.mark.skipif(not hasattr(os, "setxattr"), reason="Requires extended attributes")
+def test_atomic_write_preserves_extended_attributes(tmp_path):
+    path = tmp_path / "source.py"
+    path.write_text("if value == 1:\n    first()\nelif value == 2:\n    second()\n")
+    try:
+        os.setxattr(path, "user.matchify-test", b"preserve this metadata")
+    except OSError as unsupported:
+        pytest.skip(f"Filesystem does not support user attributes: {unsupported}")
+    _, changed, error = convert_file(path)
+    assert error is None
+    assert changed is True
+    assert os.getxattr(path, "user.matchify-test") == b"preserve this metadata"
+
+
+def test_atomic_write_updates_modification_time(tmp_path):
+    path = tmp_path / "source.py"
+    path.write_text("if value == 1:\n    first()\nelif value == 2:\n    second()\n")
+    os.utime(path, (1_000_000_000, 1_000_000_000))
+    original_mtime = path.stat().st_mtime_ns
+    _, changed, error = convert_file(path)
+    assert error is None
+    assert changed is True
+    assert path.stat().st_mtime_ns > original_mtime
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Requires POSIX filename limits")
+def test_atomic_write_accepts_maximum_length_filename(tmp_path):
+    name_limit = os.pathconf(tmp_path, "PC_NAME_MAX")
+    path = tmp_path / ("x" * (name_limit - 3) + ".py")
+    path.write_text("if value == 1:\n    first()\nelif value == 2:\n    second()\n")
+    _, changed, error = convert_file(path)
+    assert error is None
+    assert changed is True
+    assert "match value:" in path.read_text()
+    assert list(tmp_path.iterdir()) == [path]

@@ -1,9 +1,12 @@
 """Command-line and file processing helpers."""
 
 import argparse
+import os
 import pathlib
+import shutil
 import signal
 import sys
+import tempfile
 from contextlib import closing
 from functools import partial
 from multiprocessing import get_context
@@ -87,6 +90,27 @@ def convert_file(
     return result.path, result.changed, result.error
 
 
+def _write_source(path: pathlib.Path, text: str) -> None:
+    """Replace source only after its complete new contents have been written."""
+    target = path.resolve(strict=True)
+    # Check the file's actual permissions/ACL without truncating it. Replacing
+    # a directory entry alone would bypass a read-only source file.
+    with target.open("r+b"):
+        pass
+    fd, name = tempfile.mkstemp(prefix=".matchify-", suffix=".tmp", dir=target.parent)
+    temporary = pathlib.Path(name)
+    try:
+        os.close(fd)
+        temporary.write_text(text, encoding="utf-8")
+        written = temporary.stat()
+        shutil.copystat(target, temporary)
+        # Preserve supported metadata, but let changed contents advance mtime.
+        os.utime(temporary, ns=(written.st_atime_ns, written.st_mtime_ns))
+        temporary.replace(target)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def _convert_file(
     path: pathlib.Path,
     ignore_types_pattern: str | None = None,
@@ -117,7 +141,7 @@ def _convert_file(
             report_filter_rejections(path, filter_diagnostics)
         if transformed_code != source:
             if not check:
-                path.write_text(transformed_code, encoding="utf-8")
+                _write_source(path, transformed_code)
             text = transformed_code if keep_text else None
             return ConvertResult(path, True, None, text)
         return ConvertResult(path, False, None)
@@ -285,6 +309,8 @@ def _stop_workers(workers, *, terminate: bool) -> None:
 
 def _map_paths(func, python_files: list[pathlib.Path], jobs: int | None):
     """Yield completed files and immediately give free workers their next file."""
+    if jobs is not None and jobs < 0:
+        raise ValueError("jobs must be non-negative")
     if len(python_files) == 1:
         yield func(python_files[0])
         return
@@ -483,6 +509,8 @@ def build_parser() -> argparse.ArgumentParser:
 def resolve_cli_mode(
     args: argparse.Namespace, parser: argparse.ArgumentParser
 ) -> CliMode:
+    if args.jobs is not None and args.jobs < 0:
+        parser.error("--jobs must be non-negative (0 selects the CPU count)")
     show_all = args.show_all
     show = args.show or (args.check and not show_all)
     interactive = not args.write and not args.check and not show and not show_all
@@ -551,7 +579,7 @@ def preview_files(
             if converted and result.text is not None and (write or keep_text):
                 try:
                     if write:
-                        result.path.write_text(result.text, encoding="utf-8")
+                        _write_source(result.path, result.text)
                     if keep_text:
                         changed.append(
                             ConvertResult(result.path, True, None, result.text)
@@ -619,7 +647,7 @@ def confirm_write(changed: list[ConvertResult]) -> None:
     write_errors = 0
     for result in changed:
         try:
-            result.path.write_text(result.text or "", encoding="utf-8")
+            _write_source(result.path, result.text or "")
         except OSError as error:
             print(f"Error processing {result.path}: {error}")
             write_errors += 1
