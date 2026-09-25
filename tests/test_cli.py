@@ -2237,3 +2237,66 @@ def test_parallel_workers_pick_up_available_work(tmp_path):
     assert set(_map_paths(_work_waiting_for_later_file, paths, jobs=2)) == {
         path.name for path in paths
     }
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="Requires POSIX process-group signals"
+)
+def test_ctrl_c_during_spawn_bootstrap(tmp_path):
+    script = tmp_path / "bootstrap.py"
+    script.write_text(dedent("""\
+        import os
+        import pathlib
+        import sys
+        import time
+
+        if __name__ == "__mp_main__":
+            pathlib.Path(sys.argv[1], str(os.getpid()) + ".ready").touch()
+            time.sleep(60)
+
+        import multiprocessing
+        from contextlib import closing
+        import matchify.cli as cli
+
+        def consume():
+            with closing(cli._map_paths(str, [1, 2], 2)) as results:
+                list(results)
+
+        if __name__ == "__main__":
+            multiprocessing.set_start_method("spawn")
+            cli._main = consume
+            try:
+                cli.main()
+            finally:
+                assert not multiprocessing.active_children()
+        """))
+    _interrupt_cli_process(
+        [str(script), str(tmp_path)],
+        lambda: len(list(tmp_path.glob("*.ready"))) == 2,
+    )
+
+
+def test_path_worker_protocol_and_connection_cleanup():
+    from matchify.cli import _path_worker
+
+    parent, child = multiprocessing.Pipe()
+    inherited, unused = multiprocessing.Pipe()
+    previous = signal.getsignal(signal.SIGINT)
+    try:
+        parent.send("12")
+        parent.send("invalid")
+        parent.send(None)
+        _path_worker(child, int, [inherited])
+        assert signal.getsignal(signal.SIGINT) == signal.SIG_IGN
+        assert parent.recv() == (True, 12)
+        success, error = parent.recv()
+        assert success is False
+        assert isinstance(error, ValueError)
+        assert child.closed
+        assert inherited.closed
+    finally:
+        signal.signal(signal.SIGINT, previous)
+        parent.close()
+        child.close()
+        inherited.close()
+        unused.close()

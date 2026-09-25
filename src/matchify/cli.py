@@ -302,10 +302,14 @@ def _map_paths(func, python_files: list[pathlib.Path], jobs: int | None):
             worker = context.Process(
                 target=_path_worker, args=(child, func, connections), daemon=True
             )
+            # Spawned interpreters must ignore Ctrl-C before importing this
+            # module, not just after entering _path_worker.
+            previous = signal.signal(signal.SIGINT, signal.SIG_IGN)
             try:
                 worker.start()
                 workers.append(worker)
             finally:
+                signal.signal(signal.SIGINT, previous)
                 child.close()
             parent.send(next(paths))
             pending.append(parent)
