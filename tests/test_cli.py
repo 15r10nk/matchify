@@ -2452,3 +2452,15 @@ def test_atomic_write_updates_modification_time(tmp_path):
     assert error is None
     assert changed is True
     assert path.stat().st_mtime_ns > original_mtime
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Requires POSIX filename limits")
+def test_atomic_write_accepts_maximum_length_filename(tmp_path):
+    name_limit = os.pathconf(tmp_path, "PC_NAME_MAX")
+    path = tmp_path / ("x" * (name_limit - 3) + ".py")
+    path.write_text("if value == 1:\n    first()\nelif value == 2:\n    second()\n")
+    _, changed, error = convert_file(path)
+    assert error is None
+    assert changed is True
+    assert "match value:" in path.read_text()
+    assert list(tmp_path.iterdir()) == [path]
