@@ -32,18 +32,26 @@ class _ReplaceNode(cst.CSTTransformer):
         return updated_node
 
 
+class _InlineLookups(cst.CSTVisitor):
+    def __init__(self) -> None:
+        self.subscriptions: list[cst.Subscript] = []
+        self.chained: set[cst.Subscript] = set()
+
+    def visit_Subscript(self, node: cst.Subscript) -> None:
+        match node.value:
+            case cst.Dict():
+                self.subscriptions.append(node)
+            case cst.Subscript():
+                self.chained.add(node.value)
+
+
 def find_inline_lookup(statement: cst.SimpleStatementLine) -> LookupCandidate | None:
-    chained_subscriptions = {
-        id(subscription.value)
-        for subscription in m.findall(
-            statement, m.Subscript(value=m.Subscript(value=m.Dict()))
-        )
-        if isinstance(subscription, cst.Subscript)
-    }
+    visitor = _InlineLookups()
+    statement.visit(visitor)
     subscriptions = tuple(
         subscription
-        for subscription in m.findall(statement, m.Subscript(value=m.Dict()))
-        if id(subscription) not in chained_subscriptions
+        for subscription in visitor.subscriptions
+        if subscription not in visitor.chained
     )
     if len(subscriptions) != 1:
         return None

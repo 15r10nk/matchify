@@ -149,7 +149,9 @@ class _UpdatedChildren(cst.CSTTransformer):
         self.updated = updated
 
     def on_visit(self, node: cst.CSTNode) -> bool:
-        return node not in self.updated
+        return node not in self.updated and not isinstance(
+            node, (cst.BaseExpression, cst.BaseSmallStatement)
+        )
 
     def on_leave(
         self, original_node: cst.CSTNodeT, updated_node: cst.CSTNodeT
@@ -161,6 +163,10 @@ class _ApplyConversions(cst.CSTTransformer):
     def __init__(self, replacements: dict[cst.CSTNode, cst.CSTNode]) -> None:
         self.replacements = replacements
         self.updated: dict[cst.CSTNode, cst.CSTNode] = {}
+
+    def on_visit(self, node: cst.CSTNode) -> bool:
+        # Plans replace statements; expressions cannot contain nested candidates.
+        return not isinstance(node, (cst.BaseExpression, cst.BaseSmallStatement))
 
     def on_leave(
         self, original_node: cst.CSTNodeT, updated_node: cst.CSTNodeT
@@ -176,12 +182,19 @@ class _ApplyConversions(cst.CSTTransformer):
 
 
 class _PlanVisitor(cst.CSTVisitor):
-    METADATA_DEPENDENCIES = (PositionProvider,)
-
-    def __init__(self, ignore_types_pattern: str | None) -> None:
+    def __init__(
+        self, wrapper: MetadataWrapper, ignore_types_pattern: str | None
+    ) -> None:
+        self.wrapper = wrapper
         self.compiler = IfChainCompiler(ignore_types_pattern=ignore_types_pattern)
         self.elif_nodes: set[cst.If] = set()
         self.candidates: list[ConversionCandidate] = []
+
+    def on_visit(self, node: cst.CSTNode) -> bool:
+        # Statement handlers inspect their own expressions when compiling plans.
+        return not isinstance(
+            node, (cst.BaseExpression, cst.BaseSmallStatement)
+        ) and super().on_visit(node)
 
     def _append(
         self,
@@ -190,7 +203,8 @@ class _PlanVisitor(cst.CSTVisitor):
         required: Assumptions,
         metrics: ConversionMetrics | None = None,
     ) -> None:
-        position = self.get_metadata(PositionProvider, node)
+        # Resolve once, only when the module actually contains a candidate.
+        position = self.wrapper.resolve(PositionProvider)[node]
         self.candidates.append(
             ConversionCandidate(node, replacement, required, metrics, position)
         )
@@ -234,8 +248,9 @@ class _PlanVisitor(cst.CSTVisitor):
 def plan_conversions(
     source: str, ignore_types_pattern: str | None = None
 ) -> ConversionPlan:
-    wrapper = MetadataWrapper(cst.parse_module(source))
-    visitor = _PlanVisitor(ignore_types_pattern)
+    # Parser-created trees have unique node identities and need no deep copy.
+    wrapper = MetadataWrapper(cst.parse_module(source), unsafe_skip_copy=True)
+    visitor = _PlanVisitor(wrapper, ignore_types_pattern)
     wrapper.visit(visitor)
     return ConversionPlan(wrapper.module, source, visitor.candidates)
 
@@ -263,7 +278,7 @@ class IfToMatchTransformer(cst.CSTTransformer):
         self, original_node: cst.Module, updated_node: cst.Module
     ) -> cst.Module:
         wrapper = MetadataWrapper(original_node)
-        visitor = _PlanVisitor(self.ignore_types_pattern)
+        visitor = _PlanVisitor(wrapper, self.ignore_types_pattern)
         wrapper.visit(visitor)
         selected = ConversionPlan(
             wrapper.module, original_node.code, visitor.candidates
@@ -310,4 +325,4 @@ def transform_code(
         diagnostics.extend(selected.diagnostics)
     if filter_diagnostics is not None:
         filter_diagnostics.extend(selected.filter_diagnostics)
-    return selected.apply()
+    return selected.apply() if selected.replacements else source

@@ -209,50 +209,52 @@ def _is_wildcard(pattern: cst.MatchPattern) -> bool:
 
 def _walk_patterns(pattern: cst.MatchPattern) -> Iterator[cst.MatchPattern]:
     yield pattern
-    if isinstance(pattern, cst.MatchClass):
-        for positional in pattern.patterns:
-            yield from _walk_patterns(positional.value)
-        for keyword in pattern.kwds:
-            yield from _walk_patterns(keyword.pattern)
-    elif isinstance(pattern, cst.MatchSequence):
-        for sequence_item in pattern.patterns:
-            if isinstance(sequence_item, cst.MatchSequenceElement):
-                yield from _walk_patterns(sequence_item.value)
-    elif isinstance(pattern, cst.MatchMapping):
-        for mapping_item in pattern.elements:
-            yield from _walk_patterns(mapping_item.pattern)
-    elif isinstance(pattern, cst.MatchOr):
-        for alternative in pattern.patterns:
-            yield from _walk_patterns(alternative.pattern)
-    elif isinstance(pattern, cst.MatchAs) and pattern.pattern is not None:
-        yield from _walk_patterns(pattern.pattern)
+    match pattern:
+        case cst.MatchClass():
+            for positional in pattern.patterns:
+                yield from _walk_patterns(positional.value)
+            for keyword in pattern.kwds:
+                yield from _walk_patterns(keyword.pattern)
+        case cst.MatchSequence():
+            for sequence_item in pattern.patterns:
+                if isinstance(sequence_item, cst.MatchSequenceElement):
+                    yield from _walk_patterns(sequence_item.value)
+        case cst.MatchMapping():
+            for mapping_item in pattern.elements:
+                yield from _walk_patterns(mapping_item.pattern)
+        case cst.MatchOr():
+            for alternative in pattern.patterns:
+                yield from _walk_patterns(alternative.pattern)
+        case cst.MatchAs() if pattern.pattern is not None:
+            yield from _walk_patterns(pattern.pattern)
 
 
 def _capture_names(pattern: cst.MatchPattern) -> Iterator[str]:
-    if isinstance(pattern, cst.MatchAs):
-        if pattern.name is not None:
-            yield pattern.name.value
-        if pattern.pattern is not None:
-            yield from _capture_names(pattern.pattern)
-    elif isinstance(pattern, cst.MatchClass):
-        for positional in pattern.patterns:
-            yield from _capture_names(positional.value)
-        for keyword in pattern.kwds:
-            yield from _capture_names(keyword.pattern)
-    elif isinstance(pattern, cst.MatchSequence):
-        for sequence_item in pattern.patterns:
-            if isinstance(sequence_item, cst.MatchSequenceElement):
-                yield from _capture_names(sequence_item.value)
-            elif sequence_item.name is not None and sequence_item.name.value != "_":
-                yield sequence_item.name.value
-    elif isinstance(pattern, cst.MatchMapping):
-        for mapping_item in pattern.elements:
-            yield from _capture_names(mapping_item.pattern)
-        if pattern.rest is not None:
-            yield pattern.rest.value
-    elif isinstance(pattern, cst.MatchOr):
-        for alternative in pattern.patterns:
-            yield from _capture_names(alternative.pattern)
+    match pattern:
+        case cst.MatchAs():
+            if pattern.name is not None:
+                yield pattern.name.value
+            if pattern.pattern is not None:
+                yield from _capture_names(pattern.pattern)
+        case cst.MatchClass():
+            for positional in pattern.patterns:
+                yield from _capture_names(positional.value)
+            for keyword in pattern.kwds:
+                yield from _capture_names(keyword.pattern)
+        case cst.MatchSequence():
+            for sequence_item in pattern.patterns:
+                if isinstance(sequence_item, cst.MatchSequenceElement):
+                    yield from _capture_names(sequence_item.value)
+                elif sequence_item.name is not None and sequence_item.name.value != "_":
+                    yield sequence_item.name.value
+        case cst.MatchMapping():
+            for mapping_item in pattern.elements:
+                yield from _capture_names(mapping_item.pattern)
+            if pattern.rest is not None:
+                yield pattern.rest.value
+        case cst.MatchOr():
+            for alternative in pattern.patterns:
+                yield from _capture_names(alternative.pattern)
 
 
 def _pattern_depth(pattern: cst.MatchPattern) -> int:

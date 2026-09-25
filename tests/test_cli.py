@@ -1,7 +1,12 @@
+import multiprocessing
+import os
 import pathlib
 import runpy
+import signal
+import subprocess
 import sys
 import tempfile
+import time
 from importlib import import_module
 from io import StringIO
 from textwrap import dedent
@@ -1954,3 +1959,344 @@ def test_preview_omits_empty_metrics(tmp_path, capsys):
     assert "before" in output
     assert "after" in output
     assert "metrics:" not in output
+
+
+@pytest.mark.parametrize("stage", ["collect_python_files", "confirm_write"])
+def test_main_handles_keyboard_interrupt(stage, monkeypatch, capsys, tmp_path):
+    source = tmp_path / "input.py"
+    source.write_text("if x == 1:\n    pass\nelif x == 2:\n    pass\n")
+    monkeypatch.setattr(sys, "argv", ["matchify", str(source)])
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+
+    def interrupt(*args, **kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(f"matchify.cli.{stage}", interrupt)
+    with pytest.raises(SystemExit) as error:
+        main()
+    assert error.value.code == 130
+    assert capsys.readouterr().err == "Interrupted.\n"
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="Requires POSIX process-group signals"
+)
+@pytest.mark.parametrize("start_method", multiprocessing.get_all_start_methods())
+@pytest.mark.parametrize("file_count", [1, 2])
+def test_ctrl_c_stops_cli_and_workers(tmp_path, start_method, file_count):
+    inputs = tmp_path / "inputs"
+    inputs.mkdir()
+    for index in range(file_count):
+        (inputs / f"{index}.py").write_text("pass\n")
+    script = tmp_path / "interrupt_cli.py"
+    script.write_text(dedent("""\
+        import multiprocessing
+        import os
+        import signal
+        import sys
+        import time
+        import matchify.cli as cli
+
+        def slow_preview(path, **kwargs):
+            path.with_suffix(".ready").write_text("ready")
+            time.sleep(60)
+
+        original_terminate = cli._stop_workers
+
+        def interrupt_during_cleanup(workers, **kwargs):
+            os.killpg(os.getpgrp(), signal.SIGINT)
+            os.killpg(os.getpgrp(), signal.SIGINT)
+            original_terminate(workers, **kwargs)
+
+        cli._stop_workers = interrupt_during_cleanup
+        cli._preview_file = slow_preview
+        if __name__ == "__main__":
+            multiprocessing.set_start_method(sys.argv.pop(1))
+            previous = signal.getsignal(signal.SIGINT)
+            try:
+                cli.main()
+            finally:
+                assert signal.getsignal(signal.SIGINT) == previous
+                assert not multiprocessing.active_children()
+        """))
+    _interrupt_cli_process(
+        [str(script), start_method, "--show", "--jobs", "2", str(inputs)],
+        lambda: len(list(inputs.glob("*.ready"))) == file_count,
+    )
+
+
+@pytest.mark.parametrize(
+    ("option", "reporter"),
+    [("--show", "_present_preview"), ("--write", "report_result")],
+)
+def test_interrupt_while_reporting_cleans_up_workers(
+    tmp_path, monkeypatch, capsys, option, reporter
+):
+    for index in range(2):
+        (tmp_path / f"{index}.py").write_text("pass\n")
+    monkeypatch.setattr(sys, "argv", ["matchify", option, "--jobs", "2", str(tmp_path)])
+
+    def interrupt(*args, **kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(f"matchify.cli.{reporter}", interrupt)
+    previous = signal.getsignal(signal.SIGINT)
+    children = multiprocessing.active_children()
+    with pytest.raises(SystemExit) as error:
+        main()
+    assert error.value.code == 130
+    assert signal.getsignal(signal.SIGINT) == previous
+    assert multiprocessing.active_children() == children
+    assert capsys.readouterr().err == "Interrupted.\n"
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="Requires POSIX process-group signals"
+)
+def test_ctrl_c_with_large_results_in_flight(tmp_path):
+    script = tmp_path / "busy_results.py"
+    ready = tmp_path / "ready"
+    script.write_text(dedent("""\
+        import multiprocessing
+        import pathlib
+        import sys
+        import time
+        from contextlib import closing
+        import matchify.cli as cli
+
+        def large_result(index):
+            return b"x" * 1_000_000
+
+        def consume():
+            with closing(cli._map_paths(large_result, list(range(100)), 24)) as results:
+                next(results)
+                pathlib.Path(sys.argv[1]).touch()
+                time.sleep(60)
+
+        if __name__ == "__main__":
+            cli._main = consume
+            try:
+                cli.main()
+            finally:
+                assert not multiprocessing.active_children()
+        """))
+    _interrupt_cli_process([str(script), str(ready)], ready.exists)
+
+
+def _interrupt_cli_process(arguments, ready):
+    process = subprocess.Popen(
+        [sys.executable, *arguments],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    try:
+        deadline = time.monotonic() + 20
+        while not ready():
+            assert process.poll() is None, process.communicate()
+            assert time.monotonic() < deadline, "Workers did not start"
+            time.sleep(0.01)
+        os.killpg(process.pid, signal.SIGINT)
+        stdout, stderr = process.communicate(timeout=10)
+        assert process.returncode == 130, (stdout, stderr)
+        assert stderr == "Interrupted.\n"
+        assert "Summary:" not in stdout
+    finally:
+        if process.poll() is None:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.communicate()
+
+
+def test_parallel_worker_error_reaches_caller(tmp_path):
+    from matchify.cli import _map_paths
+
+    existing = tmp_path / "existing.py"
+    existing.write_text("pass\n")
+    missing = tmp_path / "missing.py"
+    with pytest.raises(FileNotFoundError):
+        list(_map_paths(pathlib.Path.read_text, [existing, missing], jobs=2))
+
+
+@pytest.mark.parametrize(
+    ("write", "keep_text"), [(False, False), (True, False), (False, True)]
+)
+def test_preview_workers_only_render_text_when_needed(
+    tmp_path, monkeypatch, capsys, write, keep_text
+):
+    import matchify.cli as cli
+
+    source = dedent("""\
+        if value == 1:
+            first()
+        elif value == 2:
+            second()
+        """)
+    paths = [tmp_path / f"{index}.py" for index in range(2)]
+    for path in paths:
+        path.write_text(source)
+    returned = []
+    original_map = cli._map_paths
+
+    def record_results(*args):
+        results = list(original_map(*args))
+        returned.extend(results)
+        yield from results
+
+    monkeypatch.setattr(cli, "_map_paths", record_results)
+    hidden, converted, unchanged, errors, changed = preview_files(
+        paths,
+        ignore_types_pattern=None,
+        assumptions=Assumptions.safe(),
+        show_all=False,
+        jobs=2,
+        report_errors=True,
+        report_assumption_diagnostics=True,
+        write=write,
+        keep_text=keep_text,
+    )
+
+    assert (hidden, converted, unchanged, errors) == (0, 2, 0, 0)
+    assert len(returned) == 2
+    assert all((result.text is not None) == (write or keep_text) for result in returned)
+    assert "match value:" in capsys.readouterr().out
+    for path in paths:
+        if write:
+            assert "match value:" in path.read_text()
+        else:
+            assert path.read_text() == source
+    if keep_text:
+        assert len(changed) == 2
+        assert all("match value:" in result.text for result in changed)
+    else:
+        assert changed == []
+
+
+def test_preview_does_not_render_unchanged_files(tmp_path, monkeypatch):
+    from matchify.cli import _preview_file
+
+    path = tmp_path / "unchanged.py"
+    path.write_text("value = 1\n")
+
+    def unexpected_apply(self):
+        pytest.fail("Unchanged files should not be rendered")
+
+    monkeypatch.setattr(
+        "matchify.transform.SelectedConversions.apply", unexpected_apply
+    )
+    result = _preview_file(path, render_text=True)
+    assert result.error is None
+    assert result.previews == []
+    assert result.text is None
+
+
+def test_interactive_render_failure_does_not_prompt_or_write(
+    tmp_path, monkeypatch, capsys
+):
+    path = tmp_path / "input.py"
+    source = "if x == 1:\n    pass\nelif x == 2:\n    pass\n"
+    path.write_text(source)
+    monkeypatch.setattr(sys, "argv", ["matchify", str(path)])
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+
+    def fail_render(self):
+        raise RuntimeError("render failed")
+
+    def unexpected_prompt(prompt):
+        pytest.fail("Must not prompt after a render failure")
+
+    monkeypatch.setattr("matchify.transform.SelectedConversions.apply", fail_render)
+    monkeypatch.setattr("builtins.input", unexpected_prompt)
+    with pytest.raises(SystemExit) as error:
+        main()
+    assert error.value.code == 1
+    assert path.read_text() == source
+    output = capsys.readouterr().out
+    assert "render failed" in output
+    assert "0 would convert, 0 unchanged, 1 errors" in output
+
+
+def _work_waiting_for_later_file(path):
+    marker = path.parent / "later-file-started"
+    match path.name:
+        case "0.py":
+            deadline = time.monotonic() + 5
+            while not marker.exists():
+                if time.monotonic() > deadline:
+                    raise RuntimeError("Idle worker did not pick up the next file")
+                time.sleep(0.01)
+        case "2.py":
+            marker.touch()
+    return path.name
+
+
+def test_parallel_workers_pick_up_available_work(tmp_path):
+    from matchify.cli import _map_paths
+
+    paths = [tmp_path / f"{index}.py" for index in range(3)]
+    assert set(_map_paths(_work_waiting_for_later_file, paths, jobs=2)) == {
+        path.name for path in paths
+    }
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="Requires POSIX process-group signals"
+)
+def test_ctrl_c_during_spawn_bootstrap(tmp_path):
+    script = tmp_path / "bootstrap.py"
+    script.write_text(dedent("""\
+        import os
+        import pathlib
+        import sys
+        import time
+
+        if __name__ == "__mp_main__":
+            pathlib.Path(sys.argv[1], str(os.getpid()) + ".ready").touch()
+            time.sleep(60)
+
+        import multiprocessing
+        from contextlib import closing
+        import matchify.cli as cli
+
+        def consume():
+            with closing(cli._map_paths(str, [1, 2], 2)) as results:
+                list(results)
+
+        if __name__ == "__main__":
+            multiprocessing.set_start_method("spawn")
+            cli._main = consume
+            try:
+                cli.main()
+            finally:
+                assert not multiprocessing.active_children()
+        """))
+    _interrupt_cli_process(
+        [str(script), str(tmp_path)],
+        lambda: len(list(tmp_path.glob("*.ready"))) == 2,
+    )
+
+
+def test_path_worker_protocol_and_connection_cleanup():
+    from matchify.cli import _path_worker
+
+    parent, child = multiprocessing.Pipe()
+    inherited, unused = multiprocessing.Pipe()
+    previous = signal.getsignal(signal.SIGINT)
+    try:
+        parent.send("12")
+        parent.send("invalid")
+        parent.send(None)
+        _path_worker(child, int, [inherited])
+        assert signal.getsignal(signal.SIGINT) == signal.SIG_IGN
+        assert parent.recv() == (True, 12)
+        success, error = parent.recv()
+        assert success is False
+        assert isinstance(error, ValueError)
+        assert child.closed
+        assert inherited.closed
+    finally:
+        signal.signal(signal.SIGINT, previous)
+        parent.close()
+        child.close()
+        inherited.close()
+        unused.close()

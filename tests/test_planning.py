@@ -239,6 +239,26 @@ def test_public_transformer_adapter_uses_fixed_candidates():
     )
 
 
+def test_public_transformer_handles_shared_nodes_at_distinct_positions():
+    statement = cst.parse_statement(
+        "if value.x == 1:\n    pass\nelif value.y == 2:\n    pass\n"
+    )
+    module = cst.Module(body=(statement, statement))
+    transformer = IfToMatchTransformer(assumptions=Assumptions.safe())
+
+    assert module.visit(transformer).code == module.code
+    assert [diagnostic.line for diagnostic in transformer.diagnostics] == [1, 5]
+
+
+def test_planning_without_candidates_skips_position_metadata():
+    with patch(
+        "matchify.transform.MetadataWrapper.resolve",
+        side_effect=AssertionError("No candidates need positions"),
+    ):
+        plan = plan_conversions("def f(value):\n    return value + 1\n")
+    assert plan.candidates == []
+
+
 def test_preview_filter_diagnostics_only_include_eligible_candidates():
     source = dedent("""\
         if value == 1:
@@ -261,3 +281,30 @@ def test_preview_filter_diagnostics_only_include_eligible_candidates():
 
     assert previews == []
     assert [(item.line, item.column) for item in diagnostics] == [(1, 0)]
+
+
+@pytest.mark.parametrize(
+    ("source", "convert_if"),
+    [
+        ("value = 1\r\n", None),
+        ("\ufeff# coding: utf-8\nvalue = 1\n", None),
+        ("if value.x == 1:\n    first()\nelif value.y == 2:\n    second()\n", None),
+        (
+            "if value == 1:\n    first()\nelif value == 2:\n    second()\n",
+            "branches > 10",
+        ),
+    ],
+)
+def test_transform_skips_rendering_when_nothing_is_selected(
+    source, convert_if, monkeypatch
+):
+    def unexpected_apply(self):
+        pytest.fail("Unchanged source should not be rebuilt")
+
+    monkeypatch.setattr(
+        "matchify.transform.SelectedConversions.apply", unexpected_apply
+    )
+    assert (
+        transform_code(source, assumptions=Assumptions.safe(), convert_if=convert_if)
+        == source
+    )
