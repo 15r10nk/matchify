@@ -7,7 +7,7 @@ ci:
 repos:
 
 - repo: https://github.com/15r10nk/project-template
-  rev: v0.4.1
+  rev: v0.4.3
   hooks:
   - id: copier-enforce
 
@@ -40,7 +40,7 @@ repos:
   - id: setup-cfg-fmt
 
 - repo: https://github.com/pycqa/isort
-  rev: 9.0.1
+  rev: 9.0.2
   hooks:
   - id: isort
     exclude: ^tests/code_samples/
@@ -58,7 +58,7 @@ repos:
   - id: black
     exclude: ^tests/code_samples/
   repo: https://github.com/psf/black
-  rev: 26.5.1
+  rev: 26.10.0
 - hooks:
   - id: blacken-docs
     args: [-l80]
@@ -77,7 +77,7 @@ repos:
     stages:
     - commit-msg
   repo: https://github.com/commitizen-tools/commitizen
-  rev: v4.19.0
+  rev: v4.19.1
 
 - repo: https://github.com/abravalheri/validate-pyproject
   rev: '0.26'
@@ -85,7 +85,7 @@ repos:
   - id: validate-pyproject
 
 - repo: https://github.com/henryiii/validate-pyproject-schema-store
-  rev: 2026.09.19
+  rev: 2026.10.02
   hooks:
   - id: validate-pyproject
 
@@ -96,7 +96,7 @@ repos:
   - id: actionlint
 
 - repo: https://github.com/crate-ci/typos
-  rev: v1.50.2
+  rev: typos-dict-v0.14.2
   hooks:
   - id: typos
     exclude: ^COPIER_TEMPLATE_CHANGES\.md$
