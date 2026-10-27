@@ -2242,6 +2242,10 @@ def test_parallel_workers_pick_up_available_work(tmp_path):
 @pytest.mark.skipif(
     sys.platform == "win32", reason="Requires POSIX process-group signals"
 )
+@pytest.mark.skipif(
+    sys.implementation.name == "pypy",
+    reason="PyPy resets SIGINT handling during spawn bootstrap",
+)
 def test_ctrl_c_during_spawn_bootstrap(tmp_path):
     script = tmp_path / "bootstrap.py"
     script.write_text(dedent("""\
