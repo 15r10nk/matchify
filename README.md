@@ -302,6 +302,42 @@ for the expression syntax and complete metric reference.
 Development and repository-testing notes are in
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
+
+<!--[[[cog
+import requests,cog
+
+url = "https://raw.githubusercontent.com/15r10nk/sponsors/refs/heads/main/sponsors_readme.md"
+response = requests.get(url)
+response.raise_for_status()  # Raise an exception for bad status codes
+cog.out(response.text)
+]]]-->
+## Sponsors
+
+I would like to thank my sponsors. Without them, I would not be able to invest so much time in my projects.
+
+### Gold sponsor 🥇
+
+<p align="center">
+  <a href="https://pydantic.dev/logfire">
+    <picture>
+      <img src="https://pydantic.dev/assets/for-external/pydantic_logfire_logo_endorsed_lithium_rgb.svg" alt="logfire" width="300"/>
+    </picture>
+  </a>
+</p>
+
+### Bronze sponsor 🥉
+
+<p align="center">
+  <a href="https://openai.com">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/15r10nk/sponsors/refs/heads/main/logos/OAI_OpenAI_Wordmark_White.svg">
+      <img src="https://raw.githubusercontent.com/15r10nk/sponsors/refs/heads/main/logos/OAI_OpenAI_Wordmark_Black.svg" alt="openai" width="300"/>
+    </picture>
+  </a>
+</p>
+
+<!--[[[end]]]-->
+
 ## Issues
 
 If you encounter any problems, please [report an issue](https://github.com/15r10nk/matchify/issues) along with a detailed description.
