@@ -1,0 +1,81 @@
+name: Test release on TestPyPI
+
+on:
+  push:
+    branches:
+    - release/v*
+
+concurrency:
+  group: test-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test-release:
+    name: Publish and test release candidate
+    runs-on: ubuntu-latest
+    environment: testpypi
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+    - name: Checkout release branch
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Set up uv
+      uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      with:
+        python-version: '3.13'
+
+    - name: Install test environment without the local project
+      run: |
+        uv sync --locked --no-install-project
+        uv pip install pytest pytest-xdist
+
+    - name: Set unique TestPyPI version
+      id: package
+      run: |
+        project_name="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["name"])')"
+        base_version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+        test_version="${base_version}.dev${GITHUB_RUN_ID}${GITHUB_RUN_ATTEMPT}"
+        uvx hatch version --force "$test_version"
+        echo "name=$project_name" >> "$GITHUB_OUTPUT"
+        echo "version=$test_version" >> "$GITHUB_OUTPUT"
+
+    - name: Build distributions
+      run: uvx hatch build
+
+    - name: Publish distributions to TestPyPI
+      uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+      with:
+        repository-url: https://test.pypi.org/legacy/
+        attestations: false
+
+    - name: Install published distribution from TestPyPI
+      env:
+        PROJECT_NAME: ${{ steps.package.outputs.name }}
+        TEST_VERSION: ${{ steps.package.outputs.version }}
+      run: |
+        for attempt in {1..10}; do
+          if uv pip install \
+            --no-deps \
+            --index-url https://test.pypi.org/simple/ \
+            "$PROJECT_NAME==$TEST_VERSION"; then
+            exit 0
+          fi
+          if test "$attempt" -eq 10; then
+            exit 1
+          fi
+          sleep 10
+        done
+
+    - name: Verify installed version
+      env:
+        PROJECT_NAME: ${{ steps.package.outputs.name }}
+        TEST_VERSION: ${{ steps.package.outputs.version }}
+      run: |
+        uv run --no-sync python -c \
+          'import importlib.metadata, os; assert importlib.metadata.version(os.environ["PROJECT_NAME"]) == os.environ["TEST_VERSION"]'
+
+    - name: Test installed distribution
+      run: uv run --no-sync python -m pytest -n=auto -vv

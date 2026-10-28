@@ -32,11 +32,20 @@ jobs:
         uvx gha-update
         uvx pre-commit run --all-files || uvx pre-commit run --all-files
 
+    - name: Create GitHub App token
+      id: app-token
+      uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+      with:
+        client-id: ${{vars.RELEASE_APP_CLIENT_ID}}
+        private-key: ${{secrets.RELEASE_APP_PRIVATE_KEY}}
+        permission-contents: write
+        permission-pull-requests: write
+        permission-workflows: write
+
     - name: Create Pull Request
       uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
       with:
-        token: ${{github.token}}
-        branch-token: ${{secrets.PAT_WEEKLY_UPDATE}}
+        token: ${{steps.app-token.outputs.token}}
         commit-message: 'chore: weekly cog update'
         title: 'chore: weekly update'
         body: Automated weekly update via scheduled workflow.

@@ -97,18 +97,18 @@ jobs:
       run: |
         uv lock --upgrade --resolution lowest-direct
         uv sync --locked --resolution lowest-direct
-        uv pip install coverage coverage-enable-subprocess pytest pytest-xdist
+        uv pip install "coverage[toml]" coverage-enable-subprocess pytest pytest-xdist
 
     - name: Test locked dependencies
       if: ${{ !matrix.lowest_resolution }}
-      run: uv run --locked --with coverage --with coverage-enable-subprocess --with pytest --with pytest-xdist -m ${{ matrix.os == 'ubuntu-latest' && 'coverage run -m' || '' }} pytest -n=auto -vv
+      run: uv run --locked --with "coverage[toml]" --with coverage-enable-subprocess --with pytest --with pytest-xdist -m ${{ matrix.os == 'ubuntu-latest' && 'coverage run -m' || '' }} pytest -n=auto -vv
 
     - name: Test lowest direct dependencies
       if: matrix.lowest_resolution
       run: uv run --no-sync -m coverage run -m pytest -n=auto -vv
 
     - run: |
-        uv run ${{ matrix.lowest_resolution && '--no-sync' || '--with coverage' }} -m coverage combine
+        uv run ${{ matrix.lowest_resolution && '--no-sync' || '--with "coverage[toml]"' }} -m coverage combine
         mv .coverage .coverage.${{ matrix.python-version }}-${{matrix.os}}-${{strategy.job-index}}
       if: matrix.os == 'ubuntu-latest'
 
@@ -155,14 +155,14 @@ jobs:
 
     - name: Combine coverage & fail if it's <100%
       run: |
-        uv run --with coverage coverage combine
-        uv run --with coverage coverage html --skip-covered --skip-empty
+        uv run --with "coverage[toml]" coverage combine
+        uv run --with "coverage[toml]" coverage html --skip-covered --skip-empty
 
         # Report and write to summary.
-        uv run --with coverage coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY"
+        uv run --with "coverage[toml]" coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY"
 
         # Report again and fail if under 100%.
-        uv run --with coverage coverage report
+        uv run --with "coverage[toml]" coverage report
 
 
     - name: Upload HTML report if check failed
@@ -184,11 +184,19 @@ jobs:
       id-token: write
 
     steps:
+    - name: Create GitHub App token
+      id: app-token
+      uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+      with:
+        client-id: ${{vars.RELEASE_APP_CLIENT_ID}}
+        private-key: ${{secrets.RELEASE_APP_PRIVATE_KEY}}
+        permission-contents: write
+
     - name: Checkout tested commit
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         fetch-depth: 0
-        token: ${{secrets.PAT_WEEKLY_UPDATE}}
+        token: ${{steps.app-token.outputs.token}}
 
     - name: Check release tag does not exist
       env:

@@ -1,5 +1,5 @@
 # Changes here will be overwritten by Copier
-_commit: v0.4.1
+_commit: v0.5.0
 _src_path: https://github.com/15r10nk/project-template.git
 author_email: 15r10nk@polarbit.de
 author_name: Frank Hoffmann
@@ -20,4 +20,5 @@ python_versions:
 - '3.13'
 - '3.14'
 show_project_logo: false
+test_lowest_deps: true
 use_mkdocs: true
