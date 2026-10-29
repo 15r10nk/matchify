@@ -1978,6 +1978,32 @@ def test_main_handles_keyboard_interrupt(stage, monkeypatch, capsys, tmp_path):
     assert capsys.readouterr().err == "Interrupted.\n"
 
 
+def test_stop_workers_does_not_kill_finished_worker():
+    from matchify.cli import _stop_workers
+
+    class FinishedWorker:
+        joined = False
+        closed = False
+
+        def is_alive(self):
+            return False
+
+        def kill(self):
+            raise AssertionError("finished worker must not be killed")
+
+        def join(self):
+            self.joined = True
+
+        def close(self):
+            self.closed = True
+
+    worker = FinishedWorker()
+    _stop_workers([worker], terminate=True)
+
+    assert worker.joined
+    assert worker.closed
+
+
 @pytest.mark.skipif(
     sys.platform == "win32", reason="Requires POSIX process-group signals"
 )
