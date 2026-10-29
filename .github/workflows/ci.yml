@@ -19,7 +19,7 @@ jobs:
       tag: ${{steps.release.outputs.tag}}
 
     steps:
-    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
     - name: Detect merged release pull request
       id: release
@@ -87,7 +87,7 @@ jobs:
       TOP: ${{github.workspace}}
       COVERAGE_PROCESS_START: ${{github.workspace}}/pyproject.toml
     steps:
-    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     - uses: ./.github/actions/setup
       with:
         python-version: ${{matrix.python-version}}
@@ -97,23 +97,23 @@ jobs:
       run: |
         uv lock --upgrade --resolution lowest-direct
         uv sync --locked --resolution lowest-direct
-        uv pip install coverage coverage-enable-subprocess pytest pytest-xdist
+        uv pip install "coverage[toml]" coverage-enable-subprocess pytest pytest-xdist
 
     - name: Test locked dependencies
       if: ${{ !matrix.lowest_resolution }}
-      run: uv run --locked --with coverage --with coverage-enable-subprocess --with pytest --with pytest-xdist -m ${{ matrix.os == 'ubuntu-latest' && 'coverage run -m' || '' }} pytest -n=auto -vv
+      run: uv run --locked --with "coverage[toml]" --with coverage-enable-subprocess --with pytest --with pytest-xdist -m ${{ matrix.os == 'ubuntu-latest' && 'coverage run -m' || '' }} pytest -n=auto -vv
 
     - name: Test lowest direct dependencies
       if: matrix.lowest_resolution
       run: uv run --no-sync -m coverage run -m pytest -n=auto -vv
 
     - run: |
-        uv run ${{ matrix.lowest_resolution && '--no-sync' || '--with coverage' }} -m coverage combine
+        uv run ${{ matrix.lowest_resolution && '--no-sync' || '--with "coverage[toml]"' }} -m coverage combine
         mv .coverage .coverage.${{ matrix.python-version }}-${{matrix.os}}-${{strategy.job-index}}
       if: matrix.os == 'ubuntu-latest'
 
     - name: Upload coverage data
-      uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       if: matrix.os == 'ubuntu-latest'
       with:
         name: coverage-data-${{github.run_id}}-${{ matrix.python-version }}-${{matrix.os}}-${{strategy.job-index}}
@@ -130,7 +130,7 @@ jobs:
 
 
     steps:
-    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     - uses: ./.github/actions/setup
       with:
         python-version: ${{matrix.python-version}}
@@ -145,28 +145,28 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     - uses: ./.github/actions/setup
 
-    - uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4.1.9
+    - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
       with:
         pattern: coverage-data-${{github.run_id}}-*
         merge-multiple: true
 
     - name: Combine coverage & fail if it's <100%
       run: |
-        uv run --with coverage coverage combine
-        uv run --with coverage coverage html --skip-covered --skip-empty
+        uv run --with "coverage[toml]" coverage combine
+        uv run --with "coverage[toml]" coverage html --skip-covered --skip-empty
 
         # Report and write to summary.
-        uv run --with coverage coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY"
+        uv run --with "coverage[toml]" coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY"
 
         # Report again and fail if under 100%.
-        uv run --with coverage coverage report
+        uv run --with "coverage[toml]" coverage report
 
 
     - name: Upload HTML report if check failed
-      uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: html-report
         path: htmlcov
@@ -184,11 +184,28 @@ jobs:
       id-token: write
 
     steps:
+    - name: Create GitHub App token
+      id: app-token
+      uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+      with:
+        client-id: ${{vars.RELEASE_APP_CLIENT_ID}}
+        private-key: ${{secrets.RELEASE_APP_PRIVATE_KEY}}
+        permission-contents: write
+
     - name: Checkout tested commit
-      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         fetch-depth: 0
-        token: ${{secrets.PAT_WEEKLY_UPDATE}}
+        token: ${{steps.app-token.outputs.token}}
+
+    - name: Check release tag does not exist
+      env:
+        TAG: ${{needs.detect_release.outputs.tag}}
+      run: |
+        if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+          echo "::error::Release tag $TAG already exists"
+          exit 1
+        fi
 
     - uses: ./.github/actions/setup
       with:
@@ -197,23 +214,17 @@ jobs:
     - name: Build distributions
       run: uvx hatch build
 
-    - name: Tag tested commit
+    - name: Publish package distributions to PyPI
+      uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+
+    - name: Tag and push tested commit
       env:
         TAG: ${{needs.detect_release.outputs.tag}}
       run: |
         git config user.name github-actions[bot]
         git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-        if git rev-parse "$TAG" >/dev/null 2>&1; then
-          test "$(git rev-list -n 1 "$TAG")" = "$GITHUB_SHA"
-        else
-          git tag --annotate "$TAG" --message "Release $TAG"
-          git push origin "$TAG"
-        fi
-
-    - name: Publish package distributions to PyPI
-      uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc # v1.12.4
-      with:
-        skip-existing: true
+        git tag --annotate "$TAG" --message "Release $TAG"
+        git push origin "$TAG"
 
     - name: Create GitHub release
       env:

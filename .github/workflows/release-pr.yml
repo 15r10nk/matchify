@@ -22,7 +22,7 @@ jobs:
         fetch-depth: 0
 
     - name: Set up uv
-      uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
       with:
         python-version: '3.13'
 
@@ -38,10 +38,19 @@ jobs:
     - name: Run pre-commit
       run: uvx pre-commit run --all-files || uvx pre-commit run --all-files
 
+    - name: Create GitHub App token
+      id: app-token
+      uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+      with:
+        client-id: ${{vars.RELEASE_APP_CLIENT_ID}}
+        private-key: ${{secrets.RELEASE_APP_PRIVATE_KEY}}
+        permission-contents: write
+        permission-pull-requests: write
+
     - name: Create pull request
       uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
       with:
-        token: ${{secrets.PAT_WEEKLY_UPDATE}}
+        token: ${{steps.app-token.outputs.token}}
         branch: release/v${{steps.release.outputs.version}}
         commit-message: 'chore: release v${{steps.release.outputs.version}}'
         title: 'chore: release v${{steps.release.outputs.version}}'
