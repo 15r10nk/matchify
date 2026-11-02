@@ -28,12 +28,12 @@ repos:
   rev: v2.4.0
 
 - repo: https://github.com/asottile/setup-cfg-fmt
-  rev: v3.2.0
+  rev: v3.3.0
   hooks:
   - id: setup-cfg-fmt
 
 - repo: https://github.com/pycqa/isort
-  rev: 9.0.1
+  rev: 10.0.0b2
   hooks:
   - id: isort
     exclude: ^tests/code_samples/
@@ -46,12 +46,12 @@ repos:
     id: pyupgrade
     language_version: python3.13
   repo: https://github.com/asottile/pyupgrade
-  rev: v3.21.2
+  rev: v3.22.0
 - hooks:
   - id: black
     exclude: ^tests/code_samples/
   repo: https://github.com/psf/black
-  rev: 26.5.1
+  rev: 26.10.1
 - hooks:
   - id: blacken-docs
     args: [-l80]
@@ -70,15 +70,15 @@ repos:
     stages:
     - commit-msg
   repo: https://github.com/commitizen-tools/commitizen
-  rev: v4.19.0
+  rev: v4.19.3
 
 - repo: https://github.com/abravalheri/validate-pyproject
-  rev: '0.26'
+  rev: 'v0.27'
   hooks:
   - id: validate-pyproject
 
 - repo: https://github.com/henryiii/validate-pyproject-schema-store
-  rev: 2026.09.19
+  rev: 2026.10.30
   hooks:
   - id: validate-pyproject
 
@@ -89,7 +89,7 @@ repos:
   - id: actionlint
 
 - repo: https://github.com/crate-ci/typos
-  rev: v1.50.2
+  rev: v1.52.0
   hooks:
   - id: typos
     exclude: ^COPIER_TEMPLATE_CHANGES\.md$
